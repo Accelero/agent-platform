@@ -12,7 +12,7 @@ coverage.xml
 *.pem
 *.key
 kubeconfig*
-credentials.*
+/credentials.*
 *.tgz
 node_modules/
 .DS_Store

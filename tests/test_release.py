@@ -122,3 +122,25 @@ def test_failed_build_diagnostics_are_explicit_and_bounded(tmp_path):
     assert path.stat().st_size == 2_097_152
     assert path.read_bytes().endswith(b"build failed\n")
     assert "build failed" not in str(error.value)
+
+
+def test_imported_runtime_sources_are_complete_and_not_ignored():
+    """Generic credential ignore patterns must not drop required source files."""
+    import subprocess
+
+    manifest = json.loads((release.ROOT / "provenance/import.json").read_text())
+    names = []
+    for original in manifest["imported_files"]:
+        name = original.replace("infra/tools/", "tools/platform/")
+        if name == "infra/kubernetes/native_files.py":
+            name = "runtimes/hermes/native_files.py"
+        assert (release.ROOT / name).is_file(), name
+        names.append(name)
+    result = subprocess.run(
+        ["git", "check-ignore", "--no-index", "--stdin", "-z"],
+        input=("\0".join(names) + "\0").encode(),
+        capture_output=True,
+        cwd=release.ROOT,
+        timeout=10,
+    )
+    assert result.returncode == 1, result.stdout.decode()
