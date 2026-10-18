@@ -32,6 +32,9 @@ chart. There is no configuration ZIP or custom release container package in this
 release architecture. Obsolete `execution-manager`, `worker` and `release`
 packages are retired.
 Earlier releases that reference those package names are no longer deployable.
+Superseded agent-runtime 0.2.0 through 0.4.0 and tools 0.4.0 images were also
+retired after the [0.4.1 release qualification](docs/releases/0.4.1.md).
+Use 0.4.1 or a newer qualified release.
 
 ## Configuration and installation
 
