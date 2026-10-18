@@ -6,7 +6,7 @@ USER root
 COPY --from=multica /app/multica /usr/local/bin/multica
 COPY --from=multica /app/LICENSE /app/NOTICE /usr/local/share/multica/
 COPY runtimes/hermes/multica-run /etc/s6-overlay/s6-rc.d/multica/run
-COPY runtimes/workers/multica-checkout-proxy.py /usr/local/lib/multica-checkout-proxy.py
+COPY runtimes/agent-runtime/multica-checkout-proxy.py /usr/local/lib/multica-checkout-proxy.py
 COPY runtimes/hermes/multica-checkout-run /etc/s6-overlay/s6-rc.d/multica-checkout/run
 COPY runtimes/hermes/managed-exec /usr/local/bin/managed-exec
 RUN mkdir -p /workspace \

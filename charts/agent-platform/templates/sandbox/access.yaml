@@ -34,7 +34,7 @@ automountServiceAccountToken: false
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: execution-manager
+  name: runtime-manager
   namespace: {{ .Values.sandbox.namespace }}
 rules:
   - apiGroups: ['']
@@ -44,7 +44,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: execution-manager
+  name: runtime-manager
   namespace: {{ .Values.sandbox.namespace }}
 subjects:
   - kind: ServiceAccount
@@ -53,7 +53,7 @@ subjects:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: execution-manager
+  name: runtime-manager
 ---
 apiVersion: v1
 kind: ResourceQuota

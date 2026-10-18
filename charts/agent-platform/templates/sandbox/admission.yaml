@@ -1,4 +1,5 @@
 {{- if .Values.sandbox.enabled }}
+{{- $roles := (include "agent-platform.runtime" . | fromJson).roles }}
 {{- $policy := printf "%s-%s-workers" .Values.sandbox.namespace .Values.sandbox.policyIdentity }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -20,7 +21,7 @@ spec:
         object.metadata.name.matches('^hermes-exec-[0-9a-f]{24}-[0-9a-f]{12}$') &&
         has(object.metadata.labels) &&
         'app.kubernetes.io/managed-by' in object.metadata.labels &&
-        object.metadata.labels['app.kubernetes.io/managed-by'] == 'hermes-execution-manager' &&
+        object.metadata.labels['app.kubernetes.io/managed-by'] == 'agent-platform-runtime-manager' &&
         'hermes-execution' in object.metadata.labels &&
         object.metadata.labels['hermes-execution'].matches('^[0-9a-f]{24}$') &&
         object.metadata.name.startsWith('hermes-exec-' + object.metadata.labels['hermes-execution'] + '-')
@@ -29,6 +30,16 @@ spec:
         object.spec.serviceAccountName == {{ toJson .Values.sandbox.workerServiceAccount }} &&
         has(object.spec.automountServiceAccountToken) && !object.spec.automountServiceAccountToken
       message: Workers must use the unprivileged sandbox service account without API tokens.
+    - expression: >-
+        has(object.spec.securityContext) &&
+        object.spec.securityContext.runAsNonRoot == true &&
+        object.spec.securityContext.runAsUser == {{ .Values.runtimeManager.uid }} &&
+        object.spec.securityContext.runAsGroup == {{ .Values.runtimeManager.gid }} &&
+        object.spec.containers.all(c,
+          !has(c.securityContext) ||
+          ((!has(c.securityContext.runAsUser) || c.securityContext.runAsUser == {{ .Values.runtimeManager.uid }}) &&
+           (!has(c.securityContext.runAsGroup) || c.securityContext.runAsGroup == {{ .Values.runtimeManager.gid }})))
+      message: Agent runtimes must use the configured non-root identity.
     - expression: >-
         size(object.spec.containers) == 1 &&
         (!has(object.spec.initContainers) || size(object.spec.initContainers) == 0) &&
@@ -49,19 +60,20 @@ spec:
           has(v.persistentVolumeClaim) || has(v.secret) || has(v.emptyDir))
       message: Only approved persistent claims, selected Secrets and temporary storage are permitted.
     - expression: >-
-        {{- range $index, $role := keys .Values.sandbox.roles | sortAlpha }}
+        {{- if not $roles }}false{{- end }}
+        {{- range $index, $role := keys $roles | sortAlpha }}
         {{- if $index }} || {{ end }}
         (variables.role == {{ toJson $role }} &&
-          object.spec.containers.all(c, c.image in {{ toJson (index $.Values.sandbox.roles $role).images }}) &&
+          object.spec.containers.all(c, c.image in {{ toJson (index $roles $role).images }}) &&
           object.spec.containers.all(c,
             (!has(c.env) || c.env.all(e,
-              e.name in {{ toJson (default dict (index $.Values.sandbox.roles $role).environment) }} &&
-              has(e.value) && e.value == {{ toJson (default dict (index $.Values.sandbox.roles $role).environment) }}[e.name] &&
+              e.name in {{ toJson (default dict (index $roles $role).environment) }} &&
+              has(e.value) && e.value == {{ toJson (default dict (index $roles $role).environment) }}[e.name] &&
               size(c.env.filter(other, other.name == e.name)) == 1)) &&
-            (has(c.env) ? size(c.env) : 0) == {{ len (default dict (index $.Values.sandbox.roles $role).environment) }}) &&
+            (has(c.env) ? size(c.env) : 0) == {{ len (default dict (index $roles $role).environment) }}) &&
           (!has(object.spec.volumes) || object.spec.volumes.all(v,
             has(v.emptyDir) ||
-            {{- range $mount := (index $.Values.sandbox.roles $role).mounts }}
+            {{- range $mount := (index $roles $role).mounts }}
             {{- if $mount.claim }}
             (has(v.persistentVolumeClaim) && v.persistentVolumeClaim.claimName == {{ toJson $mount.claim }}) ||
             {{- else if $mount.secret }}
@@ -75,7 +87,7 @@ spec:
             !has(m.subPathExpr) && (!has(m.mountPropagation) || m.mountPropagation == 'None') &&
             object.spec.volumes.exists(v, v.name == m.name &&
               (has(v.emptyDir) ||
-                {{- range $mount := (index $.Values.sandbox.roles $role).mounts }}
+                {{- range $mount := (index $roles $role).mounts }}
                 (
                   {{- if $mount.claim }}
                   has(v.persistentVolumeClaim) && v.persistentVolumeClaim.claimName == {{ toJson $mount.claim }} &&
@@ -138,7 +150,7 @@ spec:
         request.userInfo.username != {{ toJson (printf "system:serviceaccount:%s:%s" .Release.Namespace .Values.sandbox.managerServiceAccount) }} ||
         (has(oldObject.metadata.labels) &&
           'app.kubernetes.io/managed-by' in oldObject.metadata.labels &&
-          oldObject.metadata.labels['app.kubernetes.io/managed-by'] == 'hermes-execution-manager' &&
+          oldObject.metadata.labels['app.kubernetes.io/managed-by'] == 'agent-platform-runtime-manager' &&
           oldObject.metadata.name.matches('^hermes-exec-[0-9a-f]{24}-[0-9a-f]{12}$'))
       message: The execution manager may delete only managed worker Pods.
 ---

@@ -21,21 +21,9 @@ the SQL boundary is a test fixture. The final image replaces `/app/server` in
 the matching pinned runtime; migrations, entrypoint, CLI and notices remain.
 There is no runtime proxy or credential helper.
 
-```sh
-bin/build multica-backend
-bin/up
-```
+The independent release workflow builds and tests this target with the other
+runtime images, then pins its digest in the application chart. Native login files and agent configuration are separate state.
 
-Build/test stays local. The lifecycle records/imports a content-specific image
-reference and the platform chart selects it; no platform registry publication
-is required. Native login files and agent configuration are separate state.
-
-After deployment, an administrator can run
-`python3 tests/integration/check_multica_token_boundary.py`. It creates one closed,
-unassigned issue and an already completed queue row, then authenticates a
-short-lived native task token against the real backend. The probe checks issue
-access, credential-administration denial, forged actor headers, and continued
-owner/profile PAT access. It removes its issue/task/token in `finally` and emits
-only HTTP statuses and cleanup counts. It never dispatches a model or renews
-an existing credential. Real model acceptance separately verifies the injected
-MAT from a normal Multica task.
+The build runs the focused auth and maintenance Go tests without live service
+credentials. Application login, email delivery and model dispatch are separate
+deployment acceptance checks.

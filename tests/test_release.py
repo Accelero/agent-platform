@@ -1,8 +1,6 @@
 """Exercise public release metadata without Docker, network or deployment secrets."""
 
-import hashlib
 import json
-import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,14 +23,21 @@ def test_requires_real_registry_manifest_digests():
         release.image_references(metadata, release.REGISTRY)
 
 
-def test_contract_is_small_deterministic_and_has_only_consumer_inputs(tmp_path):
-    first = release.contract(tmp_path).read_bytes()
-    assert release.contract(tmp_path).read_bytes() == first
-    with zipfile.ZipFile(release.contract(tmp_path)) as bundle:
-        assert set(bundle.namelist()) == {"values.yaml", "configuration.py"}
-        assert len(first) < 100_000
-        assert yaml.safe_load(bundle.read("values.yaml"))["workloads"]
-        assert b"def load_policy" in bundle.read("configuration.py")
+def test_packaged_chart_has_pins_and_wiring_without_modifying_source(tmp_path):
+    images = {
+        name: release.REGISTRY + "/" + name + "@sha256:" + "a" * 64
+        for name in release.TARGETS
+    }
+    original = (release.ROOT / "charts/agent-platform/values.yaml").read_bytes()
+    chart = release.prepare_chart(tmp_path, images, "0.2.0", "b" * 40)
+    assert yaml.safe_load((chart / "values.yaml").read_text())["images"] == images
+    definition = yaml.safe_load((chart / "Chart.yaml").read_text())
+    assert definition["version"] == "0.2.0"
+    assert definition["annotations"]["org.opencontainers.image.revision"] == "b" * 40
+    assert (chart / "templates/_runtime.tpl").is_file()
+    assert (chart / "files/multica-gateway.nginx.conf").is_file()
+    assert not (tmp_path / "contract.zip").exists()
+    assert (release.ROOT / "charts/agent-platform/values.yaml").read_bytes() == original
 
 
 @pytest.mark.parametrize(
@@ -46,7 +51,7 @@ def test_invalid_version_never_runs_build_commands(version):
 
 
 @pytest.mark.parametrize("github_cache", [False, True])
-def test_metadata_latest_is_published_after_validation_and_chart(
+def test_chart_is_published_last_without_a_custom_release_package(
     tmp_path, monkeypatch, github_cache
 ):
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
@@ -76,21 +81,23 @@ def test_metadata_latest_is_published_after_validation_and_chart(
         patch.object(release, "render_chart"),
     ):
         receipt = release.build(
-            "0.1.0", "a" * 40, publish=True, github_cache=github_cache
+            "0.2.0", "a" * 40, publish=True, github_cache=github_cache
         )
     assert any("type=gha" in value for value in commands[0]) == github_cache
     assert not any("type=registry" in value for value in commands[0])
-    assert receipt["schema"] == 3
-    assert receipt["version"] == "0.1.0"
+    assert receipt["schema"] == 4
+    assert receipt["version"] == "0.2.0"
     assert receipt["source"]["repository"] == release.REPOSITORY
-    assert (
-        receipt["contract_sha256"]
-        == hashlib.sha256((tmp_path / "0.1.0/contract.zip").read_bytes()).hexdigest()
-    )
-    assert commands[-1][:3] == ["docker", "buildx", "build"]
-    assert release.REGISTRY + "/release:latest" in commands[-1]
-    assert "--provenance=false" in commands[-1]
-    assert any(command[:2] == ["helm", "push"] for command in commands[:-1])
+    assert "contract_sha256" not in receipt
+    assert not (tmp_path / "0.2.0/contract.zip").exists()
+    assert commands[-1][:2] == ["helm", "push"]
+    assert not any(command[:3] == ["docker", "buildx", "build"] for command in commands)
+    promotions = [
+        command
+        for command in commands
+        if command[:3] == ["docker", "buildx", "imagetools"]
+    ]
+    assert len(promotions) == 5
     assert all(
         not any("pulumi" in part.lower() for part in command) for command in commands
     )
@@ -142,6 +149,11 @@ def test_imported_runtime_sources_are_complete_and_not_ignored():
     names = []
     for original in manifest["imported_files"]:
         name = original.replace("infra/tools/", "tools/platform/")
+        name = name.replace(
+            "services/execution-manager/", "services/runtime-manager/"
+        ).replace("runtimes/workers/", "runtimes/agent-runtime/")
+        if name == "services/runtime-manager/configuration.py":
+            continue  # Replaced by the chart-owned native configuration generator.
         if name == "infra/kubernetes/native_files.py":
             name = "runtimes/hermes/native_files.py"
         assert (release.ROOT / name).is_file(), name

@@ -9,3 +9,29 @@ metadata:
     {{- include "agent-platform.labels" $ | nindent 4 }}
 data: {{ toYaml $data | nindent 2 }}
 {{- end }}
+{{- if (index .Values.workloads "runtime-manager").enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: runtime-manager-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- (include "agent-platform.runtime" . | fromJson).config | toYaml | nindent 4 }}
+{{- end }}
+{{- range $name := list "multica-gateway" "hermes-gateway" }}
+{{- if (index $.Values.workloads $name).enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-config
+  namespace: {{ $.Release.Namespace }}
+data:
+  nginx.conf: |
+    {{- $.Files.Get (printf "files/%s.nginx.conf" $name) | nindent 4 }}
+{{- end }}
+{{- end }}

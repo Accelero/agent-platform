@@ -24,6 +24,7 @@ spec:
       app.kubernetes.io/instance: {{ $.Release.Name }}
       app.kubernetes.io/name: {{ $name }}
   policyTypes: [Ingress]
+  {{- if $sources }}
   ingress:
     - from:
         {{- range $sources }}
@@ -37,6 +38,9 @@ spec:
         - protocol: TCP
           port: {{ .port }}
         {{- end }}
+  {{- else }}
+  ingress: []
+  {{- end }}
 ---
 {{- end }}
 {{- end }}
@@ -67,7 +71,7 @@ spec:
         {{- end }}
 {{- end }}
 {{- end }}
-{{- if .Values.networkPolicy.sandboxNamespace }}
+{{- if .Values.sandbox.namespace }}
 {{- range $name, $rule := .Values.networkPolicy.sandboxIngress }}
 {{- if (index $.Values.workloads $name).enabled }}
 ---
@@ -86,7 +90,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ $.Values.networkPolicy.sandboxNamespace }}
+              kubernetes.io/metadata.name: {{ $.Values.sandbox.namespace }}
           podSelector:
             matchExpressions:
               - key: hermes.stack/role
@@ -117,6 +121,33 @@ spec:
     - ports:
         {{- range $ports }}
         - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+{{- end }}
+{{- end }}
+{{- range $name, $namespaces := .Values.networkPolicy.namespaceIngress }}
+{{- if and $namespaces (index $.Values.workloads $name).enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-namespace-ingress
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/name: {{ $name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- range $namespace := $namespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $namespace }}
+        {{- end }}
+      ports:
+        {{- range (index $.Values.workloads $name).ports }}
+        - {protocol: TCP, port: {{ .port }}}
         {{- end }}
 {{- end }}
 {{- end }}

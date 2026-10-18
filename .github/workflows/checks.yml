@@ -32,8 +32,8 @@ jobs:
         run: |
           uv run python - <<'PY'
           from pathlib import Path
-          from agent_platform.release import TARGETS, registry_placeholder, render_chart
+          from agent_platform.release import ROOT, render_chart
           output = Path('.local/checks')
           output.mkdir(parents=True)
-          render_chart(output, {name: registry_placeholder(name) for name in TARGETS})
+          render_chart(output, ROOT / "charts/agent-platform")
           PY

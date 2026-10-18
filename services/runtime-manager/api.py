@@ -207,10 +207,10 @@ if __name__ == '__main__':
     import yaml
     from backends import KubernetesBackend
     logging.basicConfig(level=logging.INFO)
-    config = yaml.safe_load(Path(os.environ.get('MANAGER_CONFIG', '/etc/execution-manager/config.yaml')).read_text())
+    config = yaml.safe_load(Path(os.environ.get('MANAGER_CONFIG', '/etc/runtime-manager/config.yaml')).read_text())
     if config.get('backend') != 'kubernetes':
         raise ValueError('Only the Kubernetes backend is supported')
     credentials = {name: Path(client['token_file']).read_text().strip() for name, client in config['clients'].items()}
     serve(config, KubernetesBackend(config['kubernetes']), os.environ.get('MANAGER_DATABASE', '/state/manager.sqlite3'),
-          credentials, certfile=os.environ.get('MANAGER_TLS_CERT_FILE', '/etc/execution-manager/tls/tls.crt'),
-          keyfile=os.environ.get('MANAGER_TLS_KEY_FILE', '/etc/execution-manager/tls/tls.key'))
+          credentials, certfile=os.environ.get('MANAGER_TLS_CERT_FILE', '/etc/runtime-manager/tls/tls.crt'),
+          keyfile=os.environ.get('MANAGER_TLS_KEY_FILE', '/etc/runtime-manager/tls/tls.key'))

@@ -39,6 +39,10 @@ jobs:
         with:
           version: '0.13.0'
           python-version: '3.14'
+      - name: Set up Helm for application render tests
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: 'v3.22.1'
       - name: Check cache and release code
         run: |
           uv sync --locked

@@ -1,4 +1,5 @@
 {{- if .Values.sandbox.enabled }}
+{{- $roles := (include "agent-platform.runtime" . | fromJson).roles }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -38,7 +39,7 @@ spec:
         - {protocol: TCP, port: {{ . }}}
         {{- end }}
     {{- end }}
-{{- range $role := keys .Values.sandbox.roles | sortAlpha }}
+{{- range $role := keys $roles | sortAlpha }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

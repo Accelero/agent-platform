@@ -26,6 +26,10 @@ jobs:
         with:
           version: '0.13.0'
           python-version: '3.14'
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: 'v3.22.1'
       - name: Validate sources and release version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -64,10 +68,6 @@ jobs:
               core.setSecret(value);
               core.exportVariable(name, value);
             }
-      - name: Set up Helm
-        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
-        with:
-          version: 'v3.22.1'
       - name: Authenticate image publishing
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -92,13 +92,12 @@ jobs:
             .local/releases/*/images-metadata.json
           if-no-files-found: ignore
           retention-days: 7
-      - name: Upload release receipt and compatibility bundle
+      - name: Upload chart package and informational receipt
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: agent-release
           path: |
             .local/releases/*/artifacts.json
-            .local/releases/*/contract.zip
             .local/releases/*/*.tgz
           if-no-files-found: error
           retention-days: 90
@@ -109,7 +108,6 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME" --verify-tag \
             --title "Agent platform $VERSION" \
-            --notes "Versioned agent images, OCI Helm chart and matching deployment contract. See artifacts.json for manifest digests." \
+            --notes "Self-contained application chart with pinned runtime images. The same chart package is attached here and published to GHCR. artifacts.json is informational." \
             ".local/releases/$VERSION/artifacts.json" \
-            ".local/releases/$VERSION/contract.zip" \
             ".local/releases/$VERSION/agent-platform-$VERSION.tgz"

@@ -1,36 +1,66 @@
 # Agent platform
 
-Generic Hermes and Multica runtimes, worker isolation and a Helm chart, built on
-GitHub-hosted runners and published to GHCR independently of deployment tooling.
-The initial release is **0.1.0**. This source repository is private; deployment
-artifacts are intended for anonymous public pulls.
+A Kubernetes application containing the Multica board, Hermes personal assistant,
+HTTPS runtime manager and isolated agent runtimes. One versioned Helm chart owns
+service wiring, gateway configuration and runtime isolation. Images and charts
+are built on GitHub-hosted runners independently of deployment tooling.
+
+The application chart is the deployment artifact. Release **0.2.0** introduces
+this interface. The source repository remains private; GHCR deployment packages
+are intended for anonymous public pulls.
 
 ## Artifacts
 
 | Artifact | Versioned reference |
 | --- | --- |
-| Hermes controller | `ghcr.io/accelero/agent-platform/hermes:0.1.0` |
-| Execution manager | `ghcr.io/accelero/agent-platform/execution-manager:0.1.0` |
-| Worker | `ghcr.io/accelero/agent-platform/worker:0.1.0` |
-| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.1.0` |
-| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/state:0.1.0` |
-| OCI Helm chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.1.0` |
-| Matching release metadata | `ghcr.io/accelero/agent-platform/release:0.1.0` |
+| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.2.0` |
+| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.2.0` |
+| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.2.0` |
+| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.2.0` |
+| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/state:0.2.0` |
+| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.2.0` |
 
-Images also receive `latest`. `release:latest` selects the matching image/chart
-manifest digests and is advanced last. Deployment consumers resolve that pointer
-once per run, then use its exact references so updates roll out coherently.
-Versioned releases remain available for rollback.
+The packaged chart pins all five images by manifest digest in `values.yaml`.
+The upstream Multica frontend also uses its reviewed digest. Containers remain
+registry downloads; their filesystem layers are not embedded in the chart.
+Image `latest` tags are convenient for inspection. Deployments select one chart
+version or digest and use that chart's image defaults for a coherent application.
 
-A GitHub Release contains `artifacts.json`, `contract.zip` and the packaged chart.
-The small contract ZIP carries chart defaults and the matching execution-policy
-adapter. Consumers can validate policy and prepare values without this checkout.
-The `state` image supplies binaries/libraries only; each deployment mounts its
-reviewed backup/seed/restore scripts and configuration read-only at runtime.
+The GitHub Release attaches the same `agent-platform-0.2.0.tgz` that is published
+to GHCR, plus an optional informational `artifacts.json`. Consumers need only the
+chart. There is no configuration ZIP or custom release container package in this
+release architecture. Existing 0.1.0 artifacts remain unchanged for history and
+consumers using the old interface.
+
+## Configuration and installation
+
+Helm combines application defaults with administrator values. Its templates
+produce Deployments, Services, gateway ConfigMaps, native runtime-manager YAML,
+and matching Kubernetes admission/RBAC/network rules. The manager subsequently
+creates short-lived agent-runtime Pods when an agent needs command execution.
+
+```bash
+helm install agents oci://ghcr.io/accelero/agent-platform/charts/agent-platform \
+  --version 0.2.0 --namespace agents --values values.yaml
+```
+
+See the [chart interface and configuration example](charts/agent-platform/README.md).
+The [lightweight example](examples/lightweight/values.yaml) enables the six core
+Deployments. Provision its database, retained PVCs, named Secrets and initialized
+native Hermes state before installation. Controllers are disabled in defaults
+until those inputs are ready. Optional browser, memory and additional agent
+services remain disabled unless deliberately configured with supported images.
+
+An infrastructure tool such as Pulumi provisions that environment, supplies
+values and deploys the chart. It does not generate the manager's native policy,
+import Python from an artifact, or build/push images. Provider logins, SMTP keys,
+personal seed files, backup orchestration and live state stay outside this repo.
+The `state` image contains generic tools; deployments project their own reviewed
+backup/seed/restore scripts into administrator Jobs.
 
 ## Development
 
-Install Python 3.14, uv, Docker Buildx and Helm 3, then:
+Use Python 3.14, uv, Docker Buildx and Helm 3:
 
 ```bash
 uv sync --locked
@@ -43,55 +73,48 @@ helm lint charts/agent-platform
 For an explicit local build without publishing:
 
 ```bash
-uv run python -m agent_platform.release --version 0.1.0 --revision "$(git rev-parse HEAD)"
+uv run python -m agent_platform.release --version 0.2.0 --revision "$(git rev-parse HEAD)"
 ```
 
-Build outputs go under ignored `.local/releases/`. Personal seeds, provider login,
-SMTP settings, S3 keys and live state belong in the consuming infrastructure repo.
-See [AGENTS.md](AGENTS.md) for layout and maintenance rules, and the
-[chart documentation](charts/agent-platform/README.md) for its generic interface.
-The [lightweight example](examples/lightweight/values.yaml) is a render fixture,
-not a complete installation: its external database, claims and Secrets must exist.
+Outputs are under ignored `.local/releases/`. Source defaults retain local `dev`
+image tags; packaging injects release pins into a staging copy, preserving source.
+See [AGENTS.md](AGENTS.md) for repository guidance.
 
 ## Release process
 
-1. Review the sources and passing checks. Bump the chart/project version for a new release.
-   Let the main-branch cache workflow finish before tagging to reuse its build layers.
-2. Push an explicit tag such as `v0.1.0`.
-3. The release workflow validates the tag against source versions and builds on
-   `ubuntu-latest` with no deployment credentials. It publishes all five images,
-   the versioned OCI chart and their matching release bundle, then creates the
-   GitHub Release with permanent assets.
-4. GitHub initially creates GHCR packages as private. The package administrator
-   must set the six runtime/metadata packages and chart package to public once in
-   package settings. Anonymous registry checks
-   must pass before deploying without pull credentials.
+1. Review passing checks and bump chart/project versions together. Let the trusted
+   main cache workflow finish before tagging to reuse its build layers.
+2. Push an explicit immutable tag such as `v0.2.0`.
+3. GitHub Actions builds/tests and publishes five versioned images, renders/tests
+   the chart with their exact digests, and packages it. Image convenience tags are
+   updated before the OCI chart is published. The chart is published last so a new
+   stable chart always references images that already exist.
+4. The workflow creates a GitHub Release with that exact chart archive and the
+   informational receipt. It needs no cloud or deployment credentials.
+5. GitHub creates new GHCR package names as private. An administrator makes each
+   new runtime/chart package public once in package settings. Later versions keep
+   that visibility. Anonymous checks must pass before deployment without secrets.
 
-The workflow's repository-scoped `GITHUB_TOKEN` handles publishing. No registry
-push token belongs in a deployment cluster. Existing release tags are immutable
-by policy; use a new semantic version for changes rather than overwriting a release.
+The repository-scoped `GITHUB_TOKEN` publishes artifacts. Source repository and
+package visibility are separate; a private source repository's GitHub Release
+assets require repository access, so anonymous deployment uses the public GHCR
+chart. Never overwrite an existing version or recreate registry cache packages.
 
 ## Build cache
 
-BuildKit uses GitHub Actions cache API v2 with one scope per image. A trusted
-`main` push builds the five targets with `type=cacheonly`, making the cache
-available to later release tags. This workflow publishes no runtime images or
-release artifacts. It also supports a manual run on `main` from the Actions tab.
+BuildKit uses GitHub Actions cache API v2 with one scope per image. Trusted `main`
+pushes build all five targets with `type=cacheonly`. The separate tag release job
+restores these caches with `--github-cache`. Local builds use local BuildKit cache.
+Runtime cache credentials stay in masked runner environment variables. Cache
+warming publishes no images or charts. The default 10 GB storage limit is retained.
 
-Release builds select `--github-cache`; local builds use the local builder cache.
-Both CI workflows export the short-lived cache runtime through masked environment
-variables. Cache credentials are never passed as command arguments or build inputs.
-No `*-cache` images are published to GHCR.
+## Provenance and upgrades
 
-The repository keeps GitHub's default 10 GB cache limit. GitHub evicts old entries
-when needed and expires caches that have not been accessed for seven days. Cache
-misses cause rebuilds; they do not change the published version's contract.
-
-## Provenance
-
-The initial runtime sources were imported from the reviewed prototype revision
-recorded in [provenance/import.json](provenance/import.json), including the native
-Multica authorization patch, maintenance fence and serialized worker handoff.
-Only the upstream Multica server and license notices are retained. Source files
-are ordinary reviewed files here, with no neighboring checkout or source archive
-required for builds. Third-party components retain their original licenses.
+Imported prototype revisions and original hashes remain in
+[provenance/import.json](provenance/import.json). Version 0.2.0 renames the imported
+`services/execution-manager` to `services/runtime-manager` and `runtimes/workers`
+to `runtimes/agent-runtime`. The old policy adapter is replaced by chart templates.
+The Unix account and native paths under `/home/worker` stay stable for persisted
+workspaces. An optional old service alias/credential mounts support existing
+Hermes settings during upgrade. The Multica credential boundary, maintenance fence,
+non-root execution and serialized runtime handoff remain enforced.

@@ -1,412 +1,51 @@
+multica:
+  publicUrl: https://multica.example.org
+  ownerEmail: owner@example.org
+  databaseUrl: postgres://multica:$(MULTICA_POSTGRES_PASSWORD)@agents-postgres-rw:5432/multica?sslmode=verify-full&sslrootcert=/etc/postgres/ca.crt
+  databaseCASecret: agents-postgres-ca
+  mailKeys:
+  - SMTP_HOST
+  - SMTP_FROM_EMAIL
+hermes:
+  providerKeys:
+  - EXAMPLE_API_KEY
 workloads:
-  shared-postgres:
-    enabled: false
-  redis:
-    enabled: false
-  rabbitmq:
-    enabled: false
-  multica-backend:
-    enabled: true
-    image: ghcr.io/fixture/agents/multica-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    env:
-    - name: DATABASE_URL
-      value: postgres://multica:$(MULTICA_POSTGRES_PASSWORD)@agents-postgres-rw:5432/multica?sslmode=verify-full&sslrootcert=/etc/postgres/ca.crt
-    - name: PORT
-      value: '8080'
-    - name: APP_ENV
-      value: production
-    - name: FRONTEND_ORIGIN
-      value: https://multica.fixture.ts.net
-    - name: CORS_ALLOWED_ORIGINS
-      value: https://multica.fixture.ts.net
-    - name: MULTICA_APP_URL
-      value: https://multica.fixture.ts.net
-    - name: ALLOW_SIGNUP
-      value: 'false'
-    - name: ALLOWED_EMAILS
-      value: owner@example.org
-    - name: DO_NOT_TRACK
-      value: '1'
-    - name: MULTICA_MAINTENANCE_FILE
-      value: /app/data/uploads/.altiera-maintenance
-    secretEnv:
-    - name: MULTICA_POSTGRES_PASSWORD
-      key: MULTICA_POSTGRES_PASSWORD
-    - name: JWT_SECRET
-      key: MULTICA_JWT_SECRET
-    - name: SMTP_HOST
-      key: SMTP_HOST
-      secretName: multica-mail
-    - name: SMTP_FROM_EMAIL
-      key: SMTP_FROM_EMAIL
-      secretName: multica-mail
-    volumes:
-    - name: postgres-ca
-      mountPath: /etc/postgres
-      source:
-        secret:
-          secretName: agents-postgres-ca
-  multica-web:
-    enabled: true
-  camofox:
-    enabled: false
-  searxng:
-    enabled: false
-  firecrawl:
-    enabled: false
-  playwright:
-    enabled: false
-  hindsight:
-    enabled: false
   hermes:
     enabled: true
-    image: ghcr.io/fixture/agents/hermes@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    env:
-    - name: HERMES_UID
-      value: '1000'
-    - name: HERMES_GID
-      value: '1000'
-    - name: HERMES_MANAGED_DIR
-      value: /etc/hermes
-    - name: HERMES_WRITE_SAFE_ROOT
-      value: ''
-    - name: MULTICA_SERVER_URL
-      value: http://multica-backend:8080
-    - name: MULTICA_DAEMON_AUTO_UPDATE
-      value: 'false'
-    - name: MULTICA_WORKSPACES_ROOT
-      value: /opt/data/.multica/workspaces
-    - name: HERMES_DASHBOARD
-      value: '1'
-    - name: API_SERVER_HOST
-      value: 0.0.0.0
-    - name: EXECUTION_MANAGER_URL
-      value: https://execution-manager:8090
-    - name: MULTICA_DAEMON_MAX_CONCURRENT_TASKS
-      value: '1'
-    - name: MULTICA_APP_URL
-      value: https://multica.fixture.ts.net
-    - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
-      value: admin
-    - name: API_SERVER_ENABLED
-      value: 'true'
-    secretEnv:
-    - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
-      key: DASHBOARD_PASSWORD
-    - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
-      key: DASHBOARD_SECRET
-    - name: API_SERVER_KEY
-      key: API_SERVER_KEY
-    - name: EXAMPLE_API_KEY
-      key: EXAMPLE_API_KEY
-      secretName: hermes-provider-credentials
-    persistence:
-    - name: hermes-home
-      mountPath: /opt/data
-    - name: hermes-tasks
-      mountPath: /opt/data/.multica/workspaces
-    - name: hermes-workspaces
-      mountPath: /opt/data/workspaces
-    - name: identity-personal-assistant
-      mountPath: /opt/data/profiles/personal-assistant/identity
-    - name: skills-personal-assistant
-      mountPath: /opt/platform/skills
-      readOnly: true
-    - name: personal-native-skills
-      mountPath: /opt/data/profiles/personal-assistant/skills
-    resources:
-      requests:
-        cpu: 100m
-        memory: 512Mi
-      limits:
-        memory: 2Gi
-  codex-launcher:
-    enabled: false
-  execution-manager:
+  runtime-manager:
     enabled: true
-    image: ghcr.io/fixture/agents/execution-manager@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    persistence:
-    - name: manager-state
-      mountPath: /state
-    - name: hermes-tasks
-      mountPath: /opt/hermes-workspaces
-      readOnly: true
-    - name: hermes-workspaces
-      mountPath: /opt/hermes-profile-workspaces
-      readOnly: true
-    volumes:
-    - name: manager-token
-      mountPath: /run/execution-manager-auth
-      source:
-        secret:
-          secretName: execution-manager-auth
-          defaultMode: 288
-          items:
-          - key: hermes-token
-            path: hermes-token
-    - name: manager-tls
-      mountPath: /etc/execution-manager/tls
-      source:
-        secret:
-          secretName: execution-manager-tls
-          defaultMode: 288
-    - name: manager-tmp
-      mountPath: /tmp
-      readOnly: false
-      source:
-        emptyDir:
-          sizeLimit: 32Mi
-    - name: manager-config
-      mountPath: /etc/execution-manager/config.yaml
-      subPath: config.yaml
-      source:
-        configMap:
-          name: execution-manager-config
+  multica-backend:
+    enabled: true
+  multica-web:
+    enabled: true
+  multica-gateway:
+    enabled: true
+  hermes-gateway:
+    enabled: true
 persistence:
-  hermes-workspaces:
-    enabled: false
-    existingClaim: hermes-workspaces
-    size: 5Gi
-    accessModes:
-    - ReadWriteOnce
-  codex-home:
-    enabled: false
-    existingClaim: codex-home
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  hermes-tasks:
-    enabled: false
-    existingClaim: hermes-tasks
-    size: 5Gi
-    accessModes:
-    - ReadWriteOnce
-  skills-personal-assistant:
-    enabled: false
-    existingClaim: skills-personal-assistant
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  postgres-data:
-    enabled: false
-    existingClaim: postgres-data
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  multica-uploads:
-    enabled: false
-    existingClaim: multica-uploads
-    size: 5Gi
-    accessModes:
-    - ReadWriteOnce
   hermes-home:
     enabled: false
     existingClaim: hermes-home
-    size: 10Gi
-    accessModes:
-    - ReadWriteOnce
-  manager-state:
+  hermes-tasks:
     enabled: false
-    existingClaim: manager-state
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
+    existingClaim: hermes-tasks
+  hermes-workspaces:
+    enabled: false
+    existingClaim: hermes-workspaces
   identity-personal-assistant:
     enabled: false
     existingClaim: identity-personal-assistant
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  redis-data:
-    enabled: false
-    existingClaim: redis-data
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  rabbitmq-data:
-    enabled: false
-    existingClaim: rabbitmq-data
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  hindsight-login:
-    enabled: false
-    existingClaim: hindsight-login
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  hindsight-cache:
-    enabled: false
-    existingClaim: hindsight-cache
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  codex-native:
-    enabled: false
-    existingClaim: codex-native
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  searxng-cache:
-    enabled: false
-    existingClaim: searxng-cache
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  codex-auth:
-    enabled: false
-    existingClaim: codex-auth
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  personal-native-skills:
+  skills-personal-assistant:
     enabled: false
     existingClaim: skills-personal-assistant
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-existingSecret: agent-platform-secrets
-imagePullSecrets: []
-configMaps:
-  execution-manager-config:
-    config.yaml: "backend: kubernetes\nclients:\n  hermes:\n    deployment: hermes-stack\n\
-      \    token_file: /run/execution-manager-auth/hermes-token\ndeployments:\n  hermes-stack:\n\
-      \    profiles:\n      personal-assistant:\n        templates:\n        - personal-assistant\n\
-      kubernetes:\n  namespace: agent-execution\nlease_ttl_seconds: 120\nmaintenance_interval_seconds:\
-      \ 10\ntemplates:\n  personal-assistant:\n    exclusive: true\n    image: ghcr.io/fixture/agents/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n\
-      \    kubernetes:\n      environment:\n        MULTICA_CHECKOUT_BIND: 127.0.0.1\n\
-      \        MULTICA_CHECKOUT_PORT: '19514'\n        MULTICA_CHECKOUT_UPSTREAM:\
-      \ http://hermes:19515\n      gid: 1000\n      resources:\n        limits:\n\
-      \          cpu: '1'\n          memory: 1Gi\n        requests:\n          cpu:\
-      \ 100m\n          memory: 128Mi\n      role: personal-assistant\n      uid:\
-      \ 1000\n      volume_mounts:\n      - mountPath: /etc/ssh/authorized_keys/worker\n\
-      \        name: ssh-public\n        readOnly: true\n        subPath: worker\n\
-      \      - mountPath: /opt/data/profiles/personal-assistant\n        name: identity-personal-assistant\n\
-      \        readOnly: false\n      - mountPath: /home/worker/.multica\n       \
-      \ name: profile-login\n        readOnly: true\n      - mountPath: /opt/platform/skills\n\
-      \        name: skills-personal-assistant\n        readOnly: true\n      volumes:\n\
-      \      - name: ssh-public\n        secret:\n          defaultMode: 292\n   \
-      \       items:\n          - key: hermes\n            path: worker\n        \
-      \  secretName: execution-ssh-public\n      - name: identity-personal-assistant\n\
-      \        persistentVolumeClaim:\n          claimName: identity-personal-assistant\n\
-      \      - name: profile-login\n        secret:\n          defaultMode: 292\n\
-      \          items:\n          - key: config.json\n            path: config.json\n\
-      \          secretName: profile-personal-assistant\n      - name: skills-personal-assistant\n\
-      \        persistentVolumeClaim:\n          claimName: skills-personal-assistant\n\
-      \    on_demand_idle_seconds: 60\n    profile_workspace:\n      controller_root:\
-      \ /opt/data/workspaces/personal-assistant\n      kubernetes_claim: hermes-workspaces\n\
-      \      kubernetes_subpath: personal-assistant\n      mount_path: /workspace\n\
-      \      validation_root: /opt/hermes-profile-workspaces\n    recycle:\n     \
-      \ at: 03:00\n      inactive_after_seconds: 86400\n      timezone: Europe/Berlin\n\
-      \    serialize_profile: true\n    session_idle_seconds: 60\n    workdir_scope:\n\
-      \      controller_root: /opt/data/.multica/workspaces\n      identity_kubernetes_claim:\
-      \ identity-personal-assistant\n      kubernetes_claim: hermes-tasks\n      read_only:\
-      \ false\n      validation_root: /opt/hermes-workspaces\n"
+  multica-uploads:
+    enabled: false
+    existingClaim: multica-uploads
+  manager-state:
+    enabled: false
+    existingClaim: manager-state
 sandbox:
-  enabled: true
-  policyIdentity: agent-sandbox
-  namespace: agent-execution
   createNamespace: false
-  managerServiceAccount: execution-manager
-  workerServiceAccount: sandbox-worker
-  imagePullSecrets: []
-  podSecurityVersion: v1.30
-  quota:
-    pods: '1'
-    requests.cpu: '1'
-    requests.memory: 1Gi
-    limits.cpu: '2'
-    limits.memory: 2Gi
-  roles:
-    developer: null
-    codex: null
-    platform-operator: null
-    personal-assistant:
-      images:
-      - ghcr.io/fixture/agents/worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      mounts:
-      - mountPathPattern: ^/etc/ssh/authorized_keys/worker$
-        readOnly: true
-        secret: execution-ssh-public
-        keys:
-        - hermes
-        subPath: worker
-      - mountPathPattern: ^/opt/data/profiles/personal\-assistant$
-        readOnly: false
-        claim: identity-personal-assistant
-      - mountPathPattern: ^/home/worker/\.multica$
-        readOnly: true
-        secret: profile-personal-assistant
-        keys:
-        - config.json
-      - mountPathPattern: ^/opt/platform/skills$
-        readOnly: true
-        claim: skills-personal-assistant
-      - claim: hermes-tasks
-        subPathPattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,255}/[A-Za-z0-9][A-Za-z0-9_.-]{0,255}/workdir$
-        mountPathPattern: ^/opt/data/\.multica/workspaces/[A-Za-z0-9][A-Za-z0-9_.-]{0,255}/[A-Za-z0-9][A-Za-z0-9_.-]{0,255}/workdir$
-        readOnly: false
-      - claim: identity-personal-assistant
-        mountPathPattern: ^/opt/data/\.multica/workspaces/[A-Za-z0-9][A-Za-z0-9_.-]{0,255}/[A-Za-z0-9][A-Za-z0-9_.-]{0,255}/hermes-home$
-        readOnly: false
-      - claim: hermes-workspaces
-        subPathPattern: ^personal\-assistant$
-        mountPathPattern: ^/workspace$
-        readOnly: false
-      - claim: hermes-workspaces
-        subPathPattern: ^personal\-assistant/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]{0,255}(?:/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]{0,255})*$
-        mountPathPattern: ^/workspace/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]{0,255}(?:/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]{0,255})*$
-        readOnly: false
-      - claim: hermes-workspaces
-        subPathPattern: ^personal\-assistant$
-        mountPathPattern: ^/opt/data/workspaces/personal\-assistant$
-        readOnly: false
-      - claim: hermes-workspaces
-        subPathPattern: ^personal\-assistant/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]{0,255}(?:/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]{0,255})*$
-        mountPathPattern: ^/opt/data/workspaces/personal\-assistant/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]{0,255}(?:/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]{0,255})*$
-        readOnly: false
-      environment:
-        MULTICA_CHECKOUT_UPSTREAM: http://hermes:19515
-        MULTICA_CHECKOUT_BIND: 127.0.0.1
-        MULTICA_CHECKOUT_PORT: '19514'
-    manager: null
-  network:
-    publicInternet: true
-    excludedCIDRs:
-    - 10.0.0.0/8
-    - 172.16.0.0/12
-    - 192.168.0.0/16
-    - 127.0.0.0/8
-    - 169.254.0.0/16
-    - 100.64.0.0/10
-    - 224.0.0.0/4
-    - 240.0.0.0/4
-    services:
-    - name: multica-backend
-      ports:
-      - 8080
-    - name: hermes
-      ports:
-      - 19515
-    operatorAppEndpoints: []
-networkPolicy:
-  enabled: true
-  sandboxNamespace: agent-execution
-  sandboxIngress:
-    multica-backend:
-      roles:
-      - personal-assistant
-      ports:
-      - 8080
-    hermes:
-      roles:
-      - personal-assistant
-      ports:
-      - 19515
-  ingress:
-    multica-backend:
-    - multica-web
-    - hermes
-    execution-manager:
-    - hermes
-  externalIngress: {}
+runtimeManager:
+  authSecret: runtime-manager-auth
+  tlsSecret: runtime-manager-tls

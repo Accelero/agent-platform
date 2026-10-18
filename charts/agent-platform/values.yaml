@@ -1,10 +1,7 @@
-# Controllers are enabled by the administrator after empty native claims,
-# logins and restricted sandbox policies are initialized.
+# Application defaults. Enable services after provisioning native state and named Secrets.
 existingSecret: agent-platform-secrets
 imagePullPolicy: IfNotPresent
 imagePullSecrets: []
-# Multica's native GitHub App. Credential values live only in the named Secret;
-# agent GitHub CLI credentials remain separate.
 multicaGithub:
   enabled: false
   appId: ''
@@ -18,43 +15,43 @@ multicaGithub:
     controllerNamespace: ''
 persistence:
   postgres-data:
-    enabled: true
+    enabled: false
     existingClaim: ''
     size: 10Gi
     accessModes:
     - ReadWriteOnce
   redis-data:
-    enabled: true
+    enabled: false
     existingClaim: ''
     size: 10Gi
     accessModes:
     - ReadWriteOnce
   rabbitmq-data:
-    enabled: true
+    enabled: false
     existingClaim: ''
     size: 10Gi
     accessModes:
     - ReadWriteOnce
   multica-uploads:
-    enabled: true
+    enabled: false
     existingClaim: ''
     size: 10Gi
     accessModes:
     - ReadWriteOnce
   searxng-cache:
-    enabled: true
+    enabled: false
     existingClaim: ''
     size: 2Gi
     accessModes:
     - ReadWriteOnce
   hindsight-login:
-    enabled: true
+    enabled: false
     existingClaim: ''
     size: 10Gi
     accessModes:
     - ReadWriteOnce
   hindsight-cache:
-    enabled: true
+    enabled: false
     existingClaim: ''
     size: 2Gi
     accessModes:
@@ -89,6 +86,36 @@ persistence:
     size: 10Gi
     accessModes:
     - ReadWriteOnce
+  hermes-tasks:
+    enabled: false
+    existingClaim: hermes-tasks
+    size: 5Gi
+    accessModes:
+    - ReadWriteOnce
+  hermes-workspaces:
+    enabled: false
+    existingClaim: hermes-workspaces
+    size: 5Gi
+    accessModes:
+    - ReadWriteOnce
+  identity-personal-assistant:
+    enabled: false
+    existingClaim: identity-personal-assistant
+    size: 1Gi
+    accessModes:
+    - ReadWriteOnce
+  skills-personal-assistant:
+    enabled: false
+    existingClaim: skills-personal-assistant
+    size: 1Gi
+    accessModes:
+    - ReadWriteOnce
+  personal-native-skills:
+    enabled: false
+    existingClaim: skills-personal-assistant
+    size: 1Gi
+    accessModes:
+    - ReadWriteOnce
 configMaps:
   searxng-settings:
     settings.yml: "use_default_settings: true\nserver:\n  # Supplied privately through\
@@ -96,7 +123,7 @@ configMaps:
       \ [html, json]\n"
 workloads:
   shared-postgres:
-    enabled: true
+    enabled: false
     kind: StatefulSet
     image: hermes-stack-postgres:dev
     env:
@@ -147,7 +174,7 @@ workloads:
     - name: postgres-data
       mountPath: /var/lib/postgresql/data
   redis:
-    enabled: true
+    enabled: false
     kind: StatefulSet
     image: redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     env: []
@@ -167,7 +194,14 @@ workloads:
     - 'yes'
     readinessProbe:
       exec:
-        command: [redis-cli, '-e', SET, 'hermes:platform:readiness', ok, EX, '30']
+        command:
+        - redis-cli
+        - -e
+        - SET
+        - hermes:platform:readiness
+        - ok
+        - EX
+        - '30'
       periodSeconds: 5
     startupProbe:
       tcpSocket:
@@ -178,7 +212,7 @@ workloads:
     - name: redis-data
       mountPath: /data
   rabbitmq:
-    enabled: true
+    enabled: false
     kind: StatefulSet
     image: rabbitmq@sha256:e582c0bc7766f3342496d8485efb5a1df782b5ce3886ad017e2eaae442311f69
     env:
@@ -215,8 +249,8 @@ workloads:
     - name: rabbitmq-data
       mountPath: /var/lib/rabbitmq
   multica-backend:
-    enabled: true
-    image: hermes-stack-multica-backend:dev
+    enabled: false
+    image: ''
     env:
     - name: DATABASE_URL
       value: postgres://multica:$(MULTICA_POSTGRES_PASSWORD)@shared-postgres:5432/multica?sslmode=disable
@@ -268,8 +302,9 @@ workloads:
     persistence:
     - name: multica-uploads
       mountPath: /app/data/uploads
+    imageKey: multica-backend
   multica-web:
-    enabled: true
+    enabled: false
     image: ghcr.io/multica-ai/multica-web@sha256:b88402be269b6d4ea20bb22404b7532e4d7663f45c1c4952cf040f598398a03e
     env:
     - name: HOSTNAME
@@ -296,7 +331,7 @@ workloads:
       periodSeconds: 5
       failureThreshold: 60
   camofox:
-    enabled: true
+    enabled: false
     image: hermes-stack-camofox:dev
     env:
     - name: CAMOFOX_CRASH_REPORT_ENABLED
@@ -326,7 +361,7 @@ workloads:
       periodSeconds: 5
       failureThreshold: 60
   searxng:
-    enabled: true
+    enabled: false
     image: searxng/searxng@sha256:a07a5cd2da2c63d66e559f9e4d3a3db106cfc6c32fb0ac70abe91cc28bcd7350
     env:
     - name: FORCE_OWNERSHIP
@@ -363,7 +398,7 @@ workloads:
         configMap:
           name: searxng-settings
   firecrawl:
-    enabled: true
+    enabled: false
     image: hermes-stack-firecrawl:dev
     env:
     - name: HOST
@@ -434,7 +469,7 @@ workloads:
       periodSeconds: 5
       failureThreshold: 60
   playwright:
-    enabled: true
+    enabled: false
     image: hermes-stack-playwright:dev
     env:
     - name: PORT
@@ -468,7 +503,7 @@ workloads:
       periodSeconds: 5
       failureThreshold: 60
   hindsight:
-    enabled: true
+    enabled: false
     image: hermes-stack-hindsight:dev
     env:
     - name: HINDSIGHT_API_LLM_PROVIDER
@@ -517,7 +552,7 @@ workloads:
       mountPath: /home/hindsight/.cache
   hermes:
     enabled: false
-    image: hermes-stack-hermes:dev
+    image: ''
     env:
     - name: HERMES_UID
       value: '1000'
@@ -546,13 +581,13 @@ workloads:
     - name: HERMES_DASHBOARD
       value: '1'
     - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
-      value: ds
+      value: admin
     - name: API_SERVER_ENABLED
       value: 'true'
     - name: API_SERVER_HOST
       value: 0.0.0.0
     - name: EXECUTION_MANAGER_URL
-      value: https://execution-manager:8090
+      value: https://runtime-manager:8090
     secretEnv:
     - name: CAMOFOX_API_KEY
       key: CAMOFOX_ACCESS_KEY
@@ -572,9 +607,9 @@ workloads:
     resources:
       requests:
         cpu: 100m
-        memory: 128Mi
+        memory: 512Mi
       limits:
-        memory: 4Gi
+        memory: 2Gi
     args:
     - gateway
     - run
@@ -590,28 +625,57 @@ workloads:
     persistence:
     - name: hermes-home
       mountPath: /opt/data
+    - name: hermes-tasks
+      mountPath: /opt/data/.multica/workspaces
+    - name: hermes-workspaces
+      mountPath: /opt/data/workspaces
+    - name: identity-personal-assistant
+      mountPath: /opt/data/profiles/personal-assistant/identity
+    - name: skills-personal-assistant
+      mountPath: /opt/platform/skills
+      readOnly: true
+    - name: personal-native-skills
+      mountPath: /opt/data/profiles/personal-assistant/skills
     volumes:
     - name: manager-token
       mountPath: /run/secrets
       source:
         secret:
-          secretName: execution-manager-auth
+          secretName: runtime-manager-auth
           defaultMode: 288
-          items: [{key: hermes-token, path: execution-manager-token}]
+          items:
+          - key: hermes-token
+            path: runtime-manager-token
+          - key: hermes-token
+            path: execution-manager-token
     - name: manager-ca
-      mountPath: /etc/execution-manager/tls
+      mountPath: /etc/runtime-manager/tls
       source:
         secret:
-          secretName: execution-manager-tls
+          secretName: runtime-manager-tls
           defaultMode: 288
-          items: [{key: tls.crt, path: ca.crt}]
+          items:
+          - key: tls.crt
+            path: ca.crt
     - name: controller-ssh
       mountPath: /opt/ssh
       source:
         secret:
           secretName: execution-controller-ssh
           defaultMode: 288
-          items: [{key: hermes-key, path: id_ed25519}]
+          items:
+          - key: hermes-key
+            path: id_ed25519
+    - name: legacy-manager-ca
+      mountPath: /etc/execution-manager/tls
+      source:
+        secret:
+          secretName: runtime-manager-tls
+          defaultMode: 288
+          items:
+          - key: tls.crt
+            path: ca.crt
+    imageKey: hermes
   codex-launcher:
     enabled: false
     image: hermes-stack-codex-launcher:dev
@@ -633,7 +697,7 @@ workloads:
     - name: CODEX_MAX_CONCURRENT_RUNS
       value: '4'
     - name: EXECUTION_MANAGER_URL
-      value: https://execution-manager:8090
+      value: https://runtime-manager:8090
     secretEnv: []
     ports:
     - name: checkout
@@ -665,30 +729,56 @@ workloads:
       mountPath: /run/secrets
       source:
         secret:
-          secretName: execution-manager-auth
+          secretName: runtime-manager-auth
           defaultMode: 288
-          items: [{key: codex-token, path: execution-manager-token}]
+          items:
+          - key: codex-token
+            path: runtime-manager-token
+          - key: codex-token
+            path: execution-manager-token
     - name: manager-ca
-      mountPath: /etc/execution-manager/tls
+      mountPath: /etc/runtime-manager/tls
       source:
         secret:
-          secretName: execution-manager-tls
+          secretName: runtime-manager-tls
           defaultMode: 288
-          items: [{key: tls.crt, path: ca.crt}]
+          items:
+          - key: tls.crt
+            path: ca.crt
     - name: controller-ssh
       mountPath: /opt/ssh
       source:
         secret:
           secretName: execution-controller-ssh
           defaultMode: 288
-          items: [{key: codex-key, path: id_ed25519}]
-  execution-manager:
+          items:
+          - key: codex-key
+            path: id_ed25519
+    - name: legacy-manager-ca
+      mountPath: /etc/execution-manager/tls
+      source:
+        secret:
+          secretName: runtime-manager-tls
+          defaultMode: 288
+          items:
+          - key: tls.crt
+            path: ca.crt
+  runtime-manager:
     enabled: false
-    image: hermes-stack-execution-manager:dev
-    serviceAccountName: execution-manager
+    image: ''
+    serviceAccountName: runtime-manager
     automountServiceAccountToken: true
-    podSecurityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
-    securityContext: {privileged: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+    securityContext:
+      privileged: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+        - ALL
     env: []
     secretEnv: []
     ports:
@@ -712,37 +802,152 @@ workloads:
     persistence:
     - name: manager-state
       mountPath: /state
+    - name: hermes-tasks
+      mountPath: /opt/hermes-workspaces
+      readOnly: true
+    - name: hermes-workspaces
+      mountPath: /opt/hermes-profile-workspaces
+      readOnly: true
     volumes:
     - name: manager-token
-      mountPath: /run/execution-manager-auth
+      mountPath: /run/runtime-manager-auth
       source:
         secret:
-          secretName: execution-manager-auth
+          secretName: runtime-manager-auth
           defaultMode: 288
-          items: [{key: hermes-token, path: hermes-token}, {key: codex-token, path: codex-token}]
+          items:
+          - key: hermes-token
+            path: hermes-token
+          - key: codex-token
+            path: codex-token
     - name: manager-tls
-      mountPath: /etc/execution-manager/tls
+      mountPath: /etc/runtime-manager/tls
       source:
         secret:
-          secretName: execution-manager-tls
+          secretName: runtime-manager-tls
           defaultMode: 288
     - name: manager-tmp
       mountPath: /tmp
       readOnly: false
       source:
-        emptyDir: {sizeLimit: 32Mi}
+        emptyDir:
+          sizeLimit: 32Mi
     - name: manager-config
-      mountPath: /etc/execution-manager/config.yaml
+      mountPath: /etc/runtime-manager/config.yaml
       subPath: config.yaml
       source:
         configMap:
-          name: execution-manager-config
+          name: runtime-manager-config
+    imageKey: runtime-manager
+  multica-gateway:
+    enabled: false
+    image: nginxinc/nginx-unprivileged@sha256:906927b10cea77d8cd01cad4dc0bf8f872874ca9ff5ddbf49a0b0b0f3fc436f7
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 101
+      runAsGroup: 101
+      fsGroup: 101
+    securityContext:
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+        - ALL
+    command:
+    - nginx
+    args:
+    - -g
+    - daemon off;
+    env: []
+    secretEnv: []
+    ports:
+    - name: http
+      port: 8080
+      servicePort: 80
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        memory: 64Mi
+    readinessProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+    volumes:
+    - name: configuration
+      mountPath: /etc/nginx/nginx.conf
+      subPath: nginx.conf
+      source:
+        configMap:
+          name: multica-gateway-config
+    - name: runtime
+      mountPath: /run/nginx
+      readOnly: false
+      source:
+        emptyDir:
+          sizeLimit: 64Mi
+  hermes-gateway:
+    enabled: false
+    image: nginxinc/nginx-unprivileged@sha256:906927b10cea77d8cd01cad4dc0bf8f872874ca9ff5ddbf49a0b0b0f3fc436f7
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 101
+      runAsGroup: 101
+      fsGroup: 101
+    securityContext:
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+        - ALL
+    command:
+    - nginx
+    args:
+    - -g
+    - daemon off;
+    env: []
+    secretEnv: []
+    ports:
+    - name: http
+      port: 8080
+      servicePort: 80
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        memory: 64Mi
+    readinessProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+    volumes:
+    - name: configuration
+      mountPath: /etc/nginx/nginx.conf
+      subPath: nginx.conf
+      source:
+        configMap:
+          name: hermes-gateway-config
+    - name: runtime
+      mountPath: /run/nginx
+      readOnly: false
+      source:
+        emptyDir:
+          sizeLimit: 64Mi
 networkPolicy:
   enabled: true
   bootstrapIngress:
   - multica-backend
-  sandboxNamespace: ''
-  sandboxIngress: {}
+  sandboxIngress:
+    multica-backend:
+      roles:
+      - personal-assistant
+      ports:
+      - 8080
+    hermes:
+      roles:
+      - personal-assistant
+      ports:
+      - 19515
   ingress:
     shared-postgres:
     - multica-backend
@@ -756,6 +961,7 @@ networkPolicy:
     - multica-web
     - hermes
     - codex-launcher
+    - multica-gateway
     camofox:
     - hermes
     searxng:
@@ -767,77 +973,162 @@ networkPolicy:
     - firecrawl
     hindsight:
     - hermes
-    execution-manager:
+    runtime-manager:
     - hermes
     - codex-launcher
     hermes:
     - codex-launcher
+    - hermes-gateway
     codex-launcher:
     - hermes
-
-# Worker execution boundary, installed with the platform even while controllers
-# are disabled. This identity preserves existing policy names and selectors.
+    multica-web:
+    - multica-gateway
+    multica-gateway: []
+    hermes-gateway: []
 sandbox:
   enabled: true
   policyIdentity: agent-sandbox
-  # The manager account lives in the platform release namespace. Workers use
-  # this separate execution namespace; the manager cannot administer namespaces.
-  namespace: hermes-execution
+  namespace: agent-execution
   createNamespace: true
-  managerServiceAccount: execution-manager
+  managerServiceAccount: runtime-manager
   workerServiceAccount: sandbox-worker
   imagePullSecrets: []
   podSecurityVersion: v1.30
   quota:
-    pods: '40'
-    requests.cpu: '16'
-    requests.memory: 24Gi
-    limits.cpu: '80'
-    limits.memory: 80Gi
-  # The chart never creates credentials or storage. An administrator provisions
-  # each worker-visible claim/Secret separately from controller-only state.
-  roles:
-    developer:
-      images: [hermes-stack-developer-execution:dev]
-      mounts: []
-    codex:
-      images: [hermes-stack-codex-execution:dev]
-      mounts: []
-    platform-operator:
-      images: [hermes-stack-platform-operator-execution:dev]
-      mounts: []
-    personal-assistant:
-      images: [hermes-stack-personal-assistant-execution:dev]
-      mounts: []
-    manager:
-      images: [hermes-stack-execution:dev]
-      mounts: []
-  # Mounts are exact allowlists. Each entry is either:
-  # {claim: tasks, mountPathPattern: '^/opt/tasks/[^/]+/[^/]+/workdir$',
-  #  subPathPattern: '^[^/]+/[^/]+/workdir$', readOnly: false}
-  # or {secret: execution-ssh-public, keys: [hermes],
-  #     mountPathPattern: '^/etc/ssh/authorized_keys/worker$', subPath: worker, readOnly: true}.
-  # EmptyDir volumes (including /dev/shm) are allowed. Projected tokens, hostPath,
-  # configMap, CSI and other volume sources, envFrom/valueFrom, extra containers,
-  # arbitrary service accounts and non-allowlisted images are rejected.
+    pods: '1'
+    requests.cpu: '1'
+    requests.memory: 1Gi
+    limits.cpu: '2'
+    limits.memory: 2Gi
   network:
     publicInternet: true
     excludedCIDRs:
-      - 10.0.0.0/8
-      - 172.16.0.0/12
-      - 192.168.0.0/16
-      - 127.0.0.0/8
-      - 169.254.0.0/16
-    # Tool services require both sandbox egress and infra ingress permissions.
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+    - 100.64.0.0/10
+    - 224.0.0.0/4
+    - 240.0.0.0/4
     services:
-      - {name: multica-backend, ports: [8080]}
-      - {name: camofox, ports: [9377]}
-      - {name: firecrawl, ports: [3002]}
-      - {name: playwright, ports: [3000]}
-      - {name: searxng, ports: [8080]}
-      - {name: hermes, ports: [19515]}
-      - {name: codex-launcher, ports: [19515]}
-    # Only Operator receives explicit app-cluster API and gateway destinations.
-    # Exact /32 addresses and ports are supplied by the environment adapter.
+    - name: multica-backend
+      ports:
+      - 8080
+    - name: hermes
+      ports:
+      - 19515
     operatorAppEndpoints: []
-    # Example: [{cidr: '172.25.0.3/32', port: 6443}, {cidr: '172.25.0.3/32', port: 443}].
+images:
+  hermes: ghcr.io/accelero/agent-platform/hermes:dev
+  runtime-manager: ghcr.io/accelero/agent-platform/runtime-manager:dev
+  agent-runtime: ghcr.io/accelero/agent-platform/agent-runtime:dev
+  multica-backend: ghcr.io/accelero/agent-platform/multica-backend:dev
+  state: ghcr.io/accelero/agent-platform/state:dev
+runtimeManager:
+  uid: 1000
+  gid: 1000
+  authSecret: runtime-manager-auth
+  tlsSecret: runtime-manager-tls
+  legacyServiceAlias: false
+  clients:
+    hermes:
+      deployment: hermes-stack
+      tokenKey: hermes-token
+  config:
+    lease_ttl_seconds: 120
+    maintenance_interval_seconds: 10
+    deployments:
+      hermes-stack:
+        profiles:
+          personal-assistant:
+            templates:
+            - personal-assistant
+            modes:
+            - per_session
+            - per_profile_on_demand
+    templates:
+      personal-assistant:
+        session_idle_seconds: 60
+        on_demand_idle_seconds: 60
+        recycle:
+          at: 03:00
+          timezone: UTC
+          inactive_after_seconds: 86400
+        workdir_scope:
+          validation_root: /opt/hermes-workspaces
+          controller_root: /opt/data/.multica/workspaces
+          read_only: false
+          kubernetes_claim: hermes-tasks
+          identity_kubernetes_claim: identity-personal-assistant
+        kubernetes:
+          role: personal-assistant
+          uid: 1000
+          gid: 1000
+          volumes:
+          - name: ssh-public
+            secret:
+              secretName: execution-ssh-public
+              items:
+              - key: hermes
+                path: worker
+              defaultMode: 292
+          - name: identity-personal-assistant
+            persistentVolumeClaim:
+              claimName: identity-personal-assistant
+          - name: profile-login
+            secret:
+              secretName: profile-personal-assistant
+              items:
+              - key: config.json
+                path: config.json
+              defaultMode: 292
+          - name: skills-personal-assistant
+            persistentVolumeClaim:
+              claimName: skills-personal-assistant
+          volume_mounts:
+          - name: ssh-public
+            mountPath: /etc/ssh/authorized_keys/worker
+            subPath: worker
+            readOnly: true
+          - name: identity-personal-assistant
+            mountPath: /opt/data/profiles/personal-assistant
+            readOnly: false
+          - name: profile-login
+            mountPath: /home/worker/.multica
+            readOnly: true
+          - name: skills-personal-assistant
+            mountPath: /opt/platform/skills
+            readOnly: true
+          environment:
+            MULTICA_CHECKOUT_UPSTREAM: http://hermes:19515
+            MULTICA_CHECKOUT_BIND: 127.0.0.1
+            MULTICA_CHECKOUT_PORT: '19514'
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: '1'
+              memory: 1Gi
+        profile_workspace:
+          kubernetes_claim: hermes-workspaces
+          kubernetes_subpath: personal-assistant
+          mount_path: /workspace
+          controller_root: /opt/data/workspaces/personal-assistant
+          validation_root: /opt/hermes-profile-workspaces
+        serialize_profile: true
+        exclusive: true
+multica:
+  publicUrl: http://localhost:3010
+  ownerEmail: ''
+  databaseUrl: postgres://multica:$(MULTICA_POSTGRES_PASSWORD)@shared-postgres:5432/multica?sslmode=disable
+  databaseCASecret: ''
+  maintenanceFile: /app/data/uploads/.agent-platform-maintenance
+  mailSecret: multica-mail
+  mailKeys: []
+hermes:
+  dashboardUsername: admin
+  maxConcurrentTasks: 1
+  providerSecret: hermes-provider-credentials
+  providerKeys: []

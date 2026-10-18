@@ -6,7 +6,12 @@
     "imagePullPolicy",
     "workloads",
     "persistence",
-    "configMaps"
+    "configMaps",
+    "images",
+    "runtimeManager",
+    "sandbox",
+    "multica",
+    "hermes"
   ],
   "properties": {
     "existingSecret": {
@@ -29,6 +34,15 @@
         "type": "object",
         "additionalProperties": {
           "type": "string"
+        }
+      },
+      "propertyNames": {
+        "not": {
+          "enum": [
+            "runtime-manager-config",
+            "multica-gateway-config",
+            "hermes-gateway-config"
+          ]
         }
       }
     },
@@ -87,10 +101,13 @@
           },
           "image": {
             "type": "string",
-            "minLength": 1
+            "minLength": 0
           },
           "kind": {
-            "enum": ["Deployment", "StatefulSet"]
+            "enum": [
+              "Deployment",
+              "StatefulSet"
+            ]
           },
           "existingSecret": {
             "type": "string",
@@ -116,6 +133,13 @@
           },
           "sharedMemory": {
             "type": "string"
+          },
+          "imageKey": {
+            "enum": [
+              "hermes",
+              "runtime-manager",
+              "multica-backend"
+            ]
           }
         }
       }
@@ -141,7 +165,333 @@
         },
         "bootstrapIngress": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "required": [
+        "hermes",
+        "runtime-manager",
+        "agent-runtime",
+        "multica-backend",
+        "state"
+      ],
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "runtimeManager": {
+      "type": "object",
+      "required": [
+        "uid",
+        "gid",
+        "authSecret",
+        "tlsSecret",
+        "clients",
+        "config",
+        "legacyServiceAlias"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "uid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "authSecret": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tlsSecret": {
+          "type": "string",
+          "minLength": 1
+        },
+        "legacyServiceAlias": {
+          "type": "boolean"
+        },
+        "clients": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "deployment",
+              "tokenKey"
+            ],
+            "properties": {
+              "deployment": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tokenKey": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "config": {
+          "type": "object",
+          "required": [
+            "deployments",
+            "templates"
+          ],
+          "properties": {
+            "lease_ttl_seconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maintenance_interval_seconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "deployments": {
+              "type": "object"
+            },
+            "templates": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "required": [
+                  "kubernetes"
+                ],
+                "properties": {
+                  "image": {
+                    "type": "string"
+                  },
+                  "kubernetes": {
+                    "type": "object",
+                    "required": [
+                      "role",
+                      "volumes",
+                      "volume_mounts"
+                    ],
+                    "properties": {
+                      "role": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "volumes": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "name"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "persistentVolumeClaim": {
+                              "type": "object",
+                              "required": [
+                                "claimName"
+                              ],
+                              "properties": {
+                                "claimName": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "secret": {
+                              "type": "object",
+                              "required": [
+                                "secretName",
+                                "items"
+                              ],
+                              "properties": {
+                                "secretName": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "defaultMode": {
+                                  "type": "integer"
+                                },
+                                "items": {
+                                  "type": "array",
+                                  "minItems": 1,
+                                  "items": {
+                                    "type": "object",
+                                    "required": [
+                                      "key",
+                                      "path"
+                                    ],
+                                    "properties": {
+                                      "key": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      },
+                                      "path": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      }
+                                    },
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "emptyDir": {
+                              "type": "object"
+                            }
+                          },
+                          "oneOf": [
+                            {
+                              "required": [
+                                "persistentVolumeClaim"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "secret"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "emptyDir"
+                              ]
+                            }
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "volume_mounts": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "name",
+                            "mountPath"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "mountPath": {
+                              "type": "string",
+                              "pattern": "^/"
+                            },
+                            "subPath": {
+                              "type": "string",
+                              "pattern": "^[^/].*$"
+                            },
+                            "readOnly": {
+                              "type": "boolean"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "environment": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "host_aliases"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "service_account"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "docker"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "runtime_root"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "not": {
+        "required": [
+          "roles"
+        ]
+      }
+    },
+    "multica": {
+      "type": "object",
+      "required": [
+        "publicUrl",
+        "ownerEmail",
+        "databaseUrl",
+        "databaseCASecret",
+        "maintenanceFile",
+        "mailSecret",
+        "mailKeys"
+      ],
+      "properties": {
+        "mailKeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "hermes": {
+      "type": "object",
+      "required": [
+        "dashboardUsername",
+        "maxConcurrentTasks",
+        "providerSecret",
+        "providerKeys"
+      ],
+      "properties": {
+        "maxConcurrentTasks": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "providerKeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     }

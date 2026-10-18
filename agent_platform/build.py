@@ -10,7 +10,7 @@ from pathlib import Path
 from agent_platform.command import run
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGETS = ("hermes", "execution-manager", "worker", "multica-backend", "state")
+TARGETS = ("hermes", "runtime-manager", "agent-runtime", "multica-backend", "state")
 
 
 def bake_arguments(*, github_cache: bool = False) -> list[str]:

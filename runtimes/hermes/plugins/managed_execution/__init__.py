@@ -69,7 +69,7 @@ class Client:
         url = self.settings['manager_url'].rstrip('/')
         if not url.startswith('https://'):
             raise ValueError('The execution manager requires HTTPS')
-        context = ssl.create_default_context(cafile=self.settings.get('ca_file', '/etc/execution-manager/tls/ca.crt'))
+        context = ssl.create_default_context(cafile=self.settings.get('ca_file', '/etc/runtime-manager/tls/ca.crt'))
         request = urllib.request.Request(url + path,
             data=json.dumps(body).encode() if body is not None else None,
             headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
@@ -333,13 +333,13 @@ class Provider(TerminalEnvironmentProvider):
         self._creation_locks = weakref.WeakValueDictionary()
 
     def settings(self):
-        defaults = dict(manager_url="https://execution-manager:8090", token_file="/run/secrets/execution-manager-token",
-                        ca_file='/etc/execution-manager/tls/ca.crt', profile="", mode="per_session",
+        defaults = dict(manager_url="https://runtime-manager:8090", token_file="/run/secrets/runtime-manager-token",
+                        ca_file='/etc/runtime-manager/tls/ca.crt', profile="", mode="per_session",
                         ssh_key="/opt/ssh/id_ed25519", acquire_timeout_seconds=180)
         settings = {key: self.ctx.get_config(key, value) for key, value in defaults.items()}
         # Existing native profiles preserve their config across image updates.
         # Upgrade the former built-in endpoint to the encrypted transport.
-        if settings['manager_url'].rstrip('/') == 'http://execution-manager:8090':
+        if settings['manager_url'].rstrip('/') == 'http://runtime-manager:8090':
             settings['manager_url'] = defaults['manager_url']
         from gateway.session_context import get_session_env
         session_profile = get_session_env('HERMES_SESSION_PROFILE', '')

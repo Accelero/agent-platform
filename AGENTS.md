@@ -9,10 +9,10 @@ mutable application state or deployment-specific backup scripts.
 - `agent_platform/`: shared BuildKit/cache configuration, release builder and
   bounded command execution.
 - `containers/docker-bake.hcl`: the five supported release image targets.
-- `runtimes/`: Hermes adapters and execution-worker build sources.
-- `services/`: execution manager, patched Multica backend and generic state tools.
+- `runtimes/`: Hermes adapters and agent-runtime build sources.
+- `services/`: runtime manager, patched Multica backend and generic state tools.
 - `tools/platform/`: pinned command-line tools used by runtime images.
-- `charts/agent-platform/`: generic chart and its deployment contract.
+- `charts/agent-platform/`: self-contained application chart and native configuration templates.
 - `examples/lightweight/`: nonsecret render fixture with optional services disabled.
 - `vendor/multica/`: pinned upstream server source and upstream license notices.
 - `provenance/`: origin revisions, original source hashes and extraction notes.
@@ -38,10 +38,12 @@ Review the staged diff and `git diff --check` before committing.
 ## Releases
 
 A release requires an explicit `vMAJOR.MINOR.PATCH` tag. The GitHub-hosted release
-workflow validates, builds and publishes matching images, chart and metadata.
+workflow validates, builds and publishes matching images and their self-contained chart.
 Do not overwrite an existing release version. Keep source/version OCI labels and
-upstream license notices. Advance `release:latest` only after validation succeeds.
-Public image layers and release metadata must contain no secrets or personal data.
+upstream license notices. Publish the chart only after matching images pass validation.
+The chart owns configuration generation and exact image defaults; do not reintroduce
+a required metadata container, configuration ZIP or downloaded Python adapter.
+Public image layers and chart/receipt data must contain no secrets or personal data.
 Publication and repository visibility changes require user authorization.
 
 Build caches use GitHub Actions API v2 with distinct scopes per image. Keep the

@@ -3,9 +3,9 @@ version: 2.0.0
 description: Infrastructure-provisioned SSH environments with conversation and profile lifetimes.
 provides_hooks: [pre_llm_call, on_session_end, on_session_finalize, on_session_reset]
 config_schema:
-  manager_url: {type: str, default: 'https://execution-manager:8090', description: Manager HTTPS API URL}
-  ca_file: {type: str, default: /etc/execution-manager/tls/ca.crt, description: Trusted manager certificate}
-  token_file: {type: str, default: /run/secrets/execution-manager-token, description: Controller-only API credential file}
+  manager_url: {type: str, default: 'https://runtime-manager:8090', description: Manager HTTPS API URL}
+  ca_file: {type: str, default: /etc/runtime-manager/tls/ca.crt, description: Trusted manager certificate}
+  token_file: {type: str, default: /run/secrets/runtime-manager-token, description: Controller-only API credential file}
   profile: {type: str, default: '', description: Stable profile identity; empty uses the active Hermes profile}
   mode:
     type: str

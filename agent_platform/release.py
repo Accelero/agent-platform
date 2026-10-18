@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import shutil
 import sys
-import zipfile
 from pathlib import Path
 
 import yaml
@@ -35,26 +33,30 @@ def image_references(metadata: dict, registry: str) -> dict[str, str]:
     return images
 
 
-def contract(target: Path) -> Path:
-    """Export only the data and policy adapter needed by deployment consumers."""
-    path = target / "contract.zip"
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        for name, source in {
-            "values.yaml": ROOT / "charts/agent-platform/values.yaml",
-            "configuration.py": ROOT / "services/execution-manager/configuration.py",
-        }.items():
-            entry = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
-            entry.compress_type = zipfile.ZIP_DEFLATED
-            entry.external_attr = 0o100644 << 16
-            bundle.writestr(entry, source.read_bytes())
-    return path
+def prepare_chart(
+    target: Path, images: dict[str, str], version: str, revision: str
+) -> Path:
+    """Package all executable wiring and exact runtime pins in the chart itself."""
+    chart = target / "chart/agent-platform"
+    shutil.copytree(ROOT / "charts/agent-platform", chart, dirs_exist_ok=True)
+    values = yaml.safe_load((chart / "values.yaml").read_text())
+    values["images"] = images
+    (chart / "values.yaml").write_text(yaml.safe_dump(values, sort_keys=False))
+    definition = yaml.safe_load((chart / "Chart.yaml").read_text())
+    definition.update(version=version, appVersion=version)
+    definition["annotations"].update(
+        {
+            "org.opencontainers.image.revision": revision,
+            "agent-platform.io/configuration-version": "2",
+        }
+    )
+    (chart / "Chart.yaml").write_text(yaml.safe_dump(definition, sort_keys=False))
+    return chart
 
 
-def render_chart(target: Path, images: dict[str, str]) -> None:
+def render_chart(target: Path, chart: Path) -> None:
     """Exercise a generic lightweight example without personal deployment inputs."""
     text = (ROOT / "examples/lightweight/values.yaml").read_text()
-    for name, image in images.items():
-        text = text.replace(registry_placeholder(name), image)
     values = target / "reviewed-values.yaml"
     values.write_text(text)
     output = run(
@@ -62,7 +64,7 @@ def render_chart(target: Path, images: dict[str, str]) -> None:
             "helm",
             "template",
             "agents",
-            str(ROOT / "charts/agent-platform"),
+            str(chart),
             "--namespace",
             "agents",
             "--values",
@@ -76,7 +78,14 @@ def render_chart(target: Path, images: dict[str, str]) -> None:
         for item in documents
         if item["kind"] in {"Deployment", "StatefulSet", "DaemonSet"}
     }
-    if deployed != {"hermes", "execution-manager", "multica-backend", "multica-web"}:
+    if deployed != {
+        "hermes",
+        "runtime-manager",
+        "multica-backend",
+        "multica-web",
+        "multica-gateway",
+        "hermes-gateway",
+    }:
         raise ValueError(
             "The lightweight example contains deferred or missing workloads."
         )
@@ -90,46 +99,6 @@ def render_chart(target: Path, images: dict[str, str]) -> None:
     (target / "reviewed-manifests.yaml").write_bytes(output)
 
 
-def registry_placeholder(name: str) -> str:
-    """Identify the immutable dummy image references in the example fixture."""
-    return "ghcr.io/fixture/agents/" + name + "@sha256:" + "a" * 64
-
-
-def publish_metadata(target: Path, registry: str, version: str, revision: str) -> None:
-    """Advance latest only after all matching runtime and chart artifacts exist."""
-    context = target / "metadata"
-    context.mkdir()
-    for filename in ("artifacts.json", "contract.zip"):
-        shutil.copyfile(target / filename, context / filename)
-    (context / "Dockerfile").write_text(
-        "FROM scratch\nCOPY artifacts.json contract.zip /\n"
-    )
-    run(
-        [
-            "docker",
-            "buildx",
-            "build",
-            "--push",
-            "--platform",
-            "linux/amd64",
-            "--provenance=false",
-            "--sbom=false",
-            "--label",
-            "org.opencontainers.image.source=" + REPOSITORY,
-            "--label",
-            "org.opencontainers.image.revision=" + revision,
-            "--label",
-            "org.opencontainers.image.version=" + version,
-            "--tag",
-            registry + "/release:" + version,
-            "--tag",
-            registry + "/release:latest",
-            str(context),
-        ],
-        timeout=180,
-    )
-
-
 def build(
     version: str,
     revision: str,
@@ -139,7 +108,7 @@ def build(
     chart_registry: str = CHART_REGISTRY,
     github_cache: bool = False,
 ) -> dict:
-    """Publish one explicit semantic version and a coherent latest release bundle."""
+    """Publish images first and their self-contained versioned chart last."""
     if not VERSION.fullmatch(version) or not re.fullmatch(r"[a-f0-9]{40}", revision):
         raise ValueError("Use a complete semantic version and source commit SHA.")
     if not re.fullmatch(r"ghcr\.io/[a-z0-9][a-z0-9/_-]*", registry) or not re.fullmatch(
@@ -181,10 +150,10 @@ def build(
             "--interactive",
             "--entrypoint",
             "python",
-            images["execution-manager"],
+            images["runtime-manager"],
             "-",
         ],
-        data=(ROOT / "tests/worker_smoke.py").read_bytes(),
+        data=(ROOT / "tests/runtime_smoke.py").read_bytes(),
         timeout=180,
     )
     run(
@@ -208,9 +177,9 @@ def build(
     )
     sys.stdout.write("Validating chart.\n")
     sys.stdout.flush()
-    chart = ROOT / "charts/agent-platform"
+    chart = prepare_chart(target, images, version, revision)
     run(["helm", "lint", str(chart)], timeout=60)
-    render_chart(target, images)
+    render_chart(target, chart)
     run(
         [
             "helm",
@@ -226,28 +195,12 @@ def build(
         timeout=60,
     )
     package = target / ("agent-platform-" + version + ".tgz")
-    bundle = contract(target)
     receipt = {
-        "schema": 3,
+        "schema": 4,
         "source": {"repository": REPOSITORY, "revision": revision},
         "version": version,
-        "deployment_contract": 1,
-        "contract_sha256": hashlib.sha256(bundle.read_bytes()).hexdigest(),
         "images": images,
     }
-    if publish:
-        output = run(
-            ["helm", "push", str(package), chart_registry],
-            timeout=180,
-            include_stderr=True,
-        )
-        matches = re.findall(rb"Digest:\s*(sha256:[a-f0-9]{64})", output)
-        if len(matches) != 1:
-            raise ValueError("Helm did not return one chart manifest digest.")
-        receipt["chart"] = chart_registry + "/agent-platform@" + matches[0].decode()
-    else:
-        receipt["chart"] = str(package.relative_to(ROOT))
-    (target / "artifacts.json").write_text(json.dumps(receipt, indent=2) + "\n")
     if publish:
         for name, image in images.items():
             run(
@@ -262,7 +215,19 @@ def build(
                 ],
                 timeout=180,
             )
-        publish_metadata(target, registry, version, revision)
+    if publish:
+        output = run(
+            ["helm", "push", str(package), chart_registry],
+            timeout=180,
+            include_stderr=True,
+        )
+        matches = re.findall(rb"Digest:\s*(sha256:[a-f0-9]{64})", output)
+        if len(matches) != 1:
+            raise ValueError("Helm did not return one chart manifest digest.")
+        receipt["chart"] = chart_registry + "/agent-platform@" + matches[0].decode()
+    else:
+        receipt["chart"] = str(package.relative_to(ROOT))
+    (target / "artifacts.json").write_text(json.dumps(receipt, indent=2) + "\n")
     return receipt
 
 

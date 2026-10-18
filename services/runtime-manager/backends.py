@@ -27,8 +27,8 @@ class KubernetesBackend:
         host, port = os.environ.get('KUBERNETES_SERVICE_HOST'), os.environ.get('KUBERNETES_SERVICE_PORT')
         if not self.kubeconfig and not config.get('context') and host and port:
             if not all((SERVICE_ACCOUNT / name).is_file() for name in ('token', 'ca.crt')):
-                raise RuntimeError('Execution manager requires its projected service-account identity')
-            self._credentials_directory = tempfile.TemporaryDirectory(prefix='execution-manager-kube-')
+                raise RuntimeError('Runtime manager requires its projected service-account identity')
+            self._credentials_directory = tempfile.TemporaryDirectory(prefix='runtime-manager-kube-')
             path = Path(self._credentials_directory.name) / 'config.json'
             address = '[' + host + ']' if ':' in host else host
             # Keep credentials in Kubernetes' rotating projected volume. This
@@ -70,7 +70,7 @@ class KubernetesBackend:
             pod = None
         if not pod:
             pod = {"apiVersion": "v1", "kind": "Pod", "metadata": {"name": name, "namespace": self.namespace,
-                    "labels": {"app.kubernetes.io/managed-by": "hermes-execution-manager", "hermes-execution": environment,
+                    "labels": {"app.kubernetes.io/managed-by": "agent-platform-runtime-manager", "hermes-execution": environment,
                                "hermes.stack/role": spec.get("role", "unconfigured")}},
                    "spec": {"restartPolicy": "Never", "automountServiceAccountToken": False,
                     "enableServiceLinks": False,
@@ -105,8 +105,8 @@ class KubernetesBackend:
         if not pod:
             return None
         if (pod.get('metadata', {}).get('name') != name
-                or pod['metadata'].get('labels', {}).get('app.kubernetes.io/managed-by') != 'hermes-execution-manager'):
-            raise ValueError('Pod is not owned by the execution manager')
+                or pod['metadata'].get('labels', {}).get('app.kubernetes.io/managed-by') != 'agent-platform-runtime-manager'):
+            raise ValueError('Pod is not owned by the runtime manager')
         return pod
 
     def remove(self, resource):

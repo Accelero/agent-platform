@@ -8,7 +8,7 @@ function "image" {
 }
 
 group "default" {
-  targets = ["hermes", "execution-manager", "worker", "multica-backend", "state"]
+  targets = ["hermes", "runtime-manager", "agent-runtime", "multica-backend", "state"]
 }
 target "metadata" {
   labels = {
@@ -20,16 +20,16 @@ target "platform-tools" {
   inherits = ["metadata"]
   context = "tools/platform"
 }
-target "worker" {
+target "agent-runtime" {
   inherits = ["metadata"]
-  context = "runtimes/workers"
-  tags = [image("worker")]
+  context = "runtimes/agent-runtime"
+  tags = [image("agent-runtime")]
 }
-target "execution-manager" {
+target "runtime-manager" {
   inherits = ["metadata"]
-  context = "services/execution-manager"
+  context = "services/runtime-manager"
   contexts = { platform-tools = "target:platform-tools" }
-  tags = [image("execution-manager")]
+  tags = [image("runtime-manager")]
 }
 target "hermes" {
   inherits = ["metadata"]

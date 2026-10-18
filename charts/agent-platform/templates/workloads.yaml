@@ -1,4 +1,4 @@
-{{- range $name, $workload := .Values.workloads }}
+{{- range $name, $workload := (include "agent-platform.workloads" . | fromJson) }}
 {{- if $workload.enabled }}
 {{- $github := and (eq $name "multica-backend") $.Values.multicaGithub.enabled }}
 ---
@@ -33,9 +33,17 @@ spec:
       app.kubernetes.io/name: {{ $name }}
   template:
     metadata:
-      {{- with $workload.podAnnotations }}
-      annotations: {{ toYaml . | nindent 8 }}
-      {{- end }}
+      annotations:
+        checksum/application: {{ include "agent-platform.workloads" $ | sha256sum }}
+        {{- if eq $name "runtime-manager" }}
+        checksum/runtime: {{ include "agent-platform.runtime" $ | sha256sum }}
+        {{- end }}
+        {{- if has $name (list "multica-gateway" "hermes-gateway") }}
+        checksum/gateway: {{ $.Files.Get (printf "files/%s.nginx.conf" $name) | sha256sum }}
+        {{- end }}
+        {{- with $workload.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         app.kubernetes.io/part-of: agent-platform
         app.kubernetes.io/instance: {{ $.Release.Name }}
@@ -61,7 +69,7 @@ spec:
       {{- end }}
       containers:
         - name: {{ $name }}
-          image: {{ required (printf "workloads.%s.image is required" $name) $workload.image | quote }}
+          image: {{ required (printf "workloads.%s needs an image or imageKey" $name) (default (get $.Values.images (default "" $workload.imageKey)) $workload.image) | quote }}
           imagePullPolicy: {{ $.Values.imagePullPolicy }}
           securityContext:
             {{- toYaml (mergeOverwrite (deepCopy (default dict $workload.securityContext)) (dict "allowPrivilegeEscalation" false)) | nindent 12 }}

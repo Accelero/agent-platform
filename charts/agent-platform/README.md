@@ -1,81 +1,127 @@
-# Agent platform chart
+# Agent platform application chart
 
-Platform chart, version 0.1.0. Packages internal supporting services, agent
-controllers, the execution manager and worker execution policies. Controllers
-are disabled by default until administrators supply initialized native homes,
-credentials and sandbox policy. It has no Flux dependency, seed hooks or
-generated credential Secrets.
+A chart is the versioned installation package for this application of interacting
+services, similar in scope to a Compose application. Helm renders Kubernetes
+resources; Kubernetes runs and reconciles them. An installed Helm release is an
+instance of this chart, separate from the GitHub Release that distributes it.
 
-Install one release per namespace. Service/workload names are stable so native
-clients use Kubernetes DNS without release-name-specific configuration.
+Version **0.2.0** packages Multica backend/frontend, Hermes, two same-origin HTTP
+gateways and a runtime manager, together with configuration and isolation rules.
+Agent-runtime Pods are created on demand by the manager rather than pre-created
+by Helm. Browser/search/memory and further agents remain optional and disabled.
+
+## Native configuration generation
+
+Administrators supply ordinary Helm values. `templates/_runtime.tpl` derives both:
+
+1. `runtime-manager-config`, a ConfigMap whose `config.yaml` is the native manager
+   configuration: clients and token-file references, allowed deployment/profile
+   templates, lease/idle/recycle settings, runtime images, UID/GID, volumes and
+   task/profile workspace mappings.
+2. The admission allowlist used by `ValidatingAdmissionPolicy`: matching runtime
+   roles, exact image references, literal environment values, selected PVC/Secret
+   mounts and bounded per-task path patterns. The policy rejects different images,
+   extra containers, host volumes, API tokens and unapproved credential mounts.
+
+There is one source of settings. For example:
+
+```yaml
+runtimeManager:
+  authSecret: my-manager-tokens
+  tlsSecret: my-manager-tls
+  uid: 1000
+  gid: 1000
+  clients:
+    hermes:
+      deployment: hermes-stack
+      tokenKey: hermes-token
+  config:
+    templates:
+      personal-assistant:
+        session_idle_seconds: 60
+        workdir_scope:
+          kubernetes_claim: my-task-data
+sandbox:
+  namespace: agent-execution
+```
+
+Helm merges this with defaults, writes the client credential path into native YAML,
+mounts that selected Secret key into the manager, and admits only the same task
+claim and non-root identity. The default runtime image comes from the chart's
+`images.agent-runtime` digest. A reviewed explicit template `image` override feeds
+both outputs too. Templates reject duplicated roles/volumes, unsupported volume
+sources, writable/unselected Secret mounts and unsafe subpaths. The values schema
+rejects manually supplied `sandbox.roles`, preventing a second competing policy.
+Changes to generated configuration update Pod checksums and roll the affected
+application. No downloaded Python or secondary configuration bundle is needed.
+
+`templates/_application.tpl` owns internal service URLs and native application
+environment variables. Gateway nginx configs are packaged files. Database/mail,
+public URL, owner, provider credentials and resource/storage choices are values.
+
+## Installation inputs
+
+Install one release per namespace, with Kubernetes 1.30+ and a CNI that enforces
+NetworkPolicy. Service names are stable within that namespace. Defaults leave
+workloads disabled until credentials, native homes and isolation inputs are ready.
+The [lightweight example](../../examples/lightweight/values.yaml) enables the six
+core Deployments and consumes external storage/database/Secrets.
 
 Important values:
 
-- `existingSecret`: default static credential reference. A workload can select
-  its own `existingSecret`; each `secretEnv` key can also select a named Secret.
-- `workloads`: enabled components, Deployment/StatefulSet kind, prebuilt images, ordered environment values,
-  resources, probes and mounts. Password references are emitted before URLs
-  that use Kubernetes environment expansion.
-- `persistence`: capacity, access modes, optional storage class/volume name,
-  or `existingClaim` for externally managed storage.
-- `networkPolicy`: default-deny ingress with explicit service dependencies.
-- `imagePullSecrets`: preprovisioned pull credentials for private images.
-- `sandbox`: execution namespace, worker service account, role image/mount/env
-  allowlists, admission policies, network permissions and resource quota.
-- `multicaGithub`: optional GitHub App identity and existing Secret references
-  for the backend, plus a TLS ingress limited to webhook/setup routes. This
-  optional integration is deferred by the lightweight stack.
+- `images`: release-pinned Hermes, runtime-manager, agent-runtime, backend and state
+  tool references. Packaged releases populate these exact manifest digests.
+- `multica`: public URL, allowed owner, database connection/CA reference and outbound
+  mail Secret/key names. Credentials are named references, not inline values.
+- `hermes`: dashboard username, concurrency and provider Secret/key names.
+- `runtimeManager`: native templates/clients, non-root identity, token and TLS Secret
+  references. The server certificate must cover `runtime-manager` and the service
+  DNS names used by clients. Mounts contain only selected existing keys.
+- `workloads`: enable components and override resources, probes, ordered environment
+  values, images or storage mounts. Set both gateways enabled for same-origin access.
+- `persistence`: create retained claims or use `existingClaim` for externally managed
+  storage. Runtime-visible claims must also exist in the sandbox namespace and
+  refer to the intended storage; same names across namespaces do not share data.
+- `sandbox`: execution namespace, service accounts, resource quota, public/private
+  network destinations and Pod Security version. Admission roles are generated.
+- `networkPolicy`: service dependencies and `namespaceIngress`, for example
+  `{multica-gateway: [tailscale], hermes-gateway: [tailscale]}`. Gateways deny ingress
+  until an explicit source is configured. The chart also accepts the older explicit
+  `externalIngress` port rules when deliberately required.
+- `existingSecret`: shared static app Secret; workloads/individual `secretEnv` entries
+  can select their own named Secrets. `imagePullSecrets` supports private registries.
+- `multicaGithub`: optional GitHub App integration and narrowly scoped webhook ingress.
 
-Chart-created claims are retained on uninstall. Retention does not preserve a
-VPS's disk on VPS destruction. Existing claims/Secrets are not owned by the
-chart. Native mutable agent configuration is stored outside Helm values.
+For the lightweight defaults, provision `agent-platform-secrets` with Multica's
+Postgres password/JWT secret and the Hermes dashboard/API keys; `multica-mail` and
+`hermes-provider-credentials` with the configured mail/provider keys; manager bearer
+and TLS Secrets; `execution-controller-ssh` with its Hermes private key; and the
+sandbox's selected SSH/profile-login Secrets. Manager TLS clients select `tls.crt`
+as their CA. Initialize Hermes home/profile files, identities and skills before
+starting controllers, then register their Multica roster through normal auth.
 
-Shared PostgreSQL, RabbitMQ and append-only Redis use single-replica StatefulSets
-and separate headless Services for stable identities. Their explicit PVCs are
-retained rather than coupled to a StatefulSet's deletion or replica count.
-Hermes/Codex controllers remain single-replica Recreate Deployments: a second
-writer never starts against the same native home during an upgrade.
+The chart does not generate or seed credentials. Seed/export, database provisioning,
+backups, bucket credentials, PVC backing and VPN ingress are infrastructure duties.
+Mutable native settings live in retained storage, not Helm values. Claims and a
+chart-created sandbox namespace are retained on uninstall; losing the node disk
+still requires a separately designed backup/restore strategy.
 
-The chart has no seed hooks. The consuming deployment initializes empty homes/skills before
-controllers are enabled, then register the Multica roster separately. The
-bootstrap ingress rule allows those trusted platform-namespace Jobs to call
-Multica without granting access to jobs created by the execution manager in the
-separately restricted execution namespace.
+## Release and upgrade
 
-Default `:dev` image values are placeholders. Select published GHCR image digests
-from the matching release receipt. The independent
-[release workflow](../../.github/workflows/release.yml) publishes this chart as an
-OCI artifact. Version 0.1.0 is the initial release; the consumer resolves the
-matching `release:latest` metadata before rendering values. Public packages need
-no pull Secrets. Enable controllers after administrator bootstrap supplies native
-state and sandbox policies. See the [repository README](../../README.md).
+The pipeline tests images, injects exact image digests into a staging chart, renders
+its lightweight deployment, and publishes that `.tgz` to GHCR and GitHub Releases.
+No custom metadata image or ZIP is needed. Select the chart's SemVer version or OCI
+digest. Tools implementing `latest` should select the newest stable chart once,
+then deploy its immutable digest with its own image defaults.
 
-The manager uses a file-level bearer Secret mount so its Kubernetes service-account
-volume can coexist under /run/secrets. Supply a native kubeconfig in the manager
-ConfigMap using service-account tokenFile and CA paths, without embedding a token.
+Controllers are single-replica Recreate Deployments to avoid concurrent writers.
+Runtime manager state remains on `manager-state`; native `/home/worker` paths and
+SSH user stay compatible. `runtimeManager.legacyServiceAlias: true` additionally
+exposes `execution-manager` for existing native Hermes URLs. Compatibility token
+and CA mounts remain available. During migration, provision a certificate that
+covers both names and keep the old credential until the upgrade checkpoint passes.
+The cluster-wide policy/quota names retain their existing sandbox identity.
 
-## Worker execution boundary
-
-The `templates/sandbox/` resources install with this release even while
-controllers are disabled. They create or reference `sandbox.namespace`, enforce
-restricted Pod Security and validate worker Pods against `sandbox.roles`.
-The manager service account lives in the release namespace; its RoleBinding
-allows only Pod get/create/delete in the execution namespace. Worker service
-accounts receive no API token. Worker Pods are created dynamically by the
-execution manager, not by Helm.
-
-Configure each role's exact images, literal environment and selected PVC/Secret
-mounts. The administrator-owned worker configuration and the policy adapter derive
-matching manager and admission configuration. Secret mounts require exact keys
-and read-only access. Storage and credential provisioning remain separate;
-this chart contains named references only and never seeds agents.
-
-Network policies allow controller SSH on port 2222, DNS, configured tool
-services and permitted public Internet destinations. Operator alone receives
-configured app API/gateway access through `sandbox.network.operatorAppEndpoints`.
-List private cluster/node/VPN CIDRs in `sandbox.network.excludedCIDRs` and use a
-CNI that enforces these policies. Service aliases resolve tool names into the
-controller namespace. The execution namespace is retained on uninstall.
-
-`sandbox.policyIdentity` defaults to `agent-sandbox` and determines policy names
-and namespace selectors.
+Published 0.1.0 remains immutable and uses the former receipt/contract interface.
+Its rollback requires the matching old deployment consumer; 0.2.0 and subsequent
+releases use this chart interface. Never silently overwrite a release to migrate.
