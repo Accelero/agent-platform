@@ -145,6 +145,29 @@ def build(
     )
     sys.stdout.write("Verifying built runtime images.\n")
     sys.stdout.flush()
+    for role, interpreter in (("tools", "python"), ("agent-runtime", "python3")):
+        run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--read-only",
+                "--user",
+                "0:0",
+                "--entrypoint",
+                interpreter,
+                images[role],
+                "-c",
+                (
+                    "from pathlib import Path; "
+                    "assert not list(Path('/etc/ssh').glob('ssh_host_*_key')); "
+                    "assert not Path('/etc/ssl/private/ssl-cert-snakeoil.key').exists()"
+                ),
+            ],
+            timeout=60,
+        )
     run(
         [
             "docker",
