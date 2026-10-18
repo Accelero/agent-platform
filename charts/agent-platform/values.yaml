@@ -553,6 +553,8 @@ workloads:
   hermes:
     enabled: false
     image: ''
+    podSecurityContext:
+      fsGroup: 1000
     env:
     - name: HERMES_UID
       value: '1000'

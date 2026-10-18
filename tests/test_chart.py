@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 import yaml
@@ -106,6 +107,28 @@ def test_complete_application_uses_chart_defaults_and_named_credentials(
         "SEARXNG_URL",
         "CAMOFOX_URL",
     }
+
+
+def test_non_root_hermes_can_read_group_restricted_credentials(
+    tmp_path: Path, values: dict
+) -> None:
+    """The setuid assistant needs its token, CA and SSH key without world access."""
+    objects = render(tmp_path, values)
+    pod = objects["Deployment", "hermes"]["spec"]["template"]["spec"]
+    container = pod["containers"][0]
+    gid = int(
+        next(item["value"] for item in container["env"] if item["name"] == "HERMES_GID")
+    )
+    assert pod["securityContext"]["fsGroup"] == gid
+    # The image still performs root initialization before dropping to Hermes.
+    assert not pod["securityContext"].get("runAsNonRoot", False)
+    mounts = {mount["name"]: mount for mount in container["volumeMounts"]}
+    volumes = {volume["name"]: volume for volume in pod["volumes"]}
+    for name in ("manager-token", "manager-ca", "controller-ssh"):
+        mode = volumes[name]["secret"]["defaultMode"]
+        assert mode & 0o040
+        assert not mode & 0o007
+        assert mounts[name]["readOnly"]
 
 
 def test_image_identity_and_mount_changes_reach_manager_and_admission_together(
