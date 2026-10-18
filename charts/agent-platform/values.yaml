@@ -1,0 +1,843 @@
+# Controllers are enabled by the administrator after empty native claims,
+# logins and restricted sandbox policies are initialized.
+existingSecret: agent-platform-secrets
+imagePullPolicy: IfNotPresent
+imagePullSecrets: []
+# Multica's native GitHub App. Credential values live only in the named Secret;
+# agent GitHub CLI credentials remain separate.
+multicaGithub:
+  enabled: false
+  appId: ''
+  appSlug: ''
+  existingSecret: multica-github-app
+  webhookIngress:
+    enabled: false
+    className: ''
+    host: ''
+    tlsSecretName: ''
+    controllerNamespace: ''
+persistence:
+  postgres-data:
+    enabled: true
+    existingClaim: ''
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+  redis-data:
+    enabled: true
+    existingClaim: ''
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+  rabbitmq-data:
+    enabled: true
+    existingClaim: ''
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+  multica-uploads:
+    enabled: true
+    existingClaim: ''
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+  searxng-cache:
+    enabled: true
+    existingClaim: ''
+    size: 2Gi
+    accessModes:
+    - ReadWriteOnce
+  hindsight-login:
+    enabled: true
+    existingClaim: ''
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+  hindsight-cache:
+    enabled: true
+    existingClaim: ''
+    size: 2Gi
+    accessModes:
+    - ReadWriteOnce
+  hermes-home:
+    enabled: false
+    existingClaim: ''
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+  codex-home:
+    enabled: false
+    existingClaim: ''
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+  codex-auth:
+    enabled: false
+    existingClaim: ''
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+  codex-native:
+    enabled: false
+    existingClaim: ''
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+  manager-state:
+    enabled: false
+    existingClaim: ''
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+configMaps:
+  searxng-settings:
+    settings.yml: "use_default_settings: true\nserver:\n  # Supplied privately through\
+      \ SEARXNG_SECRET.\n  limiter: false\n  image_proxy: false\nsearch:\n  formats:\
+      \ [html, json]\n"
+workloads:
+  shared-postgres:
+    enabled: true
+    kind: StatefulSet
+    image: hermes-stack-postgres:dev
+    env:
+    - name: POSTGRES_USER
+      value: stack_admin
+    - name: POSTGRES_DB
+      value: postgres
+    secretEnv:
+    - name: POSTGRES_PASSWORD
+      key: SHARED_POSTGRES_PASSWORD
+    - name: FIRECRAWL_PASSWORD
+      key: POSTGRES_PASSWORD
+    - name: HINDSIGHT_PASSWORD
+      key: HINDSIGHT_POSTGRES_PASSWORD
+    - name: MULTICA_PASSWORD
+      key: MULTICA_POSTGRES_PASSWORD
+    ports:
+    - name: postgres
+      port: 5432
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 3Gi
+    args:
+    - postgres
+    - -c
+    - shared_preload_libraries=pg_cron
+    - -c
+    - cron.database_name=firecrawl
+    - -c
+    - cron.use_background_workers=on
+    - -c
+    - max_worker_processes=32
+    - -c
+    - max_connections=200
+    readinessProbe:
+      tcpSocket:
+        port: postgres
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: postgres
+      periodSeconds: 5
+      failureThreshold: 60
+    persistence:
+    - name: postgres-data
+      mountPath: /var/lib/postgresql/data
+  redis:
+    enabled: true
+    kind: StatefulSet
+    image: redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    env: []
+    secretEnv: []
+    ports:
+    - name: redis
+      port: 6379
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    args:
+    - redis-server
+    - --appendonly
+    - 'yes'
+    readinessProbe:
+      exec:
+        command: [redis-cli, '-e', SET, 'hermes:platform:readiness', ok, EX, '30']
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: redis
+      periodSeconds: 5
+      failureThreshold: 60
+    persistence:
+    - name: redis-data
+      mountPath: /data
+  rabbitmq:
+    enabled: true
+    kind: StatefulSet
+    image: rabbitmq@sha256:e582c0bc7766f3342496d8485efb5a1df782b5ce3886ad017e2eaae442311f69
+    env:
+    - name: RABBITMQ_DEFAULT_USER
+      value: firecrawl
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.name
+    - name: RABBITMQ_NODENAME
+      value: rabbit@$(POD_NAME)
+    secretEnv:
+    - name: RABBITMQ_DEFAULT_PASS
+      key: RABBITMQ_PASSWORD
+    ports:
+    - name: amqp
+      port: 5672
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 1Gi
+    readinessProbe:
+      tcpSocket:
+        port: amqp
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: amqp
+      periodSeconds: 5
+      failureThreshold: 60
+    persistence:
+    - name: rabbitmq-data
+      mountPath: /var/lib/rabbitmq
+  multica-backend:
+    enabled: true
+    image: hermes-stack-multica-backend:dev
+    env:
+    - name: DATABASE_URL
+      value: postgres://multica:$(MULTICA_POSTGRES_PASSWORD)@shared-postgres:5432/multica?sslmode=disable
+    - name: PORT
+      value: '8080'
+    - name: APP_ENV
+      value: production
+    - name: MULTICA_DEV_VERIFICATION_CODE
+      value: ''
+    - name: FRONTEND_ORIGIN
+      value: http://127.0.0.1:3010
+    - name: CORS_ALLOWED_ORIGINS
+      value: http://localhost:3010
+    - name: MULTICA_APP_URL
+      value: http://127.0.0.1:3010
+    - name: ALLOW_SIGNUP
+      value: 'false'
+    - name: ALLOWED_EMAILS
+      value: test@hermes.local
+    - name: DO_NOT_TRACK
+      value: '1'
+    secretEnv:
+    - name: MULTICA_POSTGRES_PASSWORD
+      key: MULTICA_POSTGRES_PASSWORD
+    - name: JWT_SECRET
+      key: MULTICA_JWT_SECRET
+    ports:
+    - name: http
+      port: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 1Gi
+    podSecurityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+    readinessProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+      failureThreshold: 60
+    persistence:
+    - name: multica-uploads
+      mountPath: /app/data/uploads
+  multica-web:
+    enabled: true
+    image: ghcr.io/multica-ai/multica-web@sha256:b88402be269b6d4ea20bb22404b7532e4d7663f45c1c4952cf040f598398a03e
+    env:
+    - name: HOSTNAME
+      value: 0.0.0.0
+    - name: REMOTE_API_URL
+      value: http://multica-backend:8080
+    secretEnv: []
+    ports:
+    - name: http
+      port: 3000
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 1Gi
+    readinessProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+      failureThreshold: 60
+  camofox:
+    enabled: true
+    image: hermes-stack-camofox:dev
+    env:
+    - name: CAMOFOX_CRASH_REPORT_ENABLED
+      value: 'false'
+    - name: MAX_OLD_SPACE_SIZE
+      value: '512'
+    secretEnv:
+    - name: CAMOFOX_ACCESS_KEY
+      key: CAMOFOX_ACCESS_KEY
+    ports:
+    - name: http
+      port: 9377
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 3Gi
+    sharedMemory: 1Gi
+    readinessProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+      failureThreshold: 60
+  searxng:
+    enabled: true
+    image: searxng/searxng@sha256:a07a5cd2da2c63d66e559f9e4d3a3db106cfc6c32fb0ac70abe91cc28bcd7350
+    env:
+    - name: FORCE_OWNERSHIP
+      value: 'false'
+    secretEnv:
+    - name: SEARXNG_SECRET
+      key: SEARXNG_SECRET
+    ports:
+    - name: http
+      port: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    readinessProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+      failureThreshold: 60
+    persistence:
+    - name: searxng-cache
+      mountPath: /var/cache/searxng
+    volumes:
+    - name: settings
+      mountPath: /etc/searxng/settings.yml
+      subPath: settings.yml
+      source:
+        configMap:
+          name: searxng-settings
+  firecrawl:
+    enabled: true
+    image: hermes-stack-firecrawl:dev
+    env:
+    - name: HOST
+      value: 0.0.0.0
+    - name: PORT
+      value: '3002'
+    - name: ENV
+      value: local
+    - name: USE_DB_AUTHENTICATION
+      value: 'false'
+    - name: POSTGRES_HOST
+      value: shared-postgres
+    - name: POSTGRES_PORT
+      value: '5432'
+    - name: POSTGRES_USER
+      value: firecrawl
+    - name: POSTGRES_DB
+      value: firecrawl
+    - name: NUQ_DATABASE_URL
+      value: postgres://firecrawl:$(POSTGRES_PASSWORD)@shared-postgres:5432/firecrawl
+    - name: NUQ_RABBITMQ_URL
+      value: amqp://firecrawl:$(RABBITMQ_PASSWORD)@rabbitmq:5672
+    - name: REDIS_URL
+      value: redis://redis:6379
+    - name: REDIS_RATE_LIMIT_URL
+      value: redis://redis:6379
+    - name: PLAYWRIGHT_MICROSERVICE_URL
+      value: http://playwright:3000/scrape
+    - name: SEARXNG_ENDPOINT
+      value: http://searxng:8080
+    - name: NUQ_WORKER_COUNT
+      value: '1'
+    - name: NUM_WORKERS_PER_QUEUE
+      value: '2'
+    - name: CRAWL_CONCURRENT_REQUESTS
+      value: '2'
+    - name: MAX_CONCURRENT_JOBS
+      value: '2'
+    - name: BROWSER_POOL_SIZE
+      value: '2'
+    - name: HARNESS_STARTUP_TIMEOUT_MS
+      value: '120000'
+    secretEnv:
+    - name: POSTGRES_PASSWORD
+      key: POSTGRES_PASSWORD
+    - name: RABBITMQ_PASSWORD
+      key: RABBITMQ_PASSWORD
+    ports:
+    - name: http
+      port: 3002
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 6Gi
+    args:
+    - node
+    - dist/src/harness.js
+    - --start-docker
+    readinessProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+      failureThreshold: 60
+  playwright:
+    enabled: true
+    image: hermes-stack-playwright:dev
+    env:
+    - name: PORT
+      value: '3000'
+    - name: MAX_CONCURRENT_PAGES
+      value: '2'
+    - name: BLOCK_MEDIA
+      value: 'true'
+    secretEnv: []
+    ports:
+    - name: http
+      port: 3000
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 2Gi
+    sharedMemory: 512Mi
+    securityContext:
+      capabilities:
+        drop:
+        - ALL
+    readinessProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+      failureThreshold: 60
+  hindsight:
+    enabled: true
+    image: hermes-stack-hindsight:dev
+    env:
+    - name: HINDSIGHT_API_LLM_PROVIDER
+      value: openai-codex
+    - name: HINDSIGHT_API_LLM_MODEL
+      value: gpt-6-luna
+    - name: HINDSIGHT_API_LLM_REASONING_EFFORT
+      value: high
+    - name: CODEX_HOME
+      value: /home/hindsight/codex
+    - name: HINDSIGHT_API_DATABASE_URL
+      value: postgresql://hindsight:$(HINDSIGHT_POSTGRES_PASSWORD)@shared-postgres:5432/hindsight
+    - name: HINDSIGHT_API_WORKER_ID
+      value: hermes-hindsight-local
+    - name: HINDSIGHT_API_LOG_LEVEL
+      value: info
+    secretEnv:
+    - name: HINDSIGHT_POSTGRES_PASSWORD
+      key: HINDSIGHT_POSTGRES_PASSWORD
+    ports:
+    - name: http
+      port: 8888
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 4Gi
+    args:
+    - /bin/sh
+    - /opt/hindsight/start.sh
+    sharedMemory: 1Gi
+    readinessProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: http
+      periodSeconds: 5
+      failureThreshold: 60
+    persistence:
+    - name: hindsight-login
+      mountPath: /home/hindsight/codex
+    - name: hindsight-cache
+      mountPath: /home/hindsight/.cache
+  hermes:
+    enabled: false
+    image: hermes-stack-hermes:dev
+    env:
+    - name: HERMES_UID
+      value: '1000'
+    - name: HERMES_GID
+      value: '1000'
+    - name: HERMES_MANAGED_DIR
+      value: /etc/hermes
+    - name: HERMES_WRITE_SAFE_ROOT
+      value: ''
+    - name: MULTICA_SERVER_URL
+      value: http://multica-backend:8080
+    - name: MULTICA_APP_URL
+      value: http://127.0.0.1:3010
+    - name: MULTICA_DAEMON_AUTO_UPDATE
+      value: 'false'
+    - name: MULTICA_DAEMON_MAX_CONCURRENT_TASKS
+      value: '10'
+    - name: MULTICA_WORKSPACES_ROOT
+      value: /opt/data/.multica/workspaces
+    - name: FIRECRAWL_API_URL
+      value: http://firecrawl:3002
+    - name: SEARXNG_URL
+      value: http://searxng:8080
+    - name: CAMOFOX_URL
+      value: http://camofox:9377
+    - name: HERMES_DASHBOARD
+      value: '1'
+    - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+      value: ds
+    - name: API_SERVER_ENABLED
+      value: 'true'
+    - name: API_SERVER_HOST
+      value: 0.0.0.0
+    - name: EXECUTION_MANAGER_URL
+      value: https://execution-manager:8090
+    secretEnv:
+    - name: CAMOFOX_API_KEY
+      key: CAMOFOX_ACCESS_KEY
+    - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+      key: DASHBOARD_PASSWORD
+    - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
+      key: DASHBOARD_SECRET
+    - name: API_SERVER_KEY
+      key: API_SERVER_KEY
+    ports:
+    - name: api
+      port: 8642
+    - name: dashboard
+      port: 9119
+    - name: checkout
+      port: 19515
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 4Gi
+    args:
+    - gateway
+    - run
+    readinessProbe:
+      tcpSocket:
+        port: api
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: api
+      periodSeconds: 5
+      failureThreshold: 60
+    persistence:
+    - name: hermes-home
+      mountPath: /opt/data
+    volumes:
+    - name: manager-token
+      mountPath: /run/secrets
+      source:
+        secret:
+          secretName: execution-manager-auth
+          defaultMode: 288
+          items: [{key: hermes-token, path: execution-manager-token}]
+    - name: manager-ca
+      mountPath: /etc/execution-manager/tls
+      source:
+        secret:
+          secretName: execution-manager-tls
+          defaultMode: 288
+          items: [{key: tls.crt, path: ca.crt}]
+    - name: controller-ssh
+      mountPath: /opt/ssh
+      source:
+        secret:
+          secretName: execution-controller-ssh
+          defaultMode: 288
+          items: [{key: hermes-key, path: id_ed25519}]
+  codex-launcher:
+    enabled: false
+    image: hermes-stack-codex-launcher:dev
+    env:
+    - name: MULTICA_SERVER_URL
+      value: http://multica-backend:8080
+    - name: MULTICA_DAEMON_AUTO_UPDATE
+      value: 'false'
+    - name: MULTICA_DAEMON_DEVICE_NAME
+      value: codex-launcher
+    - name: MULTICA_WORKSPACES_ROOT
+      value: /opt/codex-data/.multica/workspaces
+    - name: MULTICA_CHECKOUT_UPSTREAM
+      value: http://127.0.0.1:19514
+    - name: MULTICA_CHECKOUT_BIND
+      value: 0.0.0.0
+    - name: MULTICA_CHECKOUT_PORT
+      value: '19515'
+    - name: CODEX_MAX_CONCURRENT_RUNS
+      value: '4'
+    - name: EXECUTION_MANAGER_URL
+      value: https://execution-manager:8090
+    secretEnv: []
+    ports:
+    - name: checkout
+      port: 19515
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    readinessProbe:
+      tcpSocket:
+        port: checkout
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: checkout
+      periodSeconds: 5
+      failureThreshold: 60
+    persistence:
+    - name: codex-home
+      mountPath: /opt/codex-data
+    - name: codex-auth
+      mountPath: /opt/codex-auth
+    - name: codex-native
+      mountPath: /opt/codex-native
+    volumes:
+    - name: manager-token
+      mountPath: /run/secrets
+      source:
+        secret:
+          secretName: execution-manager-auth
+          defaultMode: 288
+          items: [{key: codex-token, path: execution-manager-token}]
+    - name: manager-ca
+      mountPath: /etc/execution-manager/tls
+      source:
+        secret:
+          secretName: execution-manager-tls
+          defaultMode: 288
+          items: [{key: tls.crt, path: ca.crt}]
+    - name: controller-ssh
+      mountPath: /opt/ssh
+      source:
+        secret:
+          secretName: execution-controller-ssh
+          defaultMode: 288
+          items: [{key: codex-key, path: id_ed25519}]
+  execution-manager:
+    enabled: false
+    image: hermes-stack-execution-manager:dev
+    serviceAccountName: execution-manager
+    automountServiceAccountToken: true
+    podSecurityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
+    securityContext: {privileged: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+    env: []
+    secretEnv: []
+    ports:
+    - name: https
+      port: 8090
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    readinessProbe:
+      tcpSocket:
+        port: https
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: https
+      periodSeconds: 5
+      failureThreshold: 60
+    persistence:
+    - name: manager-state
+      mountPath: /state
+    volumes:
+    - name: manager-token
+      mountPath: /run/execution-manager-auth
+      source:
+        secret:
+          secretName: execution-manager-auth
+          defaultMode: 288
+          items: [{key: hermes-token, path: hermes-token}, {key: codex-token, path: codex-token}]
+    - name: manager-tls
+      mountPath: /etc/execution-manager/tls
+      source:
+        secret:
+          secretName: execution-manager-tls
+          defaultMode: 288
+    - name: manager-tmp
+      mountPath: /tmp
+      readOnly: false
+      source:
+        emptyDir: {sizeLimit: 32Mi}
+    - name: manager-config
+      mountPath: /etc/execution-manager/config.yaml
+      subPath: config.yaml
+      source:
+        configMap:
+          name: execution-manager-config
+networkPolicy:
+  enabled: true
+  bootstrapIngress:
+  - multica-backend
+  sandboxNamespace: ''
+  sandboxIngress: {}
+  ingress:
+    shared-postgres:
+    - multica-backend
+    - firecrawl
+    - hindsight
+    redis:
+    - firecrawl
+    rabbitmq:
+    - firecrawl
+    multica-backend:
+    - multica-web
+    - hermes
+    - codex-launcher
+    camofox:
+    - hermes
+    searxng:
+    - hermes
+    - firecrawl
+    firecrawl:
+    - hermes
+    playwright:
+    - firecrawl
+    hindsight:
+    - hermes
+    execution-manager:
+    - hermes
+    - codex-launcher
+    hermes:
+    - codex-launcher
+    codex-launcher:
+    - hermes
+
+# Worker execution boundary, installed with the platform even while controllers
+# are disabled. This identity preserves existing policy names and selectors.
+sandbox:
+  enabled: true
+  policyIdentity: agent-sandbox
+  # The manager account lives in the platform release namespace. Workers use
+  # this separate execution namespace; the manager cannot administer namespaces.
+  namespace: hermes-execution
+  createNamespace: true
+  managerServiceAccount: execution-manager
+  workerServiceAccount: sandbox-worker
+  imagePullSecrets: []
+  podSecurityVersion: v1.30
+  quota:
+    pods: '40'
+    requests.cpu: '16'
+    requests.memory: 24Gi
+    limits.cpu: '80'
+    limits.memory: 80Gi
+  # The chart never creates credentials or storage. An administrator provisions
+  # each worker-visible claim/Secret separately from controller-only state.
+  roles:
+    developer:
+      images: [hermes-stack-developer-execution:dev]
+      mounts: []
+    codex:
+      images: [hermes-stack-codex-execution:dev]
+      mounts: []
+    platform-operator:
+      images: [hermes-stack-platform-operator-execution:dev]
+      mounts: []
+    personal-assistant:
+      images: [hermes-stack-personal-assistant-execution:dev]
+      mounts: []
+    manager:
+      images: [hermes-stack-execution:dev]
+      mounts: []
+  # Mounts are exact allowlists. Each entry is either:
+  # {claim: tasks, mountPathPattern: '^/opt/tasks/[^/]+/[^/]+/workdir$',
+  #  subPathPattern: '^[^/]+/[^/]+/workdir$', readOnly: false}
+  # or {secret: execution-ssh-public, keys: [hermes],
+  #     mountPathPattern: '^/etc/ssh/authorized_keys/worker$', subPath: worker, readOnly: true}.
+  # EmptyDir volumes (including /dev/shm) are allowed. Projected tokens, hostPath,
+  # configMap, CSI and other volume sources, envFrom/valueFrom, extra containers,
+  # arbitrary service accounts and non-allowlisted images are rejected.
+  network:
+    publicInternet: true
+    excludedCIDRs:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 127.0.0.0/8
+      - 169.254.0.0/16
+    # Tool services require both sandbox egress and infra ingress permissions.
+    services:
+      - {name: multica-backend, ports: [8080]}
+      - {name: camofox, ports: [9377]}
+      - {name: firecrawl, ports: [3002]}
+      - {name: playwright, ports: [3000]}
+      - {name: searxng, ports: [8080]}
+      - {name: hermes, ports: [19515]}
+      - {name: codex-launcher, ports: [19515]}
+    # Only Operator receives explicit app-cluster API and gateway destinations.
+    # Exact /32 addresses and ports are supplied by the environment adapter.
+    operatorAppEndpoints: []
+    # Example: [{cidr: '172.25.0.3/32', port: 6443}, {cidr: '172.25.0.3/32', port: 443}].

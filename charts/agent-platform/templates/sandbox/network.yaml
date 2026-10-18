@@ -1,0 +1,97 @@
+{{- if .Values.sandbox.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-boundary
+  namespace: {{ .Values.sandbox.namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    {{- if .Values.sandbox.network.publicInternet }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: {{ toYaml .Values.sandbox.network.excludedCIDRs | nindent 14 }}
+    {{- end }}
+    {{- range .Values.sandbox.network.services }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Release.Namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .name }}
+      ports:
+        {{- range .ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+{{- range $role := keys .Values.sandbox.roles | sortAlpha }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-{{ $role }}-ssh
+  namespace: {{ $.Values.sandbox.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      hermes.stack/role: {{ $role }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Release.Namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ if eq $role "codex" }}codex-launcher{{ else }}hermes{{ end }}
+      ports:
+        - {protocol: TCP, port: 2222}
+{{- end }}
+{{- range .Values.sandbox.network.services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Values.sandbox.namespace }}
+spec:
+  type: ExternalName
+  externalName: {{ .name }}.{{ $.Release.Namespace }}.svc.cluster.local
+{{- end }}
+{{- if .Values.sandbox.network.operatorAppEndpoints }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: operator-app-endpoints
+  namespace: {{ .Values.sandbox.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      hermes.stack/role: platform-operator
+  policyTypes: [Egress]
+  egress:
+    {{- range .Values.sandbox.network.operatorAppEndpoints }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr }}
+      ports:
+        - {protocol: TCP, port: {{ .port }}}
+    {{- end }}
+{{- end }}
+
+{{- end }}

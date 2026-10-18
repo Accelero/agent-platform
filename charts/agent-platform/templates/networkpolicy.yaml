@@ -1,0 +1,123 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-platform-default-deny-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/part-of: agent-platform
+  policyTypes: [Ingress]
+---
+{{- range $name, $sources := .Values.networkPolicy.ingress }}
+{{- if (index $.Values.workloads $name).enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-ingress
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/name: {{ $name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- range $sources }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/name: {{ . }}
+        {{- end }}
+      ports:
+        {{- range (index $.Values.workloads $name).ports }}
+        - protocol: TCP
+          port: {{ .port }}
+        {{- end }}
+---
+{{- end }}
+{{- end }}
+{{- range $name := .Values.networkPolicy.bootstrapIngress }}
+{{- if (index $.Values.workloads $name).enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-bootstrap-ingress
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/name: {{ $name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # These trusted jobs live in the platform namespace. The manager can
+        # create Pods only in the separately restricted execution namespace.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: agent-platform-bootstrap
+      ports:
+        {{- range (index $.Values.workloads $name).ports }}
+        - {protocol: TCP, port: {{ .port }}}
+        {{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.networkPolicy.sandboxNamespace }}
+{{- range $name, $rule := .Values.networkPolicy.sandboxIngress }}
+{{- if (index $.Values.workloads $name).enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-sandbox-ingress
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/name: {{ $name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.networkPolicy.sandboxNamespace }}
+          podSelector:
+            matchExpressions:
+              - key: hermes.stack/role
+                operator: In
+                values: {{ toYaml $rule.roles | nindent 18 }}
+      ports:
+        {{- range $rule.ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $name, $ports := .Values.networkPolicy.externalIngress }}
+{{- if (index $.Values.workloads $name).enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-local-ingress
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/name: {{ $name }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        {{- range $ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

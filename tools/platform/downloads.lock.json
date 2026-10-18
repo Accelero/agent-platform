@@ -1,0 +1,32 @@
+{
+  "k3d": {
+    "url": "https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-linux-amd64",
+    "sha256": "06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0",
+    "kind": "binary",
+    "member": "k3d"
+  },
+  "kubectl": {
+    "url": "https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl",
+    "sha256": "65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8",
+    "kind": "binary",
+    "member": "kubectl"
+  },
+  "flux": {
+    "url": "https://github.com/fluxcd/flux2/releases/download/v2.9.6/flux_2.9.6_linux_amd64.tar.gz",
+    "sha256": "b4d22673e9246cbd628881f1a9ef3b090085dced291e42d804555cee8e8d42c5",
+    "kind": "tar",
+    "member": "flux"
+  },
+  "helm": {
+    "url": "https://get.helm.sh/helm-v3.22.0-linux-amd64.tar.gz",
+    "sha256": "1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb",
+    "kind": "tar",
+    "member": "linux-amd64/helm"
+  },
+  "gh": {
+    "url": "https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz",
+    "sha256": "bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386",
+    "kind": "tar",
+    "member": "gh_2.102.0_linux_amd64/bin/gh"
+  }
+}

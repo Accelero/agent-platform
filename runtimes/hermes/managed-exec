@@ -1,0 +1,29 @@
+#!/opt/hermes/.venv/bin/python
+"""Operator smoke/debug commands through the same leased terminal provider as Hermes."""
+import os
+import shlex
+import sys
+import uuid
+
+sys.path.insert(0, '/opt/hermes')
+os.environ.setdefault('HERMES_HOME', '/opt/data/profiles/personal-assistant')
+from hermes_cli.plugins import get_plugin_manager
+from tools.terminal_tool_lifecycle import ensure_task_env, cleanup_vm
+
+args = sys.argv[1:]
+if args[:1] == ['--']:
+    args = args[1:]
+if not args:
+    raise SystemExit('Usage: managed-exec -- command [args...]')
+get_plugin_manager().discover_and_load()
+task_id = 'operator-' + uuid.uuid4().hex
+environment = ensure_task_env(task_id)
+if environment is None:
+    raise SystemExit('Managed execution environment unavailable')
+try:
+    result = environment.execute(shlex.join(args), timeout=300, stdin_data=sys.stdin.read())
+    print(result['output'], end='')
+    status = result['returncode']
+finally:
+    cleanup_vm(task_id)
+raise SystemExit(status)

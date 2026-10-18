@@ -1,0 +1,46 @@
+{{- if and .Values.multicaGithub.enabled .Values.multicaGithub.webhookIngress.enabled }}
+{{- $ingress := .Values.multicaGithub.webhookIngress }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multica-github
+  namespace: {{ .Release.Namespace }}
+spec:
+  ingressClassName: {{ required "multicaGithub.webhookIngress.className is required" $ingress.className | quote }}
+  tls:
+    - hosts: [{{ required "multicaGithub.webhookIngress.host is required" $ingress.host | quote }}]
+      secretName: {{ required "multicaGithub.webhookIngress.tlsSecretName is required" $ingress.tlsSecretName }}
+  rules:
+    - host: {{ $ingress.host | quote }}
+      http:
+        paths:
+          {{- range list "/api/webhooks/github" "/api/github/setup" }}
+          - path: {{ . }}
+            pathType: Exact
+            backend:
+              service:
+                name: multica-backend
+                port:
+                  number: 8080
+          {{- end }}
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: multica-github-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: multica-backend
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ required "multicaGithub.webhookIngress.controllerNamespace is required" $ingress.controllerNamespace | quote }}
+      ports:
+        - {protocol: TCP, port: 8080}
+{{- end }}
+{{- end }}

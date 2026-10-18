@@ -1,0 +1,2 @@
+# Hindsight's local_external provider; installed at image build, never at boot.
+hindsight-client==0.10.1

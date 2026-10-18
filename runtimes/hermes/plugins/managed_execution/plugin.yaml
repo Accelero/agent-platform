@@ -1,0 +1,16 @@
+name: managed_execution
+version: 2.0.0
+description: Infrastructure-provisioned SSH environments with conversation and profile lifetimes.
+provides_hooks: [pre_llm_call, on_session_end, on_session_finalize, on_session_reset]
+config_schema:
+  manager_url: {type: str, default: 'https://execution-manager:8090', description: Manager HTTPS API URL}
+  ca_file: {type: str, default: /etc/execution-manager/tls/ca.crt, description: Trusted manager certificate}
+  token_file: {type: str, default: /run/secrets/execution-manager-token, description: Controller-only API credential file}
+  profile: {type: str, default: '', description: Stable profile identity; empty uses the active Hermes profile}
+  mode:
+    type: str
+    default: per_session
+    choices: [per_session, per_profile_on_demand, per_profile_always_running]
+    description: Environment lifetime
+  ssh_key: {type: str, default: /opt/ssh/id_ed25519, description: SSH client key on the controller}
+  acquire_timeout_seconds: {type: int, default: 180, description: Maximum wait for provisioning or a draining environment}

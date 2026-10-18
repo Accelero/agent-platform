@@ -1,0 +1,15 @@
+[project]
+name = "agent-platform"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = ["PyYAML==6.0.2"]
+
+[dependency-groups]
+dev = ["pytest>=9,<10", "ruff>=0.9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

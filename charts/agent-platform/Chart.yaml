@@ -1,0 +1,11 @@
+apiVersion: v2
+name: agent-platform
+description: Agent services, execution manager and worker isolation policies.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.30.0-0"
+sources:
+  - https://github.com/Accelero/agent-platform
+annotations:
+  org.opencontainers.image.source: https://github.com/Accelero/agent-platform

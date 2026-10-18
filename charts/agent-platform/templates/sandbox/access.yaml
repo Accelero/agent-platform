@@ -1,0 +1,66 @@
+{{- if .Values.sandbox.enabled }}
+{{- if .Values.sandbox.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.sandbox.namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    hermes.stack/sandbox: {{ .Values.sandbox.policyIdentity | quote }}
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: {{ .Values.sandbox.podSecurityVersion | quote }}
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.sandbox.workerServiceAccount }}
+  namespace: {{ .Values.sandbox.namespace }}
+automountServiceAccountToken: false
+{{- with .Values.sandbox.imagePullSecrets }}
+imagePullSecrets: {{ toYaml . | nindent 2 }}
+{{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.sandbox.managerServiceAccount }}
+  namespace: {{ .Release.Namespace }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: execution-manager
+  namespace: {{ .Values.sandbox.namespace }}
+rules:
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: execution-manager
+  namespace: {{ .Values.sandbox.namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.sandbox.managerServiceAccount }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: execution-manager
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: execution-workers
+  namespace: {{ .Values.sandbox.namespace }}
+spec:
+  hard: {{ toYaml .Values.sandbox.quota | nindent 4 }}
+
+{{- end }}

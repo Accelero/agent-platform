@@ -1,0 +1,86 @@
+--- a/server/internal/handler/actor_guards.go
++++ b/server/internal/handler/actor_guards.go
+@@ -118,3 +118,15 @@
+ 		return false
+ 	}
+ }
++
++// requireHumanUserID keeps credential issuance safe when a handler is called
++// outside its router group. Auth strips client actor headers and stamps the
++// machine source from the verified credential before this check runs.
++func requireHumanUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
++	if isMachineCredentialActor(r) {
++		writeError(w, http.StatusForbidden, "this endpoint is only available to human actors")
++		return "", false
++	}
++	return requireUserID(w, r)
++}
++
+--- a/server/internal/handler/personal_access_token.go
++++ b/server/internal/handler/personal_access_token.go
+@@ -58,7 +58,7 @@
+ }
+ 
+ func (h *Handler) CreatePersonalAccessToken(w http.ResponseWriter, r *http.Request) {
+-	userID, ok := requireUserID(w, r)
++	userID, ok := requireHumanUserID(w, r)
+ 	if !ok {
+ 		return
+ 	}
+@@ -111,7 +111,7 @@
+ }
+ 
+ func (h *Handler) ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request) {
+-	userID, ok := requireUserID(w, r)
++	userID, ok := requireHumanUserID(w, r)
+ 	if !ok {
+ 		return
+ 	}
+@@ -157,7 +157,7 @@
+ // cloud-node PATs are owned by Multica Cloud Fleet, not us — we don't even
+ // see the expiry locally.
+ func (h *Handler) RenewCurrentPersonalAccessToken(w http.ResponseWriter, r *http.Request) {
+-	userID, ok := requireUserID(w, r)
++	userID, ok := requireHumanUserID(w, r)
+ 	if !ok {
+ 		return
+ 	}
+@@ -253,7 +253,7 @@
+ }
+ 
+ func (h *Handler) RevokePersonalAccessToken(w http.ResponseWriter, r *http.Request) {
+-	userID, ok := requireUserID(w, r)
++	userID, ok := requireHumanUserID(w, r)
+ 	if !ok {
+ 		return
+ 	}
+--- a/server/internal/handler/auth.go
++++ b/server/internal/handler/auth.go
+@@ -748,7 +748,7 @@
+ // This allows cookie-authenticated browser sessions to obtain a bearer token
+ // that can be handed off to the CLI via the cli_callback redirect.
+ func (h *Handler) IssueCliToken(w http.ResponseWriter, r *http.Request) {
+-	userID, ok := requireUserID(w, r)
++	userID, ok := requireHumanUserID(w, r)
+ 	if !ok {
+ 		return
+ 	}
+--- a/server/cmd/server/router.go
++++ b/server/cmd/server/router.go
+@@ -1662,7 +1662,7 @@
+ 		// server/internal/handler/onboarding_shim.go.
+ 		r.Post("/api/me/onboarding/runtime-bootstrap", h.BootstrapOnboardingRuntime)
+ 		r.Post("/api/me/onboarding/no-runtime-bootstrap", h.BootstrapOnboardingNoRuntime)
+-		r.Post("/api/cli-token", h.IssueCliToken)
++		r.With(handler.RequireHumanActor).Post("/api/cli-token", h.IssueCliToken)
+ 		// Sliding session renewal for clients that hold the session as a
+ 		// string (Desktop, mobile). Browsers get theirs re-issued inline by
+ 		// middleware.Auth and never call this (MUL-7436).
+@@ -1914,6 +1914,7 @@
+ 		r.Post("/api/share-links/join", h.JoinByShareLink)
+ 
+ 		r.Route("/api/tokens", func(r chi.Router) {
++			r.Use(handler.RequireHumanActor)
+ 			r.Get("/", h.ListPersonalAccessTokens)
+ 			r.Post("/", h.CreatePersonalAccessToken)
+ 			r.Post("/current/renew", h.RenewCurrentPersonalAccessToken)
