@@ -19,6 +19,7 @@ async def _run(
     cwd: Path | None,
     *,
     include_stderr: bool,
+    diagnostics: Path | None,
 ) -> bytes:
     process = await asyncio.create_subprocess_exec(
         *args,
@@ -34,6 +35,8 @@ async def _run(
             process.kill()
         await process.wait()
         raise
+    if diagnostics is not None:
+        diagnostics.write_bytes((stdout + b"\n" + stderr)[-2_097_152:])
     if process.returncode:
         msg = f"Operational command failed with exit status {process.returncode}."
         raise RuntimeError(msg)
@@ -47,11 +50,19 @@ def run(
     timeout: float = 60,
     cwd: Path | None = None,
     include_stderr: bool = False,
+    diagnostics: Path | None = None,
 ) -> bytes:
     """Return private output in memory; never echo arguments, stdin or stderr."""
     try:
         return asyncio.run(
-            _run(args, data, timeout, cwd, include_stderr=include_stderr),
+            _run(
+                args,
+                data,
+                timeout,
+                cwd,
+                include_stderr=include_stderr,
+                diagnostics=diagnostics,
+            ),
         )
     except _COMMAND_ERRORS:
         msg = "Operational command could not run or exceeded its deadline."

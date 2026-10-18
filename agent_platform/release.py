@@ -180,12 +180,14 @@ def build(
             )
     sys.stdout.write("Building agent release " + version + ".\n")
     sys.stdout.flush()
-    run(args, cwd=ROOT, timeout=5400)
+    run(args, cwd=ROOT, timeout=5400, diagnostics=target / "build.log")
     images = (
         image_references(json.loads(metadata.read_text()), registry)
         if publish
         else {name: f"{registry}/{name}:{version}" for name in TARGETS}
     )
+    sys.stdout.write("Verifying built runtime images.\n")
+    sys.stdout.flush()
     run(
         [
             "docker",
@@ -221,6 +223,8 @@ def build(
         ],
         timeout=180,
     )
+    sys.stdout.write("Validating chart.\n")
+    sys.stdout.flush()
     chart = ROOT / "charts/agent-platform"
     run(["helm", "lint", str(chart)], timeout=60)
     render_chart(target, images)

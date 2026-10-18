@@ -72,6 +72,16 @@ jobs:
         run: >-
           uv run python -m agent_platform.release
           --version "${GITHUB_REF_NAME#v}" --revision "$GITHUB_SHA" --publish
+      - name: Upload build diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: build-diagnostics
+          path: |
+            .local/releases/*/build.log
+            .local/releases/*/images-metadata.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload release receipt and compatibility bundle
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

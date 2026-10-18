@@ -98,3 +98,27 @@ def test_publishing_only_runs_for_version_tags_on_hosted_runners():
     )
     assert "pulumi" not in commands.lower()
     assert "GITHUB_REF_NAME" in commands
+
+
+def test_failed_build_diagnostics_are_explicit_and_bounded(tmp_path):
+    """Only opted-in generic build output is retained, with a strict size bound."""
+    import sys
+
+    from agent_platform.command import run
+
+    path = tmp_path / "build.log"
+    with pytest.raises(RuntimeError) as error:
+        run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    'import sys; print("x" * 3_000_000); '
+                    'print("build failed", file=sys.stderr); sys.exit(2)'
+                ),
+            ],
+            diagnostics=path,
+        )
+    assert path.stat().st_size == 2_097_152
+    assert path.read_bytes().endswith(b"build failed\n")
+    assert "build failed" not in str(error.value)
