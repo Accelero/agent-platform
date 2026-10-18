@@ -45,7 +45,13 @@ def test_invalid_version_never_runs_build_commands(version):
         run.assert_not_called()
 
 
-def test_metadata_latest_is_published_after_validation_and_chart(tmp_path):
+@pytest.mark.parametrize("github_cache", [False, True])
+def test_metadata_latest_is_published_after_validation_and_chart(
+    tmp_path, monkeypatch, github_cache
+):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("ACTIONS_RUNTIME_TOKEN", "fixture-runtime-credential")
+    monkeypatch.setenv("ACTIONS_RESULTS_URL", "https://fixture.invalid/cache")
     commands = []
 
     def run(args, **kwargs):
@@ -69,7 +75,11 @@ def test_metadata_latest_is_published_after_validation_and_chart(tmp_path):
         patch.object(release, "run", side_effect=run),
         patch.object(release, "render_chart"),
     ):
-        receipt = release.build("0.1.0", "a" * 40, publish=True)
+        receipt = release.build(
+            "0.1.0", "a" * 40, publish=True, github_cache=github_cache
+        )
+    assert any("type=gha" in value for value in commands[0]) == github_cache
+    assert not any("type=registry" in value for value in commands[0])
     assert receipt["schema"] == 3
     assert receipt["version"] == "0.1.0"
     assert receipt["source"]["repository"] == release.REPOSITORY

@@ -56,6 +56,7 @@ not a complete installation: its external database, claims and Secrets must exis
 ## Release process
 
 1. Review the sources and passing checks. Bump the chart/project version for a new release.
+   Let the main-branch cache workflow finish before tagging to reuse its build layers.
 2. Push an explicit tag such as `v0.1.0`.
 3. The release workflow validates the tag against source versions and builds on
    `ubuntu-latest` with no deployment credentials. It publishes all five images,
@@ -63,12 +64,28 @@ not a complete installation: its external database, claims and Secrets must exis
    GitHub Release with permanent assets.
 4. GitHub initially creates GHCR packages as private. The package administrator
    must set the six runtime/metadata packages and chart package to public once in
-   package settings. Cache packages can stay private. Anonymous registry checks
+   package settings. Anonymous registry checks
    must pass before deploying without pull credentials.
 
 The workflow's repository-scoped `GITHUB_TOKEN` handles publishing. No registry
 push token belongs in a deployment cluster. Existing release tags are immutable
 by policy; use a new semantic version for changes rather than overwriting a release.
+
+## Build cache
+
+BuildKit uses GitHub Actions cache API v2 with one scope per image. A trusted
+`main` push builds the five targets with `type=cacheonly`, making the cache
+available to later release tags. This workflow publishes no runtime images or
+release artifacts. It also supports a manual run on `main` from the Actions tab.
+
+Release builds select `--github-cache`; local builds use the local builder cache.
+Both CI workflows export the short-lived cache runtime through masked environment
+variables. Cache credentials are never passed as command arguments or build inputs.
+No `*-cache` images are published to GHCR.
+
+The repository keeps GitHub's default 10 GB cache limit. GitHub evicts old entries
+when needed and expires caches that have not been accessed for seven days. Cache
+misses cause rebuilds; they do not change the published version's contract.
 
 ## Provenance
 

@@ -13,11 +13,10 @@ from pathlib import Path
 
 import yaml
 
+from agent_platform.build import ROOT, TARGETS, bake_arguments
 from agent_platform.command import run
 
-ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / ".local/releases"
-TARGETS = ("hermes", "execution-manager", "worker", "multica-backend", "state")
 REPOSITORY = "https://github.com/Accelero/agent-platform"
 REGISTRY = "ghcr.io/accelero/agent-platform"
 CHART_REGISTRY = "oci://" + REGISTRY + "/charts"
@@ -138,6 +137,7 @@ def build(
     publish: bool,
     registry: str = REGISTRY,
     chart_registry: str = CHART_REGISTRY,
+    github_cache: bool = False,
 ) -> dict:
     """Publish one explicit semantic version and a coherent latest release bundle."""
     if not VERSION.fullmatch(version) or not re.fullmatch(r"[a-f0-9]{40}", revision):
@@ -150,17 +150,10 @@ def build(
     target.mkdir(parents=True, exist_ok=True)
     metadata = target / "images-metadata.json"
     args = [
-        "docker",
-        "buildx",
-        "bake",
-        "--file",
-        "containers/docker-bake.hcl",
-        *TARGETS,
+        *bake_arguments(github_cache=github_cache),
         "--metadata-file",
         str(metadata),
         "--push" if publish else "--load",
-        "--set",
-        "*.platform=linux/amd64",
         "--set",
         "*.labels.org.opencontainers.image.revision=" + revision,
         "--set",
@@ -168,16 +161,6 @@ def build(
     ]
     for name in TARGETS:
         args.extend(["--set", f"{name}.tags={registry}/{name}:{version}"])
-        if publish:
-            cache = f"{registry}/{name}-cache:build"
-            args.extend(
-                [
-                    "--set",
-                    f"{name}.cache-from=type=registry,ref={cache}",
-                    "--set",
-                    f"{name}.cache-to=type=registry,ref={cache},mode=max",
-                ]
-            )
     sys.stdout.write("Building agent release " + version + ".\n")
     sys.stdout.flush()
     run(args, cwd=ROOT, timeout=5400, diagnostics=target / "build.log")
@@ -291,6 +274,7 @@ def main() -> int:
     parser.add_argument("--registry", default=REGISTRY)
     parser.add_argument("--chart-registry", default=CHART_REGISTRY)
     parser.add_argument("--publish", action="store_true")
+    parser.add_argument("--github-cache", action="store_true")
     args = parser.parse_args()
     try:
         receipt = build(
@@ -299,6 +283,7 @@ def main() -> int:
             publish=args.publish,
             registry=args.registry,
             chart_registry=args.chart_registry,
+            github_cache=args.github_cache,
         )
     except OSError, ValueError, RuntimeError:
         sys.stderr.write("Agent release failed; private command output suppressed.\n")

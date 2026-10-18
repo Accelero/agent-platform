@@ -6,7 +6,8 @@ mutable application state or deployment-specific backup scripts.
 
 ## Layout
 
-- `agent_platform/`: release builder and bounded command execution.
+- `agent_platform/`: shared BuildKit/cache configuration, release builder and
+  bounded command execution.
 - `containers/docker-bake.hcl`: the five supported release image targets.
 - `runtimes/`: Hermes adapters and execution-worker build sources.
 - `services/`: execution manager, patched Multica backend and generic state tools.
@@ -42,3 +43,8 @@ Do not overwrite an existing release version. Keep source/version OCI labels and
 upstream license notices. Advance `release:latest` only after validation succeeds.
 Public image layers and release metadata must contain no secrets or personal data.
 Publication and repository visibility changes require user authorization.
+
+Build caches use GitHub Actions API v2 with distinct scopes per image. Keep the
+trusted main-branch cache workflow separate from tag-only release publishing.
+Never recreate GHCR cache packages or pass cache credentials in command arguments.
+Keep the default cache storage limit unless the user authorizes paid storage.
