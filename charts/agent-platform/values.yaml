@@ -1002,7 +1002,7 @@ images:
   runtime-manager: ghcr.io/accelero/agent-platform/runtime-manager:dev
   agent-runtime: ghcr.io/accelero/agent-platform/agent-runtime:dev
   multica-backend: ghcr.io/accelero/agent-platform/multica-backend:dev
-  state: ghcr.io/accelero/agent-platform/state:dev
+  tools: ghcr.io/accelero/agent-platform/tools:dev
 runtimeManager:
   uid: 1000
   gid: 1000

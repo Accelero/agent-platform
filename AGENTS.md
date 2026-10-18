@@ -10,7 +10,7 @@ mutable application state or deployment-specific backup scripts.
   bounded command execution.
 - `containers/docker-bake.hcl`: the five supported release image targets.
 - `runtimes/`: Hermes adapters and agent-runtime build sources.
-- `services/`: runtime manager, patched Multica backend and generic state tools.
+- `services/`: runtime manager, patched Multica backend and generic operations tools.
 - `tools/platform/`: pinned command-line tools used by runtime images.
 - `charts/agent-platform/`: self-contained application chart and native configuration templates.
 - `examples/lightweight/`: nonsecret render fixture with optional services disabled.

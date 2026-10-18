@@ -165,7 +165,7 @@ def build(
             "none",
             "--entrypoint",
             "python",
-            images["state"],
+            images["tools"],
             "-c",
             (
                 "import boto3,kubernetes,yaml; import subprocess; "

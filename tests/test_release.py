@@ -29,10 +29,10 @@ def test_packaged_chart_has_pins_and_wiring_without_modifying_source(tmp_path):
         for name in release.TARGETS
     }
     original = (release.ROOT / "charts/agent-platform/values.yaml").read_bytes()
-    chart = release.prepare_chart(tmp_path, images, "0.3.0", "b" * 40)
+    chart = release.prepare_chart(tmp_path, images, "0.4.0", "b" * 40)
     assert yaml.safe_load((chart / "values.yaml").read_text())["images"] == images
     definition = yaml.safe_load((chart / "Chart.yaml").read_text())
-    assert definition["version"] == "0.3.0"
+    assert definition["version"] == "0.4.0"
     assert definition["annotations"]["org.opencontainers.image.revision"] == "b" * 40
     assert (chart / "templates/_runtime.tpl").is_file()
     assert (chart / "files/multica-gateway.nginx.conf").is_file()
@@ -81,15 +81,15 @@ def test_chart_is_published_last_without_a_custom_release_package(
         patch.object(release, "render_chart"),
     ):
         receipt = release.build(
-            "0.3.0", "a" * 40, publish=True, github_cache=github_cache
+            "0.4.0", "a" * 40, publish=True, github_cache=github_cache
         )
     assert any("type=gha" in value for value in commands[0]) == github_cache
     assert not any("type=registry" in value for value in commands[0])
     assert receipt["schema"] == 4
-    assert receipt["version"] == "0.3.0"
+    assert receipt["version"] == "0.4.0"
     assert receipt["source"]["repository"] == release.REPOSITORY
     assert "contract_sha256" not in receipt
-    assert not (tmp_path / "0.3.0/contract.zip").exists()
+    assert not (tmp_path / "0.4.0/contract.zip").exists()
     assert commands[-1][:2] == ["helm", "push"]
     assert not any(command[:3] == ["docker", "buildx", "build"] for command in commands)
     promotions = [
@@ -152,6 +152,7 @@ def test_imported_runtime_sources_are_complete_and_not_ignored():
         name = name.replace(
             "services/execution-manager/", "services/runtime-manager/"
         ).replace("runtimes/workers/", "runtimes/agent-runtime/")
+        name = name.replace("services/state-tools/", "services/tools/")
         if name == "services/runtime-manager/configuration.py":
             continue  # Replaced by the chart-owned native configuration generator.
         if name == "infra/kubernetes/native_files.py":

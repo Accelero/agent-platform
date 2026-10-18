@@ -5,7 +5,7 @@ HTTPS runtime manager and isolated agent runtimes. One versioned Helm chart owns
 service wiring, gateway configuration and runtime isolation. Images and charts
 are built on GitHub-hosted runners independently of deployment tooling.
 
-The application chart is the deployment artifact. **0.3.0** is the current
+The application chart is the deployment artifact. **0.4.0** is the current
 release. The source repository remains private; GHCR deployment packages
 are intended for anonymous public pulls.
 
@@ -13,12 +13,12 @@ are intended for anonymous public pulls.
 
 | Artifact | Versioned reference |
 | --- | --- |
-| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.3.0` |
-| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.3.0` |
-| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.3.0` |
-| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.3.0` |
-| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/state:0.3.0` |
-| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.3.0` |
+| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.4.0` |
+| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.4.0` |
+| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.4.0` |
+| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.4.0` |
+| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/tools:0.4.0` |
+| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.4.0` |
 
 The packaged chart pins all five images by manifest digest in `values.yaml`.
 The upstream Multica frontend also uses its reviewed digest. Containers remain
@@ -26,7 +26,7 @@ registry downloads; their filesystem layers are not embedded in the chart.
 Image `latest` tags are convenient for inspection. Deployments select one chart
 version or digest and use that chart's image defaults for a coherent application.
 
-The GitHub Release attaches the same `agent-platform-0.3.0.tgz` that is published
+The GitHub Release attaches the same `agent-platform-0.4.0.tgz` that is published
 to GHCR, plus an optional informational `artifacts.json`. Consumers need only the
 chart. There is no configuration ZIP or custom release container package in this
 release architecture. Obsolete `execution-manager`, `worker` and `release`
@@ -42,7 +42,7 @@ creates short-lived agent-runtime Pods when an agent needs command execution.
 
 ```bash
 helm install agents oci://ghcr.io/accelero/agent-platform/charts/agent-platform \
-  --version 0.3.0 --namespace agents --values values.yaml
+  --version 0.4.0 --namespace agents --values values.yaml
 ```
 
 See the [chart interface and configuration example](charts/agent-platform/README.md).
@@ -56,8 +56,11 @@ An infrastructure tool such as Pulumi provisions that environment, supplies
 values and deploys the chart. It does not generate the manager's native policy,
 import Python from an artifact, or build/push images. Provider logins, SMTP keys,
 personal seed files, backup orchestration and live state stay outside this repo.
-The `state` image contains generic tools; deployments project their own reviewed
-backup/seed/restore scripts into administrator Jobs.
+The `tools` image supplies Restic, PostgreSQL 17 command-line tools, Python and
+Kubernetes/S3/YAML libraries for short-lived administrator Jobs. Deployments
+project their own reviewed backup/seed/restore scripts and mount persistent data.
+An alternative tools image can provide these dependencies; publishing them once
+keeps backup and recovery independent of package installation at runtime.
 
 ## Development
 
@@ -74,7 +77,7 @@ helm lint charts/agent-platform
 For an explicit local build without publishing:
 
 ```bash
-uv run python -m agent_platform.release --version 0.3.0 --revision "$(git rev-parse HEAD)"
+uv run python -m agent_platform.release --version 0.4.0 --revision "$(git rev-parse HEAD)"
 ```
 
 Outputs are under ignored `.local/releases/`. Source defaults retain local `dev`
@@ -85,7 +88,7 @@ See [AGENTS.md](AGENTS.md) for repository guidance.
 
 1. Review passing checks and bump chart/project versions together. Let the trusted
    main cache workflow finish before tagging to reuse its build layers.
-2. Push an explicit immutable tag such as `v0.3.0`.
+2. Push an explicit immutable tag such as `v0.4.0`.
 3. GitHub Actions builds/tests and publishes five versioned images, renders/tests
    the chart with their exact digests, and packages it. Image convenience tags are
    updated before the OCI chart is published. The chart is published last so a new

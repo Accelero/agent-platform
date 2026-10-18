@@ -178,7 +178,7 @@
         "runtime-manager",
         "agent-runtime",
         "multica-backend",
-        "state"
+        "tools"
       ],
       "additionalProperties": {
         "type": "string",
