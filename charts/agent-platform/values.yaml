@@ -646,8 +646,6 @@ workloads:
           items:
           - key: hermes-token
             path: runtime-manager-token
-          - key: hermes-token
-            path: execution-manager-token
     - name: manager-ca
       mountPath: /etc/runtime-manager/tls
       source:
@@ -666,15 +664,6 @@ workloads:
           items:
           - key: hermes-key
             path: id_ed25519
-    - name: legacy-manager-ca
-      mountPath: /etc/execution-manager/tls
-      source:
-        secret:
-          secretName: runtime-manager-tls
-          defaultMode: 288
-          items:
-          - key: tls.crt
-            path: ca.crt
     imageKey: hermes
   codex-launcher:
     enabled: false
@@ -734,8 +723,6 @@ workloads:
           items:
           - key: codex-token
             path: runtime-manager-token
-          - key: codex-token
-            path: execution-manager-token
     - name: manager-ca
       mountPath: /etc/runtime-manager/tls
       source:
@@ -754,15 +741,6 @@ workloads:
           items:
           - key: codex-key
             path: id_ed25519
-    - name: legacy-manager-ca
-      mountPath: /etc/execution-manager/tls
-      source:
-        secret:
-          secretName: runtime-manager-tls
-          defaultMode: 288
-          items:
-          - key: tls.crt
-            path: ca.crt
   runtime-manager:
     enabled: false
     image: ''
@@ -1030,7 +1008,6 @@ runtimeManager:
   gid: 1000
   authSecret: runtime-manager-auth
   tlsSecret: runtime-manager-tls
-  legacyServiceAlias: false
   clients:
     hermes:
       deployment: hermes-stack

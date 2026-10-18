@@ -200,20 +200,22 @@ def test_gateways_deny_ingress_until_an_explicit_source_is_configured(tmp_path, 
     ]
 
 
-def test_upgrade_alias_preserves_existing_native_manager_urls(tmp_path, values):
-    values["runtimeManager"]["legacyServiceAlias"] = True
+def test_only_current_manager_service_and_credential_paths_are_rendered(
+    tmp_path, values
+):
     objects = render(tmp_path, values)
-    assert (
-        objects["Service", "execution-manager"]["spec"]["selector"][
-            "app.kubernetes.io/name"
-        ]
-        == "runtime-manager"
-    )
-    hermes = objects["Deployment", "hermes"]["spec"]["template"]["spec"]["containers"][
-        0
-    ]
-    paths = {mount["mountPath"] for mount in hermes["volumeMounts"]}
-    assert {"/etc/execution-manager/tls", "/etc/runtime-manager/tls"} <= paths
+    assert ("Service", "execution-manager") not in objects
+    hermes = objects["Deployment", "hermes"]["spec"]["template"]["spec"]
+    paths = {mount["mountPath"] for mount in hermes["containers"][0]["volumeMounts"]}
+    assert "/etc/runtime-manager/tls" in paths
+    assert "/etc/execution-manager/tls" not in paths
+    auth = next(
+        volume for volume in hermes["volumes"] if volume["name"] == "manager-token"
+    )["secret"]
+    assert auth["secretName"] == "runtime-manager-auth"
+    assert {item["path"] for item in auth["items"]} == {"runtime-manager-token"}
+    values["runtimeManager"]["legacyServiceAlias"] = True
+    render(tmp_path, values, valid=False)
 
 
 def test_native_backend_accepts_and_recognizes_chart_configured_runtime(

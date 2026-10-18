@@ -5,7 +5,7 @@ services, similar in scope to a Compose application. Helm renders Kubernetes
 resources; Kubernetes runs and reconciles them. An installed Helm release is an
 instance of this chart, separate from the GitHub Release that distributes it.
 
-Version **0.2.0** packages Multica backend/frontend, Hermes, two same-origin HTTP
+Version **0.3.0** packages Multica backend/frontend, Hermes, two same-origin HTTP
 gateways and a runtime manager, together with configuration and isolation rules.
 Agent-runtime Pods are created on demand by the manager rather than pre-created
 by Helm. Browser/search/memory and further agents remain optional and disabled.
@@ -115,13 +115,12 @@ digest. Tools implementing `latest` should select the newest stable chart once,
 then deploy its immutable digest with its own image defaults.
 
 Controllers are single-replica Recreate Deployments to avoid concurrent writers.
-Runtime manager state remains on `manager-state`; native `/home/worker` paths and
-SSH user stay compatible. `runtimeManager.legacyServiceAlias: true` additionally
-exposes `execution-manager` for existing native Hermes URLs. Compatibility token
-and CA mounts remain available. During migration, provision a certificate that
-covers both names and keep the old credential until the upgrade checkpoint passes.
-The cluster-wide policy/quota names retain their existing sandbox identity.
+Runtime manager state remains on `manager-state`; native runtime paths use the
+`worker` Unix account. Configure clients with `https://runtime-manager:8090`,
+`/run/secrets/runtime-manager-token` and `/etc/runtime-manager/tls/ca.crt`.
+The obsolete manager alias, token/CA paths and `legacyServiceAlias` option are
+removed. Old client configurations must be updated before starting the application.
 
-Published 0.1.0 remains immutable and uses the former receipt/contract interface.
-Its rollback requires the matching old deployment consumer; 0.2.0 and subsequent
-releases use this chart interface. Never silently overwrite a release to migrate.
+The obsolete `execution-manager`, `worker` and `release` GHCR packages are removed.
+Historical chart/Git tags are retained, but releases depending on those deleted
+packages are no longer supported. Publish a new version for all subsequent changes.

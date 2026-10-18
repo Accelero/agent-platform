@@ -47,18 +47,3 @@ spec:
 
 {{- end }}
 {{- end }}
-
-{{- if and .Values.runtimeManager.legacyServiceAlias (index .Values.workloads "runtime-manager").enabled }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: execution-manager
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/name: runtime-manager
-  ports:
-    - {name: https, port: 8090, targetPort: https}
-{{- end }}

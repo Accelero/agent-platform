@@ -58,7 +58,7 @@
   {{- range $volume := (index $workloads $name).volumes -}}
     {{- if eq $volume.name "manager-token" -}}
       {{- $_ := set $volume.source.secret "secretName" $.Values.runtimeManager.authSecret -}}
-    {{- else if has $volume.name (list "manager-ca" "legacy-manager-ca") -}}
+    {{- else if eq $volume.name "manager-ca" -}}
       {{- $_ := set $volume.source.secret "secretName" $.Values.runtimeManager.tlsSecret -}}
     {{- end -}}
   {{- end -}}
