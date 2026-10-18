@@ -5,7 +5,7 @@ services, similar in scope to a Compose application. Helm renders Kubernetes
 resources; Kubernetes runs and reconciles them. An installed Helm release is an
 instance of this chart, separate from the GitHub Release that distributes it.
 
-Version **0.4.0** packages Multica backend/frontend, Hermes, two same-origin HTTP
+Version **0.4.1** packages Multica backend/frontend, Hermes, two same-origin HTTP
 gateways and a runtime manager, together with configuration and isolation rules.
 Agent-runtime Pods are created on demand by the manager rather than pre-created
 by Helm. Browser/search/memory and further agents remain optional and disabled.

@@ -44,6 +44,15 @@ upstream license notices. Publish the chart only after matching images pass vali
 The chart owns configuration generation and exact image defaults; do not reintroduce
 a required metadata container, configuration ZIP or downloaded Python adapter.
 Public image layers and chart/receipt data must contain no secrets or personal data.
+Treat personal prompts, identities, profiles, skills and memory as sensitive too.
+Keep them in the private deployment repository or live mounted storage. Upstream
+public prompt templates remain part of pinned software, separate from personal seeds.
+`release-policy.json` enumerates chart and owned build inputs. Both release and
+cache builds stage only these reviewed files; vendored inputs must match their
+recorded upstream hashes. Never widen a context to include a deployment checkout.
+Run `uv run python -m agent_platform.privacy` before publication. It reports rule
+names without matched content. Keep ordinary Git attribution only with the
+maintainer's approval; the existing attribution has been explicitly approved.
 Publication and repository visibility changes require user authorization.
 
 Build caches use GitHub Actions API v2 with distinct scopes per image. Keep the

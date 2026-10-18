@@ -269,7 +269,7 @@ workloads:
     - name: ALLOW_SIGNUP
       value: 'false'
     - name: ALLOWED_EMAILS
-      value: test@hermes.local
+      value: owner@example.invalid
     - name: DO_NOT_TRACK
       value: '1'
     secretEnv:

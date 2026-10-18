@@ -53,6 +53,7 @@ def test_main_cache_build_never_pushes_or_loads_images(github_runtime, tmp_path)
 
     with (
         patch.object(build, "ROOT", tmp_path),
+        patch.object(build, "stage_contexts", return_value={}),
         patch.object(build, "run", side_effect=run) as command,
     ):
         build.warm_cache()

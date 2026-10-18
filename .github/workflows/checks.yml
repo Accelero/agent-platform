@@ -26,6 +26,7 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check agent_platform tests
       - run: uv run ruff format --check agent_platform tests
+      - run: uv run python -m agent_platform.privacy
       - run: uv run pytest -q
       - run: helm lint charts/agent-platform
       - name: Render lightweight deployment

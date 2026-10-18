@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 import sys
 from pathlib import Path
 
@@ -13,6 +12,7 @@ import yaml
 
 from agent_platform.build import ROOT, TARGETS, bake_arguments
 from agent_platform.command import run
+from agent_platform.privacy import chart_files, stage_contexts
 
 OUTPUT = ROOT / ".local/releases"
 REPOSITORY = "https://github.com/Accelero/agent-platform"
@@ -38,7 +38,11 @@ def prepare_chart(
 ) -> Path:
     """Package all executable wiring and exact runtime pins in the chart itself."""
     chart = target / "chart/agent-platform"
-    shutil.copytree(ROOT / "charts/agent-platform", chart, dirs_exist_ok=True)
+    for name in chart_files(ROOT):
+        source = ROOT / "charts/agent-platform" / name
+        destination = chart / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(source.read_bytes())
     values = yaml.safe_load((chart / "values.yaml").read_text())
     values["images"] = images
     (chart / "values.yaml").write_text(yaml.safe_dump(values, sort_keys=False))
@@ -117,9 +121,10 @@ def build(
         raise ValueError("Use explicit lowercase GHCR namespaces.")
     target = OUTPUT / version
     target.mkdir(parents=True, exist_ok=True)
+    contexts = stage_contexts(ROOT, target / "contexts")
     metadata = target / "images-metadata.json"
     args = [
-        *bake_arguments(github_cache=github_cache),
+        *bake_arguments(github_cache=github_cache, contexts=contexts),
         "--metadata-file",
         str(metadata),
         "--push" if publish else "--load",

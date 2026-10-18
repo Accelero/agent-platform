@@ -5,20 +5,20 @@ HTTPS runtime manager and isolated agent runtimes. One versioned Helm chart owns
 service wiring, gateway configuration and runtime isolation. Images and charts
 are built on GitHub-hosted runners independently of deployment tooling.
 
-The application chart is the deployment artifact. **0.4.0** is the current
-release. The source repository remains private; GHCR deployment packages
-are intended for anonymous public pulls.
+The application chart is the deployment artifact. **0.4.1** is the current
+release. GHCR deployment packages support anonymous public pulls once their
+package visibility is public. Source and package visibility are managed separately.
 
 ## Artifacts
 
 | Artifact | Versioned reference |
 | --- | --- |
-| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.4.0` |
-| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.4.0` |
-| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.4.0` |
-| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.4.0` |
-| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/tools:0.4.0` |
-| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.4.0` |
+| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.4.1` |
+| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.4.1` |
+| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.4.1` |
+| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.4.1` |
+| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/tools:0.4.1` |
+| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.4.1` |
 
 The packaged chart pins all five images by manifest digest in `values.yaml`.
 The upstream Multica frontend also uses its reviewed digest. Containers remain
@@ -26,7 +26,7 @@ registry downloads; their filesystem layers are not embedded in the chart.
 Image `latest` tags are convenient for inspection. Deployments select one chart
 version or digest and use that chart's image defaults for a coherent application.
 
-The GitHub Release attaches the same `agent-platform-0.4.0.tgz` that is published
+The GitHub Release attaches the same `agent-platform-0.4.1.tgz` that is published
 to GHCR, plus an optional informational `artifacts.json`. Consumers need only the
 chart. There is no configuration ZIP or custom release container package in this
 release architecture. Obsolete `execution-manager`, `worker` and `release`
@@ -42,7 +42,7 @@ creates short-lived agent-runtime Pods when an agent needs command execution.
 
 ```bash
 helm install agents oci://ghcr.io/accelero/agent-platform/charts/agent-platform \
-  --version 0.4.0 --namespace agents --values values.yaml
+  --version 0.4.1 --namespace agents --values values.yaml
 ```
 
 See the [chart interface and configuration example](charts/agent-platform/README.md).
@@ -77,7 +77,7 @@ helm lint charts/agent-platform
 For an explicit local build without publishing:
 
 ```bash
-uv run python -m agent_platform.release --version 0.4.0 --revision "$(git rev-parse HEAD)"
+uv run python -m agent_platform.release --version 0.4.1 --revision "$(git rev-parse HEAD)"
 ```
 
 Outputs are under ignored `.local/releases/`. Source defaults retain local `dev`
@@ -88,7 +88,7 @@ See [AGENTS.md](AGENTS.md) for repository guidance.
 
 1. Review passing checks and bump chart/project versions together. Let the trusted
    main cache workflow finish before tagging to reuse its build layers.
-2. Push an explicit immutable tag such as `v0.4.0`.
+2. Push an explicit immutable tag such as `v0.4.1`.
 3. GitHub Actions builds/tests and publishes five versioned images, renders/tests
    the chart with their exact digests, and packages it. Image convenience tags are
    updated before the OCI chart is published. The chart is published last so a new
@@ -103,6 +103,33 @@ The repository-scoped `GITHUB_TOKEN` publishes artifacts. Source repository and
 package visibility are separate; a private source repository's GitHub Release
 assets require repository access, so anonymous deployment uses the public GHCR
 chart. Never overwrite an existing version or recreate registry cache packages.
+
+## Release privacy
+
+Personal prompts, identities, profiles, skills, memory, credentials and live
+settings belong in private deployment inputs and mounted storage. This repository
+ships generic software and public upstream prompt templates. Its published images
+do not need your private deployment checkout.
+
+`release-policy.json` explicitly lists the owned files allowed in each Docker
+context and in the chart. Release and cache builds stage fresh contexts from those
+lists. Vendored files must match their recorded upstream hashes. Extra local files,
+including ignored configs, never enter the contexts. Unexpected chart files,
+inline prompt defaults, recognizable credentials and personal email addresses in
+owned payloads fail the privacy preflight before any build or push. Example-domain
+addresses and generic local identities are allowed. Existing Git author attribution
+is approved for publication.
+
+```bash
+uv run python -m agent_platform.privacy
+```
+
+Review changes to the input lists and source content together. Match details are
+kept out of diagnostics. Deployment tools supply private values only at install
+time; they do not regenerate or republish the chart with those values.
+Builds retain minimal supply-chain provenance and source/digest labels. The
+builder's automatic GitHub event-payload capture is disabled, keeping incidental
+event details out of future image attestations.
 
 ## Build cache
 

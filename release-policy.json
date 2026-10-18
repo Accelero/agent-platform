@@ -1,0 +1,91 @@
+{
+  "chart_files": [
+    "Chart.yaml",
+    "README.md",
+    "files/hermes-gateway.nginx.conf",
+    "files/multica-gateway.nginx.conf",
+    "templates/_application.tpl",
+    "templates/_helpers.tpl",
+    "templates/_runtime.tpl",
+    "templates/configmaps.yaml",
+    "templates/multica-github.yaml",
+    "templates/networkpolicy.yaml",
+    "templates/sandbox/access.yaml",
+    "templates/sandbox/admission.yaml",
+    "templates/sandbox/network.yaml",
+    "templates/services.yaml",
+    "templates/storage.yaml",
+    "templates/workloads.yaml",
+    "values.schema.json",
+    "values.yaml"
+  ],
+  "contexts": {
+    "hermes": {
+      "root": ".",
+      "files": [
+        "runtimes/hermes/Dockerfile",
+        "runtimes/hermes/multica-run",
+        "runtimes/hermes/multica-checkout-run",
+        "runtimes/hermes/managed-exec",
+        "runtimes/hermes/requirements.lock",
+        "runtimes/hermes/plugins/managed_execution/__init__.py",
+        "runtimes/hermes/plugins/managed_execution/plugin.yaml",
+        "runtimes/hermes/native_files.py",
+        "runtimes/hermes/runtime-init.py",
+        "runtimes/hermes/assistant-init",
+        "runtimes/agent-runtime/multica-checkout-proxy.py",
+        "config/managed-execution/config.yaml"
+      ]
+    },
+    "agent-runtime": {
+      "root": "runtimes/agent-runtime",
+      "files": [
+        "Dockerfile",
+        "sshd_config",
+        "ssh/environment-base.conf",
+        "entrypoint.sh",
+        "multica-checkout-proxy.py"
+      ]
+    },
+    "runtime-manager": {
+      "root": "services/runtime-manager",
+      "files": [
+        "Dockerfile",
+        "api.py",
+        "manager.py",
+        "backends.py",
+        "kubernetes_mounts.py",
+        "hermes_policy.py",
+        "codex_policy.py"
+      ]
+    },
+    "multica-backend": {
+      "root": "services/multica",
+      "files": [
+        "Dockerfile",
+        "auth-boundary.patch",
+        "auth-boundary_test.go",
+        "maintenance_linux_test.go"
+      ]
+    },
+    "platform-tools": {
+      "root": "tools/platform",
+      "files": [
+        "Dockerfile",
+        "downloads.lock.json",
+        "install.py"
+      ]
+    },
+    "multica-source": {
+      "root": "vendor/multica",
+      "provenance": true
+    },
+    "tools": {
+      "root": ".",
+      "files": [
+        "services/tools/Dockerfile",
+        "services/tools/Dockerfile.dockerignore"
+      ]
+    }
+  }
+}
