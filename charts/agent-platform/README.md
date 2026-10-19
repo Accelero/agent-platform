@@ -107,6 +107,13 @@ Mutable native settings live in retained storage, not Helm values. Claims and a
 chart-created sandbox namespace are retained on uninstall; losing the node disk
 still requires a separately designed backup/restore strategy.
 
+The Hermes gateway supports the normal dashboard, including chat, native
+authentication/session APIs, uploads and WebSocket connections. It forwards HTTP
+methods to Hermes, which enforces authentication, ownership and origin checks.
+Uploads have a 64 MiB gateway limit; streaming and WebSocket connections use a
+one-hour upstream idle timeout. Multica remains available as another task entry
+point. Native Hermes and runtime-manager settings govern task concurrency.
+
 ## Hermes dashboard OIDC
 
 Version 0.6.0 adds `hermes.dashboardAuth`. Earlier charts do not have this
