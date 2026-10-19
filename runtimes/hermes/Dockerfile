@@ -31,6 +31,8 @@ RUN uv --no-config pip install --python /opt/hermes/.venv/bin/python --no-deps -
 COPY runtimes/hermes/plugins/managed_execution /opt/hermes-stack/plugin-home/plugins/managed_execution
 COPY config/managed-execution /etc/hermes
 COPY runtimes/hermes/native_files.py runtimes/hermes/runtime-init.py /usr/local/lib/
+COPY runtimes/hermes/personal-init.py /usr/local/lib/personal-init.py
+COPY runtimes/hermes/personal-run.py /usr/local/lib/personal-run.py
 COPY runtimes/hermes/assistant-init /etc/cont-init.d/019-personal-assistant
 RUN chmod 755 /etc/cont-init.d/019-personal-assistant \
  && chmod -R a+rX /opt/hermes-stack

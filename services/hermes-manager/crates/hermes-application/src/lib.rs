@@ -411,6 +411,7 @@ pub trait OperationQueue: Send + Sync {
 }
 
 pub mod administration;
+pub mod materials;
 pub mod resources;
 pub mod routing;
 

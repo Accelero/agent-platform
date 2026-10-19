@@ -18,3 +18,7 @@ pythonpath = ["."]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.per-file-target-version]
+"runtimes/**/*.py" = "py313"
+"tests/personal_hermes/native_owner_payload.py" = "py313"

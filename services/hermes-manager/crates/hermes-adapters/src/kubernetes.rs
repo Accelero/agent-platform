@@ -32,6 +32,10 @@ pub struct KubernetesDriver {
 /// Deliberately no Debug: Secret manifests may contain bootstrap credentials.
 pub struct Manifest(Value);
 impl Manifest {
+    #[cfg(test)]
+    pub(crate) fn value(&self) -> &Value {
+        &self.0
+    }
     pub fn new(value: Value) -> Result<Self, Error> {
         if !value.is_object()
             || serde_json::to_vec(&value)

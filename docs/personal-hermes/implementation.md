@@ -61,7 +61,26 @@ published application. This file tracks evidence against the full
   The application resource reconciler uses a bounded kube-rs adapter, checks the
   live cluster/namespace UID, preserves resource versions in write/delete intents
   and verifies absence before completing retirement. Retained data has no
-  ordinary delete path. This layer does not yet render or commission Hermes.
+  ordinary delete path.
+- Create-once bootstrap vault with authenticated encryption bound to installation,
+  instance, operation, epoch, generation and purpose. Concurrent candidates reuse
+  the committed winner; missing keys block instead of regenerating credentials.
+  Original native/SSH/execution keys and seed survive template changes.
+- Typed personal workload renderer with separate retained home/workspace claims,
+  default-deny networking, non-root restricted Pods, disabled service-account
+  token mounting and one desired gateway/dashboard replica. Selected Secret files
+  keep the initialization key out of the running application. This renderer is
+  not yet connected to a controller or approved template-definition registry.
+- Native home initializer with durable signed intent/completion receipts,
+  no-follow home I/O, atomic file creation and missing-only seeding. Rust verifies
+  the Python completion receipt for the exact owner and material. Abrupt death
+  before/after config creation resumes without reseeding; completed initialization
+  preserves live settings, profiles, agents, memory and enrollment.
+- Direct non-root native supervisor for the gateway and dashboard, using a mounted
+  owner policy that wins over mutable native environment settings. Optional private
+  OIDC trust augments public roots for independent model-provider onboarding.
+  Runtime Python tooling targets the pinned image's Python 3.13 separately from
+  the repository's Python 3.14 operational code.
 
 ## Evidence and remaining gates
 
@@ -72,9 +91,9 @@ published application. This file tracks evidence against the full
 | Crash journal and ownership | Registry tests plus ten resource/proof tests; real Kubernetes create-before-UID-save recovery, current-version update/retry, foreign UID/proof rejection and finalizer/absence tests | Full controller integration and forced-process-death tests at every external boundary |
 | Proxy plugin | Go tests with race detector | Full native HTTP/upload/browser/cookie behavior and configured provider revocation |
 | Traefik | `tests/personal_hermes/router_compatibility.py`, pinned official image | End-to-end Rust/Keycloak/native Hermes acceptance |
-| Existing release | Python checks, 92 pytest tests including OpenAPI validation, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
+| Existing release | Python checks including OpenAPI validation and native initialization, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
 | Runtime policy/execution | Domain mount-path validation | Catalog/storage/effective-policy database model, execution API, environment/lease transactions, SSH driver and adapter extension |
-| Commissioning | Durable outbox, stable instance/resource reservations, authenticated ownership/UID adapter and application resource reconciler | Controller process, bootstrap RBAC/admission, templates, create-once secrets, home initialization, readiness and retained suspension |
+| Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; six encrypted-material tests, renderer isolation tests, cross-language receipt verification and 15 initialization tests; built native image startup/restart proof | Controller process, bootstrap RBAC/admission, persisted template definitions, readiness, execution policy and retained suspension integration |
 | Administration UI | Versioned administration contract, bearer and browser-session API; presentation-separated application ports | Remaining runtime/storage/owner/checkpoint contracts, generated client and React/Vite build |
 | Recovery | Fresh/existing registry gate and maintenance/epoch fencing | Trusted inventory scanner, checkpoint/receipt/restore lifecycle and coordinated full-data recovery tests |
 | Distribution | New workspace/plugin checks in CI | Dockerfiles, reviewed release inputs, opt-in chart values/schema/RBAC/networking, operator docs and acceptance qualification |
@@ -121,3 +140,15 @@ replacement and a changed unbound manifest, rejects stale destructive resource
 versions, and holds retirement until finalizers are removed and absence is
 observed. This is a transport/ownership proof with fixture administrator access,
 not admission, non-root Pod, storage, cron or full commissioning acceptance.
+
+The personal native runtime test builds the actual Hermes Dockerfile using only
+`release-policy.json` inputs. It runs both gateway and dashboard as UID/GID 1000,
+with no capabilities, a read-only root filesystem and no network. Without a model
+account, both native processes stay running during HTTP inactivity. The dashboard
+advertises only self-hosted OIDC, private APIs return 401 and HTML redirects to
+native login. A forced container kill/restart preserves the initialized home and
+owner memory, and the application cannot read the init-only key. The optional
+private CA is tested alongside retained public roots. Run
+`uv run python -m tests.personal_hermes.native_runtime --build`. This offline
+fixture proves native startup/authentication gating and process recovery, not a
+completed provider login, cron side-effect delivery or Kubernetes commissioning.

@@ -127,6 +127,23 @@ pub fn validate_sha256(digest: &str) -> Result<(), Invalid> {
     Ok(())
 }
 
+pub fn validate_image(image: &str) -> Result<(), Invalid> {
+    let (name, digest) = image.rsplit_once("@sha256:").ok_or(Invalid::Digest)?;
+    validate_sha256(digest)?;
+    if name.is_empty()
+        || name.len() > 512
+        || !name.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
+        || name.contains("//")
+        || name.split('/').any(|part| matches!(part, "" | "." | ".."))
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._/:-".contains(&b))
+    {
+        return Err(Invalid::Identifier);
+    }
+    Ok(())
+}
+
 /// 60 characters, stable across retries, and contains no personal identity.
 pub fn instance_namespace(installation: Uuid, instance: Uuid) -> String {
     format!(

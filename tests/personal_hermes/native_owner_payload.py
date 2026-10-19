@@ -162,9 +162,37 @@ def main():
         os.environ.pop("HERMES_DASHBOARD_EXPECTED_ISSUER")
         os.environ.pop("HERMES_DASHBOARD_EXPECTED_SUBJECT")
         assert provider().verify_session(access_token=foreign).user_id == "owner-b"
+
+        # A mutable native .env cannot replace mounted personal ownership policy.
+        policy = Path(temporary) / "context.json"
+        helper = sys.modules["plugins.dashboard_auth.self_hosted._platform_owner"]
+        helper.POLICY_FILE = policy
+        os.environ["HERMES_PERSONAL_INSTANCE_ID"] = "fixture-instance"
+        expect_error(ValueError, provider)
+        policy.write_text(
+            json.dumps(
+                {"schemaVersion": 1, "owner": {"issuer": ISSUER, "subject": "owner-a"}}
+            )
+        )
+        os.environ["HERMES_DASHBOARD_EXPECTED_ISSUER"] = ISSUER
+        os.environ["HERMES_DASHBOARD_EXPECTED_SUBJECT"] = "owner-b"
+        mounted = provider()
+        assert mounted.verify_session(access_token=own).user_id == "owner-a"
+        assert mounted.verify_session(access_token=foreign) is None
+        for owner in [
+            {"issuer": ISSUER, "subject": None},
+            {"issuer": None, "subject": "owner-a"},
+            {"issuer": "", "subject": ""},
+            {"issuer": None, "subject": None},
+        ]:
+            policy.write_text(json.dumps({"schemaVersion": 1, "owner": owner}))
+            expect_error(ValueError, provider)
+        policy.write_text("broken policy")
+        expect_error(ValueError, provider)
         print(
             "PASS: pinned native owner on login, every session check and refresh; "
-            "issuer/signature checks; no email linking; singleton compatibility"
+            "issuer/signature checks; immutable mounted policy; "
+            "no email linking; singleton compatibility"
         )
 
 
