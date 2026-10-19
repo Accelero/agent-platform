@@ -11,6 +11,10 @@ Read the [specification](specification.md) for required behavior and the
 - Implement the new manager and OIDC authentication adapter in Rust with separate
   domain/application crates and framework adapters. Use Axum/Tokio, kube-rs,
   SQLx/PostgreSQL and the openidconnect crate.
+- Consolidate assignment management, Hermes provisioning, route resolution and
+  terminal lifecycle in one Rust manager with one PostgreSQL control model.
+  Its API/UI and controller are process roles of the same product; only the
+  controller is elevated. Do not deploy per-Hermes execution managers.
 - Keycloak authenticates people and supplies stable OIDC identities.
 - An explicit assignment in the manager's PostgreSQL database decides whether a
   person gets a personal Hermes instance. A Keycloak user or group membership
@@ -33,8 +37,12 @@ Read the [specification](specification.md) for required behavior and the
   Internal routing headers carry only the authorized result. No user-selected
   backend, email-based routing or fallback to a shared owner's instance.
 - Each owner gets a namespace, persistent state, native authentication keys and
-  credentials. Reuse the existing execution `runtime-manager` inside that
-  namespace with an exact, owner-specific policy.
+  scoped execution-client credentials. The shared controller commissions Hermes
+  and terminal worker Pods there from exact, owner-specific database policy.
+- Each assignment has independently selected terminal-runtime image versions and
+  owner storage mounts, including approved network-home bindings. The manager
+  owns that policy; Hermes may select an allowed runtime ID. The Hermes service
+  image remains an independent approved instance-template choice.
 - Keep Multica accounts, board ownership and enrollment independent. Do not
   enroll new users under a shared board owner or copy that owner's model login.
 
@@ -68,6 +76,10 @@ until the explicit adoption phase succeeds.
   Hermes-access role does not establish instance ownership.
 - [ ] Prove a standalone personal instance starts without another person's
   Multica enrollment, provider login, prompts or files.
+- [ ] Capture the legacy execution protocol and test lease/session/delegate,
+  idempotency, exclusive acquisition, idle/recycle and draining behavior against
+  the new Rust module's planned contract. No legacy execution service in
+  personal mode.
 - [ ] Prototype namespace creation and constrained RoleBinding bootstrap using
   the intended manager ServiceAccount. Test the negative admission cases before
   granting production Kubernetes permissions.
@@ -88,6 +100,11 @@ bootstrap cannot grant the controller access to an unrelated namespace.
   in Rust with both mTLS and fresh user identity evidence.
 - [ ] Implement versioned SQL migrations, unique identity/assignment constraints,
   desired and observed generations, operation leases, idempotency and audit data.
+- [ ] Add immutable terminal-runtime versions, assignment defaults/allowlists,
+  owner storage bindings and desired/effective execution-policy generations.
+- [ ] Model scoped execution clients, environment/Pod generations, acquisition
+  requests, parent/delegate leases and expiry in PostgreSQL. Prove uniqueness,
+  exclusive grants and restart recovery without per-owner SQLite or static YAML.
 - [ ] Support an explicit fresh/restore/existing installation gate. Missing
   registry state alongside existing instance data must require recovery.
 - [ ] Define compatibility checks for instance-template versions and database
@@ -106,6 +123,9 @@ operations. No Kubernetes access is needed for these tests.
   optimistic concurrency and actor-attributed audit events.
 - [ ] Add the built-in UI for identity lookup, assignment creation, enable,
   suspend, revoke, template selection, instance status and safe retry.
+- [ ] Add typed administration endpoints/UI for terminal-runtime catalog versions,
+  per-assignment image/mount selection, storage bindings and policy activation
+  status. Keep credential values and raw Kubernetes specs out of the browser.
 - [ ] Create the React/TypeScript Vite application and generate its typed API
   client from the administration OpenAPI contract. Serve static assets with the
   Rust API/UI process, with same-origin browser sessions and CSRF protection.
@@ -126,23 +146,40 @@ can later move to a separate service without changing the core use cases.
 - [ ] Run API/UI and controller roles from one `hermes-manager` image in separate
   Deployments. Give only the controller a Kubernetes credential.
 - [ ] Create deterministic, installation-owned namespaces, storage, Services,
-  Secrets, ServiceAccounts, policies, Hermes and execution-manager workloads.
+  Secrets, ServiceAccounts, policies and Hermes workloads. Reconcile terminal
+  Pods on demand through the same constrained controller, without per-owner
+  managers.
 - [ ] Bootstrap namespace access through the restricted RBAC/admission mechanism
   in the architecture; preserve resource UID and installation checks.
 - [ ] Generate exact native configuration from reviewed platform templates.
-  Configure one distinct execution-manager client scope per owner. No wildcard
+  Configure one distinct execution API client scope per owner. No wildcard
   profile, volume, Secret, image or service-account authorization.
+- [ ] Implement the scoped `/execution/v1/...` API in the Rust manager, porting
+  existing lease semantics and adding optional approved `runtime_id` selection
+  to the Hermes adapter. Preserve old default behavior; never accept image,
+  template or volume specs directly in lease requests.
+- [ ] Render worker specs and image/mount/identity admission from one PostgreSQL
+  policy generation. Fence acquisitions and drain affected leases on
+  updates, with explicit applied status and bounded recovery of failed changes.
+- [ ] Prove custom terminal-image SSH compatibility and namespace-local registry
+  pull credentials. Apply approved pull refs in the new Rust execution driver.
+- [ ] Integrate owner storage bindings for existing or adapter-provisioned
+  namespace-local PVCs, including NFS/SMB network folders. Check required drivers,
+  mount-path reachability, permissions and retention without mounting in workers
+  through host paths or privileged commands.
 - [ ] Initialize private homes only when missing. Persist native settings,
   profiles, memory, uploads and user-created agents across reconciliation.
 - [ ] Implement capacity limits, bounded work queues, readiness conditions,
-  retry/backoff and crash recovery after each provisioning step.
+  per-owner/global execution quotas, retry/backoff and crash recovery after each
+  Hermes or terminal provisioning step.
 - [ ] Deny routing before suspension/decommissioning work, drain bounded active
   work and retain storage. Make permanent purge a separate explicit operation.
 
 Exit: concurrent enable/login/retry operations produce one instance per identity.
 Controller restart, lost responses, stale workers and conflicting object UIDs
 cannot duplicate instances or adopt foreign resources. Two users' execution Pods
-cannot select each other's homes or credentials.
+cannot select each other's homes or credentials. Different terminal images and
+mounts work independently, and unavailable network folders have no silent fallback.
 
 ### 4. Implement authenticated routing and native sessions
 
@@ -172,8 +209,14 @@ router, not directly against a backend.
 
 - [ ] Implement the versioned inventory and checkpoint interfaces without
   embedding a deployment's S3 credentials or backup scripts in this repository.
+- [ ] Inventory terminal policies, exact image versions and external storage
+  bindings. Preserve external data and apply its explicit payload-backup policy;
+  verify claim rebinding and availability before restored terminal execution.
 - [ ] Fence assignment changes and reconciliation during checkpoint/restore;
   drain execution, stop writers and export registry plus complete instance data.
+- [ ] Include the shared PostgreSQL environment/lease model in checkpoints;
+  invalidate pre-restore leases/endpoints and verify new Pod UID bindings before
+  allowing execution, without restoring separate per-owner manager databases.
 - [ ] Require encrypted full-payload readback before a completion receipt permits
   teardown. A failed checkpoint keeps the deletion gate closed.
 - [ ] Restore instance IDs, ownership, assignments and data together. Validate
@@ -197,6 +240,9 @@ the planned teardown rather than bypassing retention safeguards.
   infrastructure consumers supply values and Secret references only.
 - [ ] Add chart tests for incompatible singleton/personal modes, missing OIDC or
   recovery prerequisites, unsupported Kubernetes policy support and unsafe RBAC.
+- [ ] Prove personal mode deploys one shared manager control plane, no legacy
+  or per-owner execution-manager workloads and no Kubernetes token in API/UI,
+  Hermes or terminal Pods. Preserve the legacy singleton chart path explicitly.
 - [ ] Complete the acceptance matrix in the specification, repository checks,
   release privacy review and anonymous chart/image pull verification.
 - [ ] Add locked Rust build/test checks, workspace formatting, Clippy and database
@@ -231,6 +277,7 @@ instances, and the consumer can stop and restore the installation safely.
 A separately deployed administration panel is a later packaging change against
 the same API. Team/shared Hermes instances, automatic Multica enrollment,
 cross-owner impersonation, OAuth token exchange/on-behalf-of-user execution,
-arbitrary Kubernetes templates and a shared dynamic execution-manager catalog
-are outside this first implementation. The current per-instance execution
-manager avoids weakening the existing static execution authorization boundary.
+arbitrary Kubernetes templates and agent-supplied image/mount specifications are
+outside this first implementation. The shared Rust execution module and approved
+terminal-runtime catalog are included; preserve exact owner authorization in the
+database and generated admission policy rather than using a wildcard catalog.

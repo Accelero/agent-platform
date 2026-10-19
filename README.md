@@ -85,6 +85,9 @@ queries the manager's route API before selecting a backend; routing and active
 connection revocation remain subject to the documented compatibility tests.
 The built-in React/TypeScript dashboard uses Vite and calls the Rust API, which
 serves the production UI assets. The browser has no direct database access.
+One shared Rust manager and PostgreSQL control model handle assignments, Hermes
+provisioning, terminal image/mount policy, execution Pods and leases. Personal
+mode has no separate per-Hermes execution-manager service.
 Read the [implementation plan](docs/personal-hermes/plan.md),
 [specification](docs/personal-hermes/specification.md) and
 [architecture](docs/personal-hermes/architecture.md). These describe future work;

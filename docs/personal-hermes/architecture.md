@@ -7,9 +7,11 @@ See the [specification](specification.md) and [delivery plan](plan.md).
 ## Ownership and sources of truth
 
 Keycloak owns authentication, credentials, stable subjects and identity-provider
-roles. The manager owns platform assignments, instance identities, lifecycle and
-the registry of resources it commissioned. PostgreSQL is the durable assignment
-and registry store. Kubernetes is the observed execution environment.
+roles. One Rust manager owns assignments, Hermes instance provisioning, terminal
+runtime policy, execution environments, leases and the registry of resources it
+commissioned. PostgreSQL is the durable store for all manager control-plane
+state. Kubernetes is the observed execution environment. Native Hermes content
+and files remain in each owner's retained application storage.
 
 The authorization decision is the conjunction of a valid identity, any
 configured coarse identity-provider eligibility rule, an enabled manager
@@ -23,8 +25,8 @@ later must change deployment and presentation only, not these ownership rules.
 
 ## Implementation stack
 
-Implement the new manager and OIDC authentication adapter in Rust. Use Axum/Tokio for
-HTTP and asynchronous services, kube-rs for Kubernetes reconciliation, SQLx for
+Implement the new manager and OIDC authentication adapter in Rust. Use Axum/Tokio
+for HTTP and asynchronous services, kube-rs for Kubernetes reconciliation, SQLx for
 PostgreSQL and migrations, and the openidconnect crate for OIDC protocol work.
 Keep domain types and application interfaces separate from framework adapters.
 The manager serves its built-in React/TypeScript UI assets and versioned
@@ -72,21 +74,26 @@ flowchart LR
   K8s --> B[Owner B namespace]
   Router -->|native HTTP and WebSocket| A
   Router -->|native HTTP and WebSocket| B
+  A -->|Hermes scoped terminal leases| API
+  B -->|Hermes scoped terminal leases| API
 ```
 
 | Component | Responsibility | Credentials and privilege |
 | --- | --- | --- |
-| Manager API/UI | Administrator login, assignment commands, status, audit and internal route resolution | Manager application database role, admin OIDC client, optional directory reader; no Kubernetes token |
-| Manager controller | Reconcile desired instances and coordinated lifecycle operations | Controller database role, constrained namespace bootstrap and instance-scoped Kubernetes bindings |
+| Manager API/UI | Administrator login, assignments, terminal-runtime/storage policy, scoped execution leases, status, audit and internal route resolution | Scoped manager database roles, admin OIDC client, optional directory reader and execution-client verifier; no Kubernetes token |
+| Manager controller | Reconcile Hermes instances, terminal Pods and generations, expired leases, policy changes and coordinated lifecycle operations | Controller database role, constrained namespace bootstrap and instance-scoped Kubernetes bindings; the only manager role with Kubernetes credentials |
 | Rust router auth adapter | Validate OIDC sessions and supply fresh verified identity evidence for the routing plugin | Router OIDC client and restricted session-store role; no Kubernetes token or assignment writes |
 | Traefik proxy and routing plugin | Authenticate through ForwardAuth, query the manager, select a registered child backend and proxy native HTTP/WebSockets | Separate restricted ForwardAuth and manager mTLS clients, transient identity evidence and read-only generated configuration; no OIDC client secret, SQL credentials or Kubernetes token |
 | Personal Hermes | Native dashboard, agent state, model onboarding and exact owner authentication | Its own home, native session keys and approved service credentials |
-| Personal execution manager | Existing command-execution and lease management for that owner | A distinct client credential and namespaced worker permissions with exact admission policy |
+| Personal terminal worker | Non-root SSH execution for its owning Hermes, created on demand from approved image/mount policy | Its exact owner claims, selected key/Secret references and environment identity; no manager administration, database or Kubernetes credential |
 | Deployment/backup integration | Database, storage classes, ingress, identity-provider clients, encryption and external recovery storage | Deployment-owned infrastructure credentials, never distributed to personal instances |
 
 The API/UI and controller are two process roles in one new manager image, run as
 separate Deployments. This keeps the initial product together while preventing
 the browser-facing process from holding the controller's Kubernetes credential.
+They are roles of one manager product with one PostgreSQL control model, not
+separate assignment and execution managers. No per-Hermes manager Deployment,
+SQLite lease database or worker-provisioning ServiceAccount is created.
 The Rust router auth adapter is a second new platform image. Traefik uses its
 official image. Together they implement the logical `hermes-router` component;
 no separate frontend service is required yet.
@@ -114,6 +121,11 @@ these paths describe work to create, not existing packages. Domain code imports
 no HTTP, UI, Kubernetes or identity-provider SDK. Application code depends on
 ports such as `AssignmentRepository`, `InstanceRepository`, `IdentityDirectory`,
 `InstanceDriver`, `OperationQueue`, `AuditSink` and `CheckpointCoordinator`.
+Add `TerminalRuntimeRepository`, `StorageBindingRepository`,
+`ExecutionEnvironmentRepository`, `ExecutionLeaseRepository` and `ExecutionDriver`
+for the execution domain. Keep instance commissioning and terminal execution as
+separate application modules of this same manager, sharing transactional policy
+and ownership records.
 Rust traits express these ports; adapters implement them. HTTP endpoints invoke
 application commands and queries using a validated actor, never a UI-supplied
 administrator flag.
@@ -189,10 +201,10 @@ resolution independently reads the current assignment on every request.
 The first implementation uses one namespace per personal instance, with names
 derived from installation and random instance IDs, never from email addresses.
 Each namespace contains its Hermes Service/Deployment, retained home and
-workspace PVCs, native keys, optional provider credentials, an execution manager
-and its constrained worker resources. The manager database stays in the control
-plane. A single Kubernetes cluster hosts these namespaces; this adds no VM per
-user.
+workspace PVCs, native keys, optional provider credentials, a scoped execution
+client credential and constrained terminal worker resources. The manager stays
+in the control plane. A single Kubernetes cluster hosts these namespaces; this
+adds no VM per user.
 
 This choice lets Hermes and its execution Pods reference that owner's selected
 PVCs without cross-namespace mounts or a globally shared home. For RWO storage,
@@ -216,14 +228,18 @@ conventions are not RBAC enforcement. See Kubernetes's
 [RBAC guidance](https://kubernetes.io/docs/concepts/security/rbac-good-practices/).
 
 Inside an instance, permit only reviewed workload templates and volume/Secret
-references. Execution uses the existing runtime-manager's explicit client,
-deployment and profile policy, with distinct credentials for each instance.
+references. The shared Rust manager binds each execution client to one registered
+instance and its explicit profile/runtime policy. The same constrained controller
+creates Hermes resources and terminal Pods inside the owned namespace.
 Worker admission binds its permitted image, ServiceAccount, security context and
 exact PVC/Secret mounts to that instance. Never widen the current allowlist with
 wildcards to accommodate dynamic users.
 
 Default-deny networking admits the router to the native Hermes port, each Hermes
-to its own execution manager and only approved service egress. Workers cannot
+to the shared internal execution API and its own SSH worker endpoints, and only
+approved service egress. Separate execution API listeners/Service ports from
+administration, route resolution and checkpoints. An execution client cannot
+call those other boundaries even if it can reach the manager host. Workers cannot
 reach manager administration, PostgreSQL, another owner's backend or identity
 administration. The deployment must verify its CNI enforces the required
 [NetworkPolicies](https://kubernetes.io/docs/concepts/services-networking/network-policies/).
@@ -232,6 +248,55 @@ Hermes and workers have no Kubernetes API credential.
 The control plane is trusted infrastructure: an operator controlling it or the
 cluster can access instance secrets. The product does not expose that power as
 a routine UI impersonation feature.
+
+## Unified terminal lifecycle and database model
+
+The new Rust manager replaces the execution responsibility of the legacy Python
+`runtime-manager` in personal mode. Preserve the tested lease, idempotency,
+parent/delegate joining, scope isolation, idle/recycle and draining behavior in
+Rust. Do not deploy or wrap the old manager as an additional service in this
+mode. Keep the release 0.6.1 singleton path working until explicit adoption.
+
+The manager database stores assignments, immutable terminal-runtime versions,
+owner storage bindings, effective execution policies, scoped execution clients,
+environments/generations, leases, operation/outbox records and audit. A Hermes
+client authenticates to `/execution/v1/...`; its credential resolves the owning
+instance server-side. Its native settings may choose an allowed `runtime_id`,
+but image, mounts, resources and Kubernetes namespace come from PostgreSQL policy.
+There is no per-instance execution configuration file as a competing source.
+
+On lease acquisition, the API checks current assignment access and owner/runtime
+scope, reserves an idempotent environment and commits a provisioning operation.
+The controller reads the pinned policy generation, applies matching admission
+rules and creates or reuses the exact terminal Pod. The API grants a lease and
+SSH endpoint only after verified readiness. Existing clients can retry a bounded
+`409` provisioning response using the same request ID. Commands flow directly
+from Hermes over SSH to that worker; the manager does not proxy terminal bytes.
+Recheck the current assignment and policy generation in the lease-grant
+transaction so a revoke during provisioning cannot grant new execution.
+
+Use unique scoped environment/request identities, short PostgreSQL transactions,
+database-time lease expiry, row locks/optimistic versions and fenced controller
+work. Do not hold a transaction across Kubernetes calls. Multiple API/controller
+processes must not double-grant exclusive environments, revive an expired lease
+or recreate a retired Pod generation. Release, expiry, session close, restart
+and policy changes reconcile from the database, retaining owner data.
+
+Keep the Hermes application image separate from its terminal runtime image.
+Approved runtime versions carry exact image digests and the managed SSH contract.
+Owner mount bindings resolve to exact namespace-local PVCs and read/write paths;
+optional network-home claims are provisioned by the deployment's storage adapter.
+The controller derives worker specs and admission from the same policy generation,
+including namespace-local image-pull credentials. Storage drivers, private routes,
+share ACLs and credential references remain deployment inputs. The
+[terminal specification](specification.md#per-hermes-terminal-images-and-mounts)
+defines selection, image compatibility, policy changes and external-data retention.
+
+Policy changes fence new acquisitions and drain only affected environments before
+activating a new generation. New work cannot start with a mismatched image,
+mount set or admission policy. The React administration UI reports desired and
+applied generations, active environments/leases and redacted conditions through
+the Rust API; it has no direct database or Kubernetes access.
 
 ## Browser authentication and native Hermes sessions
 
@@ -398,7 +463,8 @@ boundaries. A new manager assignment does not create a board membership.
 Dynamic instances invalidate a fixed backup dataset/Secret list. Before adoption,
 the deployment integration must consume a versioned inventory containing all
 instance IDs, owner keys, namespace/resource UID bindings, PVC datasets, selected
-Secrets, template/image digests and execution-manager state.
+Secrets, template/image digests, terminal-runtime/storage policy and execution
+environment/lease state from the shared manager database.
 
 The manager exposes prepare, inventory, completion and resume interfaces to a
 trusted checkpoint coordinator. Fence configuration changes and reconciliation,
@@ -431,6 +497,10 @@ manager configuration or one Pulumi resource per user.
 The feature is opt-in. Keep the current singleton chart path until explicit
 adoption succeeds, reject simultaneous direct singleton/router exposure at the
 same hostname, and pin all new images by digest with the existing release set.
+Personal mode installs only the shared Rust manager for both commissioning and
+terminal lifecycle; it must not install legacy or per-owner runtime-manager
+Deployments. Custom terminal image digests are approved database policy, separate
+from the release-pinned Hermes/manager/router software images.
 Do not create a Helm release per user or install software by downloading and
 executing deployment scripts. Database/schema and backup-inventory compatibility
 must be reviewed along with the image/chart upgrade.

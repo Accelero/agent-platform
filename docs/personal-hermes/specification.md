@@ -6,7 +6,9 @@ selects the component design; the [plan](plan.md) defines delivery gates.
 
 ## Scope and terminology
 
-The manager commissions one personal Hermes instance for each configured user.
+One Rust manager commissions a personal Hermes instance and terminal workers for
+each configured user, using PostgreSQL for assignments, runtime policy,
+environments and leases.
 The router exposes a common Hermes URL and routes authenticated requests to
 that user's instance. The manager includes the first administration UI, behind a
 separate versioned API so presentation can later move into its own service.
@@ -24,7 +26,9 @@ This is OIDC-based backend selection, not merely OIDC protecting a fixed backend
 | Assignment | Manager-owned authorization and desired instance configuration for an identity |
 | Instance | Stable platform ID, private namespace, native Hermes state and approved execution resources |
 | Platform administrator | Actor with the configured management-client permission, distinct from a personal Hermes owner |
-| Execution manager | Existing `runtime-manager`, responsible for scoped execution and leases rather than user assignment |
+| Execution module | Terminal provisioning and lease lifecycle inside the same Rust manager; no separate per-owner execution-manager service |
+| Terminal runtime | Approved Kubernetes SSH worker image and execution policy, separate from the Hermes application image |
+| Storage binding | Owner-bound reference to a namespace-local claim, with permitted mount paths, access and recovery policy |
 | Installation | Durable platform ownership identity shared by registry, resources and recovery manifests |
 
 ## Required behavior
@@ -44,6 +48,9 @@ This is OIDC-based backend selection, not merely OIDC protecting a fixed backend
 | P11 | New assignments must not inherit a board owner's enrollment, model login, API keys, private prompts or service privileges. |
 | P12 | The verified OIDC `(issuer, subject)` must determine backend selection through the manager assignment. The same hostname and path must reach different backends for different configured owners. |
 | P13 | A thin Traefik plugin must query the Rust manager's internal resolver for each HTTP request and WebSocket opening handshake. It has no direct SQL access and cannot create arbitrary proxy destinations. |
+| P14 | Each Hermes assignment must have independently configurable terminal image versions and mounts. Reusing an image must never reuse another owner's storage or credentials. |
+| P15 | One Rust manager must administer user-to-instance assignments, serve route resolution and reconcile both Hermes instances and terminal worker Pods. Only its controller role receives elevated Kubernetes permissions. |
+| P16 | PostgreSQL must durably model all manager assignments, runtime/storage configuration, execution clients, environments, leases and lifecycle operations. Personal mode must not depend on a separate execution-manager service, per-owner SQLite state or independent static execution configuration. |
 
 ## Assignment administration
 
@@ -77,6 +84,11 @@ without a Vite or Node.js server. Generate the frontend API client from the
 administration contract, keep tokens server-side and enforce authorization/CSRF
 in Rust. No browser bundle may contain database credentials or live user data.
 
+Administrators must also manage the approved terminal-runtime catalog and each
+assignment's default/allowed runtime versions, storage bindings, resources and
+desired/effective policy status. Configure the Hermes application image through
+its approved instance template independently of the terminal worker image.
+
 ## Durable data contract
 
 Use versioned PostgreSQL migrations and explicit constraints, at least:
@@ -85,8 +97,14 @@ Use versioned PostgreSQL migrations and explicit constraints, at least:
 | --- | --- |
 | Installation | Stable ID, schema/template versions, bootstrap/recovery mode and maintenance epoch |
 | Identity | Stable ID, exact issuer and subject, optional display/email cache; unique `(issuer, subject)` |
-| Assignment | Installation, identity, desired access/state, approved template ID/version, resource/storage policy, optimistic version; unique `(installation_id, identity_id)` |
+| Assignment | Installation, identity, desired access/state, approved instance-template ID/version, default/allowed terminal-runtime versions, owner-specific mount/resource policy, optimistic version; unique `(installation_id, identity_id)` |
 | Instance | Stable random ID, assignment ID, desired/observed generation, namespace name/UID, readiness conditions; unique assignment ID |
+| Terminal-runtime version | Stable catalog ID and immutable version, exact OCI image digest, Kubernetes SSH contract, UID/GID, approved resources/environment/network policy and pull-Secret references |
+| Storage binding | Installation/owner, registered namespace/PVC identity and backing-storage reference, exact permitted mounts/access, external ownership, required/optional status and backup/retention policy; no inline credentials |
+| Effective execution policy | Instance, approved runtime versions and resolved owner mounts, desired/applied generation, content digest, activation/drain status and rendered worker/admission identities |
+| Execution client | Stable ID, owning instance, credential hash/reference, allowed profiles, rotation/revocation state; cannot assert another owner or administer configuration |
+| Execution environment/generation | Installation/instance, profile, runtime version, session or profile lifetime key, effective policy digest, desired/observed generation, namespace/Pod UID binding, readiness and drain/retirement state; unique active scoped environment identity |
+| Execution request/lease | Client-scoped idempotency request/body digest and environment, lease ID, parent/delegate relationship, expiry/heartbeat/release state and fencing version; transactional uniqueness and exclusive-mode constraints |
 | Owned resource | Instance ID, kind, namespace, name, observed UID, purpose and retention disposition; reject foreign UID adoption |
 | Operation/outbox | Type, instance, desired generation, idempotency key/body digest, lease owner/expiry, fencing version, bounded retry status |
 | Audit event | Immutable actor issuer/subject or authenticated service ID, action, target, timestamp, request ID and redacted change metadata |
@@ -143,11 +161,17 @@ Endpoints below are proposed API v1, not routes supported by release 0.6.1.
 | Administration session | `GET /api/v1/session` | Current administrator actor, permitted actions and browser CSRF token; no provider tokens |
 | Administration | `GET /api/v1/identities`, `GET /api/v1/assignments` | Authorized administrator; bounded pagination and optional read-only lookup |
 | Administration | `GET /api/v1/templates` | Authorized administrator; approved template IDs, versions and policy summaries, without manifests or secrets |
+| Administration | `GET/POST /api/v1/terminal-runtimes`, `GET /api/v1/terminal-runtimes/{id}/versions`, `POST /api/v1/terminal-runtimes/{id}/versions` | Inspect/register approved terminal definitions and immutable image/policy versions; mutations require idempotency and audit |
+| Administration | `GET/POST /api/v1/storage-bindings`, `GET/PATCH /api/v1/storage-bindings/{id}` | Register owner-bound storage references and permitted access; no inline credentials, raw Pod/PV specs or arbitrary cross-namespace claims |
+| Administration | `GET/PATCH /api/v1/assignments/{id}/execution` | Configure default/allowed terminal runtimes and mounts; inspect desired/effective policy and operation status; PATCH requires `If-Match` |
 | Administration | `POST /api/v1/assignments` | Create exact identity assignment; require `Idempotency-Key`; return `202` with operation and assignment |
 | Administration | `GET/PATCH /api/v1/assignments/{id}` | Inspect/update permitted fields; PATCH requires `If-Match`; identity and instance IDs are immutable |
 | Administration | `GET /api/v1/instances/{id}`, `POST /api/v1/instances/{id}/reconcile` | Inspect owned metadata or enqueue bounded retry; cannot supply workload manifests |
+| Administration | `GET /api/v1/instances/{id}/execution-environments` | Redacted environment/lease status and applied policy, without command content or credentials |
 | Administration | `GET /api/v1/operations/{id}`, `GET /api/v1/audit-events` | Inspect progress and redacted audit with administrator permission |
 | Router internal | `POST /internal/v1/routes/resolve` | mTLS Traefik plugin identity plus fresh audience-bound user access token; exact verified issuer/subject; no assignment mutation |
+| Execution internal | `POST /execution/v1/leases/acquire` | Instance-scoped Hermes client; profile/session/lifetime, idempotency request and optional approved `runtime_id`, parent lease and bounded invocation context; image/mount/template specs are invalid |
+| Execution internal | `POST /execution/v1/leases/heartbeat`, `POST /execution/v1/leases/release`, `POST /execution/v1/sessions/close`, `GET /execution/v1/environments` | Same scoped client; renew/release/close/inspect only its authorized execution state |
 | Checkpoint internal | `POST /internal/v1/checkpoints`, `GET /internal/v1/checkpoints/{id}/inventory`, `POST /internal/v1/checkpoints/{id}/complete`, `POST /internal/v1/checkpoints/{id}/resume` | Dedicated coordinator identity; fenced lifecycle, never available to router/browser roles |
 | Owner at router | `GET /_platform/me`, `GET /_platform/status` | Current authenticated owner's status only, with no arbitrary owner ID parameter |
 | Platform auth at router | `/_platform/login`, `/_platform/oidc/callback`, `POST /_platform/logout` | Router OIDC/session lifecycle; separate from native Hermes callbacks |
@@ -172,6 +196,23 @@ Malformed/unapproved configuration returns `422`; unauthenticated requests use
 `401` and insufficient permission uses `403`. Browser navigation may redirect to
 login, but API mutations must not be replayed across an authentication redirect.
 Responses and errors must not expose another owner's data or credentials.
+
+Execution routes are part of this Rust manager, on a restricted internal
+listener/Service boundary. A per-instance credential determines instance scope
+server-side and cannot call administration, routing or checkpoint endpoints.
+Native Hermes can use a manager base URL ending in `/execution` with its current
+`/v1/...` request paths. The Rust API must preserve validated native lease
+payload/response semantics, while adding approved `runtime_id` selection.
+
+An acquire request returns the ready environment/generation, lease ID/TTL and
+SSH endpoint only after Pod readiness. Pending provisioning uses bounded `409`
+retry with the same client-scoped request ID; dependencies failing use `503`.
+No lease is active while the Pod is still provisioning. The database must
+deduplicate retries and fence exclusive acquisitions. Heartbeat/release/session
+close independently verify owner, environment and parent/delegate scope.
+The lease-grant transaction must recheck current assignment access and effective
+policy generation after provisioning. Reject new work during revoke/drain and
+never revive a lease that expired before a heartbeat or parent-lease join.
 
 The internal resolver returns `ready`, `pending`, `denied` or `unavailable` with
 bounded reason codes. A ready result contains a stable instance ID, registered
@@ -300,16 +341,141 @@ selected volume/Secret references, non-root execution, resource limits and
 default-deny network policies. Namespaces and labels are identifiers, not a
 substitute for tested RBAC, admission and network enforcement.
 
-Execution workers can reference only that owner's approved template, profile,
-PVCs, Secret keys and services. A shared manager credential or global mutable
-home is invalid. The existing execution manager remains a separate component;
-its per-instance static configuration must preserve current lease and task
-isolation behavior. Unsupported storage sharing/scheduling must block readiness.
+Execution workers can reference only that owner's approved runtime, profile,
+PVCs, Secret keys and services. A credential shared across instances or global
+mutable home is invalid. The shared Rust controller handles worker lifecycle,
+using exact instance/namespace/Pod UID bindings and the PostgreSQL policy.
+Preserve existing lease/task isolation, idle/recycle and crash recovery behavior
+without deploying a second execution manager. Unsupported storage sharing or
+scheduling blocks the affected terminal runtime rather than changing its mounts.
 
 External service credentials are opt-in and scoped to the assigned owner. An
 optional deployment adapter may return approved Secret references; the default
 grants no external service access. Copying the original owner's MLflow, SkyPilot
 or other shared automation identity into every instance is invalid.
+
+## Per-Hermes terminal images and mounts
+
+The Rust manager owns assignment policy, commissions Hermes and creates terminal
+worker Pods through its execution module. Creating an assignment does not require
+starting an idle terminal Pod or building a new image for that user.
+
+Keep two independent image choices:
+
+| Image | Source and behavior |
+| --- | --- |
+| Hermes application | Approved instance-template version, normally the platform release's Hermes image; includes native dashboard and compatible adapters |
+| Terminal worker | Approved terminal-runtime version selected for this assignment; exact digest may differ between owners or approved runtimes of one owner |
+
+The shipped `agent-runtime` is the default terminal image. Custom images must
+pass the managed SSH worker contract: non-root approved UID/GID, SSH on port
+2222, user `worker`, selected authorized-key mount, shell/file-transfer support,
+approved entrypoint and required native tool helpers. Image pull and compatibility
+failures must be reported; never substitute the default image silently. Private
+registries use explicit namespace-local pull-Secret references. The new Rust
+Kubernetes execution driver must apply those references to worker Pods.
+
+The manager's PostgreSQL records are the desired policy source. Each assignment
+selects a default runtime and an explicit set of allowed immutable runtime
+versions, with owner-specific mount bindings. Administrators may register exact
+custom images through the versioned API/UI. Neither login nor a native Hermes
+configuration edit can authorize a new image, mount or runtime version.
+
+An illustrative fragment of an assignment's execution policy is:
+
+```yaml
+execution:
+  defaultRuntimeId: python-tools
+  allowedRuntimes:
+    - runtimeId: python-tools
+      version: 1
+      mounts:
+        - storageBindingId: owner-network-home
+          mountPath: /mnt/home-network
+          readOnly: true
+```
+
+This describes a proposed manager API field, not a current Helm value or native
+Hermes field. The referenced runtime version contains the exact image digest;
+the storage binding resolves only to that assignment owner's approved claim.
+Different assignments may select different image versions, mounts and access.
+
+### Hermes selection and manager authority
+
+Today, release 0.6.1's chart renders
+`runtimeManager.config.templates.<name>.image`, falling back to
+`images.agent-runtime`, into the legacy execution manager's mounted configuration.
+The execution API binds a client to a deployment/profile and selects that
+profile's single approved template. Its lease request accepts no image or
+template override; Hermes's `managed_execution` provider does not use native
+`image` or `container_config` arguments to choose a worker.
+
+Personal mode replaces that service with the shared Rust manager and PostgreSQL
+execution policy. Preserve the native lease protocol and add an optional
+`runtime_id` selector to managed-execution configuration and the manager's
+lease/session-close API. Its absence uses the assignment's default. Hermes
+owners may choose among their approved runtime IDs through native settings;
+arbitrary image references and mount specs
+remain invalid lease fields. This selector and native settings integration are
+new work, not functionality already supplied by release 0.6.1.
+
+The authenticated execution API resolves `runtime_id` within the exact client's
+deployment/profile policy, using the server-selected template and version. A
+runtime name belonging to another owner is denied. Include runtime identity and
+effective policy generation in environment/cache identities; closing a session
+cannot retire another runtime's environment. Multiple Hermes profiles of one
+owner remain distinct from cross-owner authorization.
+
+The shared controller must render terminal worker specs and the exact admission
+policy from one PostgreSQL effective policy generation. Port the legacy
+single-template API's authorization/lease invariants to Rust, extend the Hermes
+adapter for approved selection and preserve clients that omit `runtime_id`.
+Do not keep static manager YAML or a per-owner SQLite database as a second source
+of truth, and do not forward an agent-provided Pod spec.
+
+Image/mount changes create an audited desired generation and an operation.
+Validate image compatibility, owner binding, claim/Secret identities and
+resources first. Fence new acquisitions and drain affected leases before
+activating matching database policy generation and admission rules. Keep
+other owners running. Report desired/applied generation separately; a failed
+activation must not run a new image with old mounts or silently continue an old
+policy as if the requested change succeeded. Never modify a live worker's image
+or mounts in place, or delete its owner's retained data to apply a policy.
+
+### Owner storage and network folders
+
+Mounts specify owner-bound storage ID, absolute terminal path, optional bounded
+subpath and explicit read-only/read-write access. Validate overlapping/reserved
+paths, traversal, claim/Secret identity, namespace and storage permissions.
+Custom mounts must not replace SSH authorization, internal credentials or
+another owner's home. Bind mounts to terminal Pods only unless a separate
+approved Hermes application mount is configured. Mount access never implies
+permission to browse that folder through the manager administration UI.
+
+A user's network home may use an existing NFS-backed claim or a supported SMB
+CSI-backed claim. The deployment/storage adapter provisions or registers the
+owner-specific PVC in the instance namespace; the Rust controller mounts that
+approved PVC in the terminal Pod. Do not add raw host paths or privileged
+in-container mount commands.
+See [Kubernetes persistent volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
+and the [SMB CSI driver](https://github.com/kubernetes-csi/csi-driver-smb).
+
+The deployment owns the storage driver, private network route, server/export or
+share setup, owner ACLs, UID/GID mapping and credential Secret references.
+Verify reachability from the node/CSI mount path as well as any needed Pod path;
+a browser or Hermes connection to the home network is insufficient. This does
+not grant the worker broad LAN access or the manager cluster-wide storage rights.
+Missing required mounts block that terminal runtime with a clear condition;
+never substitute an empty local directory. Preserve dashboard/admin access for
+repair when its own required storage is healthy.
+
+Register external-storage ownership, retention and backup policy explicitly.
+External network-home contents are not automatically included in platform
+backups, copied into images or deleted on assignment removal. Recovery inventories
+must include bindings and policy versions, while payload backup follows the
+selected policy. Restoration validates/rebinds namespace-local claims before
+admitting terminal work and reports unavailable external storage without
+commissioning replacement data.
 
 ## Recovery and installation contract
 
@@ -320,9 +486,12 @@ Existing mode requires matching installation identity and supported schema.
 
 The versioned inventory must cover registry/assignments, owner keys, instance IDs,
 namespaces and resource UIDs, selected PVC datasets and Secrets, native settings
-and authentication state, execution-manager state, template versions and image
-digests. Inventory generation must fence both administrator changes and
-reconciliation; the coordinator must stop all writers before taking its payload.
+and authentication state, execution environments/leases, template versions and
+image digests, terminal-runtime versions, effective policies and external storage
+bindings/backup disposition. Inventory generation must fence both administrator
+changes and reconciliation; the coordinator must stop all writers before taking
+its payload. Fence execution acquisitions, drain terminal work and invalidate
+pre-restore leases/endpoints before resuming restored workloads.
 
 Encrypted full-payload readback and a matching inventory/epoch receipt are
 mandatory before final teardown. Failed/incomplete snapshots do not become the
@@ -361,6 +530,15 @@ administrators are identity-provider roles, not a second user-password database.
 | Built-in UI disabled and external API client used | Same assignment workflow and permissions without SQL/Kubernetes access |
 | Frontend build and browser requests | Static React/TypeScript build served by Rust; only the administration API is called, and browser bundles contain no credentials or live identities |
 | Plugin resolver boundary | Valid mTLS plus exact fresh identity resolves a registered destination; forged headers, wrong audience/client, malformed responses and manager failure deny routing |
+| Two owners with distinct terminal images and mounts | Each terminal Pod uses its own exact image digest and authorized claims/access; changing one assignment leaves the other unchanged |
+| Same image, different owner storage | Shared image layers do not share homes, network folders, credentials or execution scope |
+| Native Hermes runtime selection | An approved `runtime_id` selects its server-defined image and policy; another owner's ID, raw image/mount fields and unsupported versions are rejected |
+| Custom terminal image and private registry | Compatible non-root SSH image runs with scoped pull credentials; image/entrypoint incompatibility or pull failure is reported without fallback |
+| Terminal policy change during active leases | Only affected work drains; matching database policy/admission activate together and desired/effective status remains accurate |
+| Shared manager restart and concurrent execution requests | PostgreSQL recovers environments, requests and leases; no duplicate Pod/lease grant, foreign owner access, expired-lease revival or per-owner manager service |
+| Assignment revoke during terminal acquisition | No new ready lease after revocation; pending terminal generations are fenced and existing work drains within the configured bound |
+| Execution client tries another API boundary | Cannot call administration, route resolution or checkpoint methods, or nominate another instance/namespace |
+| Owner NFS/SMB folder and unavailable required share | Selected path/access is enforced; no foreign share, host path or empty-directory fallback; external data is retained on revoke/removal |
 | UI import/dependency boundary | Presentation cannot import database, directory or Kubernetes adapters |
 | Recovery with registry and both users' data | Stable owners/instance IDs restored, new UID bindings verified, stale sessions invalidated |
 | Missing registry, partial snapshot or wrong installation receipt | Provisioning/teardown blocked; no automatic adoption or replacement |
