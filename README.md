@@ -80,8 +80,11 @@ keeps backup and recovery independent of package installation at runtime.
 
 The proposed next step is a personal Hermes manager with a built-in assignment
 administration interface and OIDC-based routing to the authenticated owner's
-instance. New manager/authentication services use Rust; Traefik is the preferred
-proxy transport pending the documented routing and revocation compatibility tests.
+instance. New manager/authentication services use Rust. A thin Traefik plugin
+queries the manager's route API before selecting a backend; routing and active
+connection revocation remain subject to the documented compatibility tests.
+The built-in React/TypeScript dashboard uses Vite and calls the Rust API, which
+serves the production UI assets. The browser has no direct database access.
 Read the [implementation plan](docs/personal-hermes/plan.md),
 [specification](docs/personal-hermes/specification.md) and
 [architecture](docs/personal-hermes/architecture.md). These describe future work;

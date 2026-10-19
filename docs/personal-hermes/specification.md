@@ -11,9 +11,11 @@ The router exposes a common Hermes URL and routes authenticated requests to
 that user's instance. The manager includes the first administration UI, behind a
 separate versioned API so presentation can later move into its own service.
 
-The new manager and OIDC routing adapter are Rust services. The preferred proxy
-transport is Traefik Proxy with authentication before child-route selection,
-conditional on proving the session and active-connection revocation requirements.
+The new manager and OIDC authentication adapter are Rust services. The dashboard
+uses React/TypeScript with Vite, served by the Rust manager. The proxy transport
+is Traefik Proxy with a manager-querying middleware plugin after authentication
+and before child-route selection. Adoption requires proving the session and
+active-connection revocation requirements.
 This is OIDC-based backend selection, not merely OIDC protecting a fixed backend.
 
 | Term | Meaning |
@@ -41,6 +43,7 @@ This is OIDC-based backend selection, not merely OIDC protecting a fixed backend
 | P10 | Backup/restore must preserve registry ownership and instance data together, with fail-closed recovery and teardown gates. |
 | P11 | New assignments must not inherit a board owner's enrollment, model login, API keys, private prompts or service privileges. |
 | P12 | The verified OIDC `(issuer, subject)` must determine backend selection through the manager assignment. The same hostname and path must reach different backends for different configured owners. |
+| P13 | A thin Traefik plugin must query the Rust manager's internal resolver for each HTTP request and WebSocket opening handshake. It has no direct SQL access and cannot create arbitrary proxy destinations. |
 
 ## Assignment administration
 
@@ -66,6 +69,13 @@ identity provider.
 The management UI must be served from a separate origin from personal Hermes.
 Disabling UI serving must leave the same versioned API, authorization and audit
 behavior available to an external administration client.
+
+The React/TypeScript dashboard uses HTTPS/JSON requests to the Rust API. Only
+Rust services access PostgreSQL or reconcile Kubernetes. Vite produces static
+assets during the locked frontend build; the production manager serves them
+without a Vite or Node.js server. Generate the frontend API client from the
+administration contract, keep tokens server-side and enforce authorization/CSRF
+in Rust. No browser bundle may contain database credentials or live user data.
 
 ## Durable data contract
 
@@ -130,13 +140,14 @@ Endpoints below are proposed API v1, not routes supported by release 0.6.1.
 
 | Boundary | Proposed endpoints | Caller and behavior |
 | --- | --- | --- |
+| Administration session | `GET /api/v1/session` | Current administrator actor, permitted actions and browser CSRF token; no provider tokens |
 | Administration | `GET /api/v1/identities`, `GET /api/v1/assignments` | Authorized administrator; bounded pagination and optional read-only lookup |
 | Administration | `GET /api/v1/templates` | Authorized administrator; approved template IDs, versions and policy summaries, without manifests or secrets |
 | Administration | `POST /api/v1/assignments` | Create exact identity assignment; require `Idempotency-Key`; return `202` with operation and assignment |
 | Administration | `GET/PATCH /api/v1/assignments/{id}` | Inspect/update permitted fields; PATCH requires `If-Match`; identity and instance IDs are immutable |
 | Administration | `GET /api/v1/instances/{id}`, `POST /api/v1/instances/{id}/reconcile` | Inspect owned metadata or enqueue bounded retry; cannot supply workload manifests |
 | Administration | `GET /api/v1/operations/{id}`, `GET /api/v1/audit-events` | Inspect progress and redacted audit with administrator permission |
-| Router internal | `POST /internal/v1/routes/resolve` | mTLS router identity; exact verified issuer/subject plus bounded fresh identity evidence; no assignment mutation |
+| Router internal | `POST /internal/v1/routes/resolve` | mTLS Traefik plugin identity plus fresh audience-bound user access token; exact verified issuer/subject; no assignment mutation |
 | Checkpoint internal | `POST /internal/v1/checkpoints`, `GET /internal/v1/checkpoints/{id}/inventory`, `POST /internal/v1/checkpoints/{id}/complete`, `POST /internal/v1/checkpoints/{id}/resume` | Dedicated coordinator identity; fenced lifecycle, never available to router/browser roles |
 | Owner at router | `GET /_platform/me`, `GET /_platform/status` | Current authenticated owner's status only, with no arbitrary owner ID parameter |
 | Platform auth at router | `/_platform/login`, `/_platform/oidc/callback`, `POST /_platform/logout` | Router OIDC/session lifecycle; separate from native Hermes callbacks |
@@ -168,6 +179,20 @@ namespace/Service/port, observed route generation and authorization version.
 It cannot contain a caller-provided upstream URL. The router maps pending to an
 owner-only `202` status view, denied to `403`, and unavailable to `503`.
 
+The proposed [resolver OpenAPI contract](../../contracts/hermes-manager/router.openapi.yaml)
+defines this endpoint, including response bodies and HTTP statuses. Both service
+mTLS and a Keycloak access token for the configured route-API audience are
+required. Restrict the token's authorized client to the router client and match
+its verified issuer/subject to the request. Enforce the identity-evidence age
+bound below. A service certificate alone cannot assert a user's identity.
+
+Ready responses identify the registered destination and its instance ID, route
+generation and authorization version. The plugin sets the instance/generation
+headers used by child routing only after validating that response. Denied,
+pending, malformed, stale-evidence and unavailable responses supply no destination.
+Use `Cache-Control: no-store`, a 2-second total deadline, bounded request/response
+sizes and no token, cookie or request-body logging for this internal boundary.
+
 The administration API accepts either its own browser session with CSRF checks
 or a validated administrator access token for its configured audience. A future
 panel can use the latter. Service authentication never supplies a human actor's
@@ -186,12 +211,20 @@ subject. Decoding JWT claims without signature/issuer/audience validation is
 invalid. Manager assignments authorize that identity's backend; they do not
 replace OIDC authentication or allow a caller to nominate another subject.
 
-For Traefik, the parent router must run Rust OIDC/ForwardAuth validation before
-child selection. Remove client-supplied `X-Hermes-Instance` and internal identity
-headers before validation. Only the authenticated adapter may supply the resolved
-instance ID. Children map that ID to registered Services and cannot be reached
-through a separate public entry point. Strip internal decision headers before
-native forwarding. A failed or unavailable validator cannot yield a route.
+For Traefik, the parent router must run Rust OIDC/ForwardAuth validation, then
+the manager-querying plugin, before child selection. Remove client-supplied
+`X-Hermes-Instance`, `X-Hermes-Route-Generation` and internal identity/evidence
+headers before validation. Only the plugin may supply resolved routing headers,
+after a ready manager decision. Children map the exact instance/generation to
+registered Services and cannot be reached through a separate public entry point.
+Strip internal identity, evidence and decision headers before native forwarding.
+A failed or unavailable validator, plugin or manager cannot yield a route.
+
+Implement the thin plugin in Go/Yaegi using HTTP/mTLS to the manager, without SQL
+drivers or duplicated assignment rules. Pin and package its reviewed source with
+the platform release and load it at proxy startup. Keep the manager and OIDC
+component in Rust. A Rust/WASM plugin is an optional later implementation only
+after proving the required outbound networking and middleware compatibility.
 
 Generate hierarchical routes through the supported file provider using atomic,
 validated snapshots. Stale route configuration cannot override a revoked
@@ -218,6 +251,11 @@ Require origin checks and native single-use WebSocket tickets. Authenticate and
 resolve ownership before upgrading, preserve full duplex streaming and repeat
 authorization for the established connection. Do not log ticket query strings,
 OIDC codes, bearer tokens, refresh tokens, cookies or private chat content.
+
+The middleware lookup occurs per HTTP request and once per WebSocket handshake,
+including reconnects. WebSocket frames do not re-enter the HTTP middleware.
+Periodic established-connection authorization is a separate mechanism that must
+meet the bounds below; a plugin at handshake time does not implement it alone.
 
 On logout, invalidate the platform session and expire native cookies even if
 the backend cannot be reached. Identity switching must invalidate old callbacks
@@ -321,6 +359,8 @@ administrators are identity-provider roles, not a second user-password database.
 | Malicious worker/namespace bootstrap request | Cannot access another owner, bind into a foreign namespace or mount disallowed Secrets/PVCs |
 | New owner without provider authentication | Private onboarding is available; no inherited operator model login |
 | Built-in UI disabled and external API client used | Same assignment workflow and permissions without SQL/Kubernetes access |
+| Frontend build and browser requests | Static React/TypeScript build served by Rust; only the administration API is called, and browser bundles contain no credentials or live identities |
+| Plugin resolver boundary | Valid mTLS plus exact fresh identity resolves a registered destination; forged headers, wrong audience/client, malformed responses and manager failure deny routing |
 | UI import/dependency boundary | Presentation cannot import database, directory or Kubernetes adapters |
 | Recovery with registry and both users' data | Stable owners/instance IDs restored, new UID bindings verified, stale sessions invalidated |
 | Missing registry, partial snapshot or wrong installation receipt | Provisioning/teardown blocked; no automatic adoption or replacement |

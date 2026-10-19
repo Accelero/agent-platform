@@ -8,7 +8,7 @@ Read the [specification](specification.md) for required behavior and the
 
 ## Product decisions
 
-- Implement the new manager and OIDC routing adapter in Rust with separate
+- Implement the new manager and OIDC authentication adapter in Rust with separate
   domain/application crates and framework adapters. Use Axum/Tokio, kube-rs,
   SQLx/PostgreSQL and the openidconnect crate.
 - Keycloak authenticates people and supplies stable OIDC identities.
@@ -19,12 +19,17 @@ Read the [specification](specification.md) for required behavior and the
   Its browser UI uses a versioned administration API. Domain logic, persistence,
   identity-directory access and Kubernetes reconciliation stay behind separate
   interfaces. A future admin-panel service must need only that API.
+- Build the dashboard with React and TypeScript using Vite. Rust serves its
+  static production assets and same-origin JSON API. The browser never connects
+  to PostgreSQL or Kubernetes; frontend tooling is not a production server.
 - Enabling an assignment commissions its instance proactively. First login can
   report or retry existing work, but cannot grant itself an instance.
 - `hermes-router` serves one common Hermes hostname and selects the backend from
   the cryptographically verified OIDC issuer/subject and current assignment.
-  Prefer Traefik Proxy transport with a Rust OIDC/ForwardAuth adapter and
-  authentication before child-route selection, subject to the phase-0 proof.
+  Use Traefik Proxy with Rust OIDC/ForwardAuth validation, then a thin Go/Yaegi
+  middleware plugin that queries the Rust manager's internal route API before
+  child-route selection, subject to the phase-0 proof. Keep database access and
+  assignment rules in the manager; the plugin has no SQL or Kubernetes access.
   Internal routing headers carry only the authorized result. No user-selected
   backend, email-based routing or fallback to a shared owner's instance.
 - Each owner gets a namespace, persistent state, native authentication keys and
@@ -45,6 +50,9 @@ until the explicit adoption phase succeeds.
   Prove two OIDC users requesting the identical hostname/path reach different
   registered backends. Forged identity/routing headers and unverified tokens must
   not choose a backend or bypass the parent authentication step.
+- [ ] Prototype the Go/Yaegi plugin's authenticated HTTP lookup and ordered
+  execution after Rust OIDC validation. Prove exact instance/generation routing,
+  stale/malformed manager responses, timeout denial and startup plugin loading.
 - [ ] Prove a mechanism meeting existing-WebSocket revocation bounds. A successful
   ForwardAuth check during upgrade or removal of a child route is insufficient
   evidence. Keep proxy adoption blocked if this requirement cannot be met.
@@ -75,6 +83,9 @@ bootstrap cannot grant the controller access to an unrelated namespace.
   code out of the domain package.
 - [ ] Publish an OpenAPI contract for the administration, router-resolution,
   owner-status and checkpoint APIs before implementing the UI.
+  The proposed [resolver contract](../../contracts/hermes-manager/router.openapi.yaml)
+  already specifies `POST /internal/v1/routes/resolve`; implement and validate it
+  in Rust with both mTLS and fresh user identity evidence.
 - [ ] Implement versioned SQL migrations, unique identity/assignment constraints,
   desired and observed generations, operation leases, idempotency and audit data.
 - [ ] Support an explicit fresh/restore/existing installation gate. Missing
@@ -95,6 +106,10 @@ operations. No Kubernetes access is needed for these tests.
   optimistic concurrency and actor-attributed audit events.
 - [ ] Add the built-in UI for identity lookup, assignment creation, enable,
   suspend, revoke, template selection, instance status and safe retry.
+- [ ] Create the React/TypeScript Vite application and generate its typed API
+  client from the administration OpenAPI contract. Serve static assets with the
+  Rust API/UI process, with same-origin browser sessions and CSRF protection.
+  Keep API/authentication errors out of the SPA HTML fallback.
 - [ ] Support exact issuer/subject entry and an optional read-only Keycloak
   directory adapter. Show email/display name as descriptive fields only.
 - [ ] Keep model secrets, private files and chat histories out of administrator
@@ -131,12 +146,15 @@ cannot select each other's homes or credentials.
 
 ### 4. Implement authenticated routing and native sessions
 
-- [ ] Package the Rust router auth adapter and pin the official Traefik image.
-  Implement OIDC login, server-side sessions and the parent/child route pipeline.
+- [ ] Package the Rust router auth adapter, Go routing plugin and pinned official
+  Traefik image. Implement OIDC login, server-side sessions and the ordered
+  authentication/plugin/child-route pipeline.
 - [ ] Generate validated dynamic route snapshots from the commissioned inventory;
   test directory-mounted configuration reloads and stale/missing route behavior.
-- [ ] Resolve each request through the manager's internal routing API. Keep the
-  router free of Kubernetes credentials and assignment database permissions.
+- [ ] Implement the Rust resolver and plugin HTTP client against the proposed
+  contract. Resolve each HTTP request and WebSocket handshake; no per-frame
+  lookup and no positive assignment cache initially. Keep the router free of
+  Kubernetes credentials and assignment database permissions.
 - [ ] Implement the separate platform/native callback routes, exact native owner
   binding, isolated cookies and coordinated logout.
 - [ ] Forward ordinary dashboard HTTP, streaming responses, uploads and
@@ -183,6 +201,8 @@ the planned teardown rather than bypassing retention safeguards.
   release privacy review and anonymous chart/image pull verification.
 - [ ] Add locked Rust build/test checks, workspace formatting, Clippy and database
   migration tests alongside existing Python release-tooling and Helm checks.
+- [ ] Add pinned Go/plugin compatibility checks and locked frontend type checking,
+  lint/build, generated-client drift checks and browser API/session tests.
 - [ ] Document operator installation, adding/disabling people, model onboarding,
   incidents, backup/restore and the separate-panel extraction procedure.
 

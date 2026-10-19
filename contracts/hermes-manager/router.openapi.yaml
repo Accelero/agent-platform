@@ -1,0 +1,242 @@
+openapi: 3.1.0
+info:
+  title: Personal Hermes manager routing API
+  version: 0.1.0
+  description: >-
+    Proposed contract, not implemented by agent-platform release 0.6.1.
+    A restricted Traefik middleware plugin resolves a verified OIDC identity
+    to its currently enabled, commissioned personal Hermes destination.
+    The API is internal and performs no assignment or infrastructure mutations.
+servers:
+  - url: https://hermes-manager.internal.example.org
+security:
+  - RouterMTLS: []
+    UserAccessToken: []
+paths:
+  /internal/v1/routes/resolve:
+    post:
+      operationId: resolvePersonalHermesRoute
+      summary: Resolve the current owner's registered destination
+      description: >-
+        Require the configured router-plugin client certificate and a fresh
+        Keycloak access token for the configured route-API audience and router
+        authorized client. Verify signature, issuer, audience, client, lifetime
+        and identity-evidence age, then require an exact issuer/subject match
+        with the request. Evidence older than 120 seconds is invalid. Resolve
+        live assignment authorization without a positive decision cache.
+        Complete within the caller's 2-second total deadline. Request and
+        response bodies are limited to 16 KiB; authorization headers to 16 KiB.
+        Never log credentials or request bodies. All responses use no-store.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveRequest'
+            example:
+              identity:
+                issuer: https://sso.example.org/realms/agents
+                subject: 00000000-0000-4000-8000-000000000001
+      responses:
+        '200':
+          description: Enabled exact-owner assignment with a ready registered instance
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyDecision'
+              example:
+                status: ready
+                instanceId: 00000000-0000-4000-8000-000000000002
+                routeGeneration: 1
+                authorizationVersion: 1
+                destination:
+                  namespace: hermes-instance-example
+                  service: hermes
+                  port: 8080
+                  scheme: http
+        '202':
+          description: Authorized owner's instance is not ready; show owner-only status
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingDecision'
+        '401':
+          description: Missing, invalid, mismatched or stale user identity evidence
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidIdentity'
+        '403':
+          description: Unauthorized service caller or identity without enabled access
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeniedDecision'
+        '422':
+          description: Malformed or unsupported request; supplies no destination
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+        '503':
+          description: Dependency failure, maintenance or unresolved registry state
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnavailableDecision'
+components:
+  securitySchemes:
+    RouterMTLS:
+      type: mutualTLS
+      description: >-
+        Validate the configured client identity, not just its signing CA.
+        This role can resolve routes but cannot administer assignments.
+    UserAccessToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Fresh Keycloak access token relayed from the Rust authentication adapter.
+        Validate the configured route audience and router authorized client.
+        A service certificate alone cannot nominate a user.
+  headers:
+    NoStore:
+      description: Do not cache routing or authorization responses
+      schema:
+        type: string
+        const: no-store
+  schemas:
+    Identity:
+      type: object
+      additionalProperties: false
+      required: [issuer, subject]
+      properties:
+        issuer:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 2048
+          description: Exact case-sensitive configured OIDC issuer
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Exact case-sensitive verified OIDC subject; never email
+    ResolveRequest:
+      type: object
+      additionalProperties: false
+      required: [identity]
+      properties:
+        identity:
+          $ref: '#/components/schemas/Identity'
+    ReadyDecision:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - instanceId
+        - routeGeneration
+        - authorizationVersion
+        - destination
+      properties:
+        status:
+          const: ready
+        instanceId:
+          type: string
+          format: uuid
+        routeGeneration:
+          type: integer
+          format: int64
+          minimum: 1
+        authorizationVersion:
+          type: integer
+          format: int64
+          minimum: 1
+        destination:
+          $ref: '#/components/schemas/RegisteredDestination'
+    RegisteredDestination:
+      type: object
+      additionalProperties: false
+      required: [namespace, service, port, scheme]
+      description: >-
+        Read only from the commissioned instance registry. The plugin supplies
+        the returned instance ID and generation to registered child routing;
+        it must not create or dial an arbitrary upstream from these fields.
+      properties:
+        namespace:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+        service:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: Port allowed by the registered instance template
+        scheme:
+          type: string
+          enum: [http, https]
+    PendingDecision:
+      type: object
+      additionalProperties: false
+      required: [status, reason]
+      properties:
+        status:
+          const: pending
+        reason:
+          enum: [instance_not_ready]
+    DeniedDecision:
+      type: object
+      additionalProperties: false
+      required: [status, reason]
+      properties:
+        status:
+          const: denied
+        reason:
+          enum: [access_denied]
+    UnavailableDecision:
+      type: object
+      additionalProperties: false
+      required: [status, reason]
+      properties:
+        status:
+          const: unavailable
+        reason:
+          enum: [dependency_unavailable, maintenance, registry_unavailable]
+    InvalidIdentity:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          const: invalid_identity_evidence
+    InvalidRequest:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          const: invalid_request

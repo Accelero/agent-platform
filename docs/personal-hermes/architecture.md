@@ -23,25 +23,31 @@ later must change deployment and presentation only, not these ownership rules.
 
 ## Implementation stack
 
-Implement the new manager and OIDC routing adapter in Rust. Use Axum/Tokio for
+Implement the new manager and OIDC authentication adapter in Rust. Use Axum/Tokio for
 HTTP and asynchronous services, kube-rs for Kubernetes reconciliation, SQLx for
 PostgreSQL and migrations, and the openidconnect crate for OIDC protocol work.
 Keep domain types and application interfaces separate from framework adapters.
-The manager serves its built-in UI assets and versioned administration API.
+The manager serves its built-in React/TypeScript UI assets and versioned
+administration API. Vite supplies the frontend development server and production
+asset build; the production API/UI process remains Rust.
 
-The preferred proxy transport is an official, pinned Traefik Proxy image using
-multi-layer routing, with a separate Rust ForwardAuth/OIDC adapter. This choice
-requires a local compatibility spike, including active WebSocket revocation;
-the documented revocation bound remains a release gate. The platform must not
-assume the Kubernetes distribution's bundled proxy supports the required version.
+Use an official, pinned Traefik Proxy image with multi-layer routing, a separate
+Rust ForwardAuth/OIDC adapter and a thin route-resolution middleware plugin.
+The plugin queries the Rust manager for the destination after authentication.
+This choice requires a local compatibility spike, including active WebSocket
+revocation; the documented revocation bound remains a release gate. The platform
+must not assume the Kubernetes distribution's bundled proxy supports the
+required version.
 
 [Traefik itself is written in Go](https://github.com/traefik/traefik); Rust is the
-language of our manager and external authentication adapter. The adapter is a
-separate HTTP service called through built-in ForwardAuth, not a Rust plugin
-loaded into Traefik. The parent/child routing hierarchy uses built-in proxy
-configuration. An Envoy alternative would likewise need an authentication and
-assignment integration, for example its external-authorization API; neither
-proxy automatically understands the manager's user-to-instance registry.
+language of our manager and external authentication adapter. Use Go/Yaegi for
+the small Traefik middleware plugin, with standard-library HTTP/mTLS only; the
+plugin contains no SQL driver, OIDC flow, assignment rules or Kubernetes client.
+The authentication adapter is a separate Rust HTTP service called through
+built-in ForwardAuth. The plugin calls the manager's route API and supplies the
+authorized instance/generation to built-in child routing. Traefik supports
+[Go and WASM plugins](https://doc.traefik.io/traefik/extend/extend-traefik/), but
+Rust/WASM networking is not assumed compatible without a separate prototype.
 
 Routing is based on verified OIDC identity: `(issuer, subject)` selects the
 enabled manager assignment and its registered instance. A routing header is only
@@ -72,8 +78,8 @@ flowchart LR
 | --- | --- | --- |
 | Manager API/UI | Administrator login, assignment commands, status, audit and internal route resolution | Manager application database role, admin OIDC client, optional directory reader; no Kubernetes token |
 | Manager controller | Reconcile desired instances and coordinated lifecycle operations | Controller database role, constrained namespace bootstrap and instance-scoped Kubernetes bindings |
-| Rust router auth adapter | Validate OIDC sessions, resolve the current owner's assignment and supply an authorized routing decision | Router OIDC client, restricted session-store role and manager mTLS client; no Kubernetes token or assignment writes |
-| Traefik proxy | Apply parent authentication before selecting a child backend; proxy native HTTP/WebSockets | Restricted ForwardAuth mTLS client and read-only generated routing configuration; no OIDC secrets or Kubernetes token |
+| Rust router auth adapter | Validate OIDC sessions and supply fresh verified identity evidence for the routing plugin | Router OIDC client and restricted session-store role; no Kubernetes token or assignment writes |
+| Traefik proxy and routing plugin | Authenticate through ForwardAuth, query the manager, select a registered child backend and proxy native HTTP/WebSockets | Separate restricted ForwardAuth and manager mTLS clients, transient identity evidence and read-only generated configuration; no OIDC client secret, SQL credentials or Kubernetes token |
 | Personal Hermes | Native dashboard, agent state, model onboarding and exact owner authentication | Its own home, native session keys and approved service credentials |
 | Personal execution manager | Existing command-execution and lease management for that owner | A distinct client credential and namespaced worker permissions with exact admission policy |
 | Deployment/backup integration | Database, storage classes, ingress, identity-provider clients, encryption and external recovery storage | Deployment-owned infrastructure credentials, never distributed to personal instances |
@@ -91,6 +97,7 @@ Proposed source boundaries:
 
 ```text
 contracts/hermes-manager/openapi.yaml
+contracts/hermes-manager/router.openapi.yaml # proposed resolver contract supplied now
 services/hermes-manager/
   Cargo.toml                          # Rust workspace
   crates/hermes-domain/src/            # identity, assignments and instance invariants
@@ -99,9 +106,11 @@ services/hermes-manager/
   crates/hermes-manager/src/bin/       # API/UI and controller process roles
   crates/hermes-router-auth/src/       # OIDC sessions and ForwardAuth adapter
   ui/                                 # built-in administration presentation
+plugins/hermes-route-resolver/          # thin Go/Yaegi middleware
 ```
 
-These paths describe work to create, not existing packages. Domain code imports
+Except for the [resolver contract](../../contracts/hermes-manager/router.openapi.yaml),
+these paths describe work to create, not existing packages. Domain code imports
 no HTTP, UI, Kubernetes or identity-provider SDK. Application code depends on
 ports such as `AssignmentRepository`, `InstanceRepository`, `IdentityDirectory`,
 `InstanceDriver`, `OperationQueue`, `AuditSink` and `CheckpointCoordinator`.
@@ -121,6 +130,36 @@ Serve administration on a separate origin, for example
 assistant content must not share the administration session's browser origin.
 Use separate OIDC clients, host-only cookies and explicit CSRF checks. Do not
 enable broad credentialed CORS to make a later panel work.
+
+### Dashboard build and API communication
+
+Use React and TypeScript for the browser application, built with
+[Vite](https://vite.dev/guide/build.html). Node.js and the frontend package
+manager are build/development tools. Copy the locked production build into the
+manager image and serve it from the Rust API/UI role. No Node.js or Vite server
+is required in the production deployment.
+
+The communication path is browser HTTPS requests to the Rust administration API,
+then application commands/queries to PostgreSQL and the operation outbox. The
+controller independently consumes committed operations and reconciles Kubernetes.
+The UI never connects to PostgreSQL, holds a database credential or controls a
+Kubernetes client. Instance status comes back through the same API.
+
+Serve UI routes and `/api/v1/...` from the same administration origin initially.
+The Rust manager owns OIDC login/callback handling, server-side administrator
+sessions, host-only HttpOnly cookies, CSRF validation and all authorization.
+The UI reads current actor/permissions and a browser CSRF token through a session
+endpoint, and uses a typed client generated from the administration OpenAPI
+contract. Keep provider access/refresh tokens out of browser storage and bundles.
+Disabling a button is presentation, never an authorization decision.
+
+Use relative API URLs, and proxy them to Rust during Vite development. Keep API,
+authentication and unknown internal paths out of the SPA HTML fallback. Handle
+`401`, `403`, `409` and `412` explicitly, refresh displayed status after commands,
+and clear user-specific browser state on logout or identity switching.
+Builds must use fixture data; live users, secrets and assignments cannot enter
+static assets. The later panel can serve the same frontend build separately
+while keeping the API contract and human-actor checks intact.
 
 The optional directory adapter can search users and confirm canonical subjects
 with read-only permissions. Exact issuer/subject entry remains available when
@@ -204,6 +243,9 @@ The initial implementation supports one configured issuer, while database keys
 include the issuer so a future extension cannot collide subjects across issuers.
 
 Use separate clients for the router, management interface and native Hermes.
+Configure the router's Keycloak access token with the dedicated route-API
+audience, separate from the administration audience, and prove that refresh
+produces evidence within the required age bound.
 The provider must issue the same public subject to router and native clients.
 Pairwise subjects requiring cross-client identity linking are unsupported in
 the first version; never substitute email matching.
@@ -265,24 +307,32 @@ effect.
 
 ## Routing and revocation
 
-The Rust routing adapter authenticates the OIDC session and calls the manager's
-private route API over mTLS. That service identity can resolve routes but cannot
-create assignments or call administrator/lifecycle commands. Browser input cannot address this
-internal API directly. The manager authenticates the caller and validates the
-freshness and issuer of its identity evidence.
+The Rust authentication adapter validates the OIDC session. The Traefik routing
+plugin calls `POST /internal/v1/routes/resolve` on the Rust manager over mTLS.
+That service identity can resolve routes but cannot create assignments or call
+administrator/lifecycle commands. Browser ingress cannot address this internal
+API. The manager independently validates the submitted identity evidence and
+its binding to the requested issuer/subject before reading the assignment.
 
 For the Traefik implementation, use the following ordered flow:
 
 1. The common-host parent router removes incoming internal identity/routing
    headers, then calls the Rust adapter through authenticated ForwardAuth.
 2. The adapter validates the OIDC session, derives the exact issuer/subject and
-   resolves its current enabled assignment through the manager. It returns an
-   internal `X-Hermes-Instance` value only after successful authorization.
-3. A child router selects the registered Service for that exact instance ID.
+   returns transient internal identity headers and a fresh Keycloak access token
+   targeted at the route API. The plugin relays that evidence to the manager.
+   The manager validates issuer, audience, authorized OIDC client, signature,
+   token lifetime/freshness and exact subject, then resolves the assignment.
+3. Only a ready manager response permits the plugin to set internal instance
+   and route-generation headers. A child router selects the registered Service
+   for that exact pair. The returned namespace/Service/port describes the
+   commissioned destination; the plugin cannot turn a response into an
+   arbitrary new upstream URL.
    Children have no independent public entry point or authentication bypass.
    Missing authorization, unknown IDs and unmatched routes deny access.
-4. Before forwarding to native Hermes, remove internal routing headers and
-   platform cookies/tokens. Native owner verification remains enabled.
+4. Before forwarding to native Hermes, remove all internal identity/evidence
+   and routing headers, plus platform cookies/tokens. Native owner verification
+   remains enabled.
 
 Explicit platform login/callback routes terminate at the Rust adapter, allowing
 authentication to begin before a session exists. They expose no backend selection
