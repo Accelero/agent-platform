@@ -2,8 +2,8 @@ apiVersion: v2
 name: agent-platform
 description: Multica board, Hermes assistant and isolated agent runtimes.
 type: application
-version: 0.5.0
-appVersion: "0.5.0"
+version: 0.5.1
+appVersion: "0.5.1"
 kubeVersion: ">=1.30.0-0"
 sources:
   - https://github.com/Accelero/agent-platform

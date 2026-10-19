@@ -19,7 +19,7 @@ compiles the patched server. Its focused Go package avoids upstream test runners
 that exit successfully without running tests when PostgreSQL is absent. Only
 the SQL boundary is a test fixture. The final image replaces `/app/server` in
 the matching pinned runtime; migrations, entrypoint, CLI and notices remain.
-There is no runtime proxy or credential helper.
+The application HTTP credential endpoints retain their native authorization.
 
 The independent release workflow builds and tests this target with the other
 runtime images, then pins its digest in the application chart. Native login files and agent configuration are separate state.

@@ -11,6 +11,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,6 +21,7 @@ import kubernetes.config
 
 TIMEOUT = (5, 30)
 _DECODE_ERRORS = (ValueError, TypeError)
+_IDENTITY_ERRORS = (OSError, ValueError)
 _CONNECTION_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError)
 
 
@@ -70,9 +72,20 @@ class Cluster:
 
     def save(self, name: str, data: dict, namespace: str | None = None) -> None:
         namespace = namespace or self.namespace
-        body = {"metadata": {"name": name}, "stringData": data}
+        body = {
+            "metadata": {"name": name, "labels": self.config.get("labels", {})},
+            "stringData": data,
+        }
         try:
-            self.core.read_namespaced_secret(name, namespace, _request_timeout=TIMEOUT)
+            existing = self.core.read_namespaced_secret(
+                name, namespace, _request_timeout=TIMEOUT
+            )
+            labels = existing.metadata.labels or {}
+            if any(
+                labels.get(key) != value
+                for key, value in self.config.get("labels", {}).items()
+            ):
+                raise RuntimeError("Enrollment Secret belongs to another installation.")
         except kube.ApiException as error:
             if error.status != 404:
                 raise
@@ -315,6 +328,16 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
         elif force:
             # Resume the pending credential pair rather than orphaning a new pair.
             journal["force"] = True
+        if journal["force"] and status["state"] != "empty":
+            # Native Multica would regenerate a missing/corrupt daemon ID. Refuse
+            # before mutation rather than create a replacement runtime by accident.
+            daemon_id = Path(config["home"]) / ".multica/daemon.id"
+            try:
+                uuid.UUID(daemon_id.read_text().strip())
+            except _IDENTITY_ERRORS as error:
+                raise RuntimeError(
+                    "Restore the original native daemon identity before repair."
+                ) from error
         hook(config, "before")
         identity = native(
             config,
@@ -323,6 +346,9 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
             name=config["workspace"]["name"],
             slug=config["workspace"]["slug"],
             prefix=config["workspace"]["issuePrefix"],
+            daemon_id=(Path(config["home"]) / ".multica/daemon.id").read_text().strip()
+            if (Path(config["home"]) / ".multica/daemon.id").exists()
+            else "",
             **{
                 key: journal[key]
                 for key in ("daemon", "profile", "previous", "workspace", "force")

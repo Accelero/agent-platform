@@ -2,7 +2,7 @@
 {{- $b := .Values.bootstrap }}
 {{- $account := default (printf "%s-bootstrap" .Release.Name) $b.existingServiceAccount }}
 {{- $execution := required "bootstrap requires sandbox.namespace" .Values.sandbox.namespace }}
-{{- $configuration := dict "namespace" .Release.Namespace "executionNamespace" $execution "installation" (required "bootstrap.installation is required" $b.installation) "recoveryGate" $b.recoveryGate "leaseName" $b.leaseName "email" (required "bootstrap requires multica.ownerEmail" .Values.multica.ownerEmail) "workspace" $b.workspace "agent" $b.agent "agentSeedFile" $b.agentSeedFile "databaseUrl" .Values.multica.databaseUrl "serverUrl" $b.serverUrl "publicUrl" .Values.multica.publicUrl "onboardingSecret" $b.onboardingSecret "profileSecret" $b.profileSecret "home" "/opt/data" "lifecycle" $b.lifecycle "writers" $b.writers }}
+{{- $configuration := dict "namespace" .Release.Namespace "executionNamespace" $execution "installation" (required "bootstrap.installation is required" $b.installation) "recoveryGate" $b.recoveryGate "leaseName" $b.leaseName "email" (required "bootstrap requires multica.ownerEmail" .Values.multica.ownerEmail) "workspace" $b.workspace "agent" $b.agent "agentSeedFile" $b.agentSeedFile "databaseUrl" .Values.multica.databaseUrl "serverUrl" $b.serverUrl "publicUrl" .Values.multica.publicUrl "onboardingSecret" $b.onboardingSecret "profileSecret" $b.profileSecret "home" "/opt/data" "lifecycle" $b.lifecycle "writers" $b.writers "labels" $b.labels }}
 {{- range $phase := list "before" "after" "checkpoint" }}
 {{- if not (get $b.lifecycle $phase) }}{{ fail (printf "bootstrap.lifecycle.%s is required" $phase) }}{{- end }}
 {{- end }}

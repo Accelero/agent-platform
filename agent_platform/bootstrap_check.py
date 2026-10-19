@@ -204,6 +204,7 @@ def check(
                 **request,
                 **renewed,
                 "force": True,
+                "daemon_id": daemon,
                 "previous": tokens["daemon"],
                 "workspace": first["workspace"],
             },

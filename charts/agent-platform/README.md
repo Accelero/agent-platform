@@ -185,6 +185,8 @@ kubectl -n agents create job --from=cronjob/agents-bootstrap agents-bootstrap-re
   kubectl -n agents create -f -
 ```
 
+Force requires the original valid native `daemon.id`; restore it from backup if
+missing or corrupt. It refuses to silently mint a replacement runtime identity.
 Force replaces the fixed runtime's daemon/profile PATs, preserves native daemon,
 runtime, workspace and agent IDs and user preferences, verifies reconnection,
 retires explicitly replaced PATs and checkpoints the result. It never wipes the

@@ -179,6 +179,7 @@ def test_force_updates_auth_without_overwriting_native_preferences(scenario):
     }[action]
     path = Path(config["home"]) / ".multica/config.json"
     path.parent.mkdir(parents=True)
+    path.with_name("daemon.id").write_text("00000000-0000-0000-0000-000000000001")
     path.write_text(
         json.dumps(
             {
@@ -250,3 +251,29 @@ def test_bootstrap_waits_for_every_pinned_native_migration():
         for path in (ROOT / "vendor/multica/server/migrations").glob("*.up.sql")
     )
     assert manifest.read_text().splitlines() == expected
+
+
+def test_force_refuses_missing_native_daemon_identity_before_mutation(scenario):
+    config, cluster, stored, command, board, hook = scenario
+    original = command.side_effect
+    command.side_effect = lambda config, action, **kwargs: (
+        {"state": "initialized"}
+        if action == "inspect"
+        else original(config, action, **kwargs)
+    )
+    with pytest.raises(RuntimeError, match="original native daemon identity"):
+        bootstrap.enroll(config, cluster, force=True)
+    hook.assert_not_called()
+    assert "ensure" not in [call.args[1] for call in command.call_args_list]
+
+
+def test_secret_repair_refuses_foreign_installation_labels():
+    config = {"namespace": "agents", "labels": {"installation": "ours"}}
+    with patch.object(bootstrap.kube, "CoreV1Api") as core:
+        core.return_value.read_namespaced_secret.return_value.metadata.labels = {
+            "installation": "foreign"
+        }
+        cluster = bootstrap.Cluster(config)
+        with pytest.raises(RuntimeError, match="another installation"):
+            cluster.save("agent-onboarding", {"daemon.json": "private fixture"})
+        core.return_value.patch_namespaced_secret.assert_not_called()

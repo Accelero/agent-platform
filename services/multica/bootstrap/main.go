@@ -24,6 +24,7 @@ import (
 var requiredMigrations string
 
 type request struct {
+	DaemonID        string `json:"daemon_id"`
 	Action          string `json:"action"`
 	Installation    string `json:"installation"`
 	Email           string `json:"email"`
@@ -152,6 +153,13 @@ func ensure(ctx context.Context, conn *pgx.Conn, in request) (result, error) {
 	var owned bool
 	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM member WHERE user_id=$1 AND workspace_id=$2 AND role='owner')`, userID, workspaceID).Scan(&owned); err != nil || !owned {
 		return result{}, errors.New("workspace owner changed")
+	}
+	var runtimes, matching int
+	if err = tx.QueryRow(ctx, `SELECT count(*), count(*) FILTER(WHERE daemon_id=$3) FROM agent_runtime WHERE owner_id=$1 AND workspace_id=$2 AND provider='hermes'`, userID, workspaceID, in.DaemonID).Scan(&runtimes, &matching); err != nil {
+		return result{}, err
+	}
+	if runtimes > 0 && matching == 0 {
+		return result{}, errors.New("native daemon identity changed")
 	}
 	// A recovered journal binds to the original IDs, irrespective of later seed edits.
 	for i, raw := range []string{in.Daemon, in.Profile} {
