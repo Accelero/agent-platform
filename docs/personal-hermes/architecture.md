@@ -257,6 +257,14 @@ parent/delegate joining, scope isolation, idle/recycle and draining behavior in
 Rust. Do not deploy or wrap the old manager as an additional service in this
 mode. Keep the release 0.6.1 singleton path working until explicit adoption.
 
+Keep one desired Hermes gateway replica running for every enabled assignment,
+including while its browser is closed and all terminal workers are idle. Native
+cron and background integrations require that running gateway in this design.
+The manager scales terminal execution independently according to its lease and
+runtime policy. No HTTP-triggered Hermes scale-to-zero controller or activator is
+part of this architecture. Explicit administrative suspension, maintenance and
+recovery remain controlled lifecycle operations of the same Rust manager.
+
 The manager database stores assignments, immutable terminal-runtime versions,
 owner storage bindings, effective execution policies, scoped execution clients,
 environments/generations, leases, operation/outbox records and audit. A Hermes

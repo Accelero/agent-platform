@@ -28,6 +28,10 @@ Read the [specification](specification.md) for required behavior and the
   to PostgreSQL or Kubernetes; frontend tooling is not a production server.
 - Enabling an assignment commissions its instance proactively. First login can
   report or retry existing work, but cannot grant itself an instance.
+- Keep each enabled Hermes gateway running continuously at one replica so native
+  cron and background integrations remain available without browser traffic.
+  Traffic inactivity must not scale Hermes to zero. Terminal worker lifetimes
+  remain on demand or persistent according to their approved runtime policy.
 - `hermes-router` serves one common Hermes hostname and selects the backend from
   the cryptographically verified OIDC issuer/subject and current assignment.
   Use Traefik Proxy with Rust OIDC/ForwardAuth validation, then a thin Go/Yaegi
@@ -149,6 +153,9 @@ can later move to a separate service without changing the core use cases.
   Secrets, ServiceAccounts, policies and Hermes workloads. Reconcile terminal
   Pods on demand through the same constrained controller, without per-owner
   managers.
+- [ ] Maintain one running Hermes replica for enabled assignments. Prove a
+  fixture cron job fires without browser/API traffic and can acquire an on-demand
+  terminal worker. Idle terminal cleanup must not stop the Hermes gateway.
 - [ ] Bootstrap namespace access through the restricted RBAC/admission mechanism
   in the architecture; preserve resource UID and installation checks.
 - [ ] Generate exact native configuration from reviewed platform templates.

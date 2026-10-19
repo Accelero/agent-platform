@@ -51,6 +51,7 @@ This is OIDC-based backend selection, not merely OIDC protecting a fixed backend
 | P14 | Each Hermes assignment must have independently configurable terminal image versions and mounts. Reusing an image must never reuse another owner's storage or credentials. |
 | P15 | One Rust manager must administer user-to-instance assignments, serve route resolution and reconcile both Hermes instances and terminal worker Pods. Only its controller role receives elevated Kubernetes permissions. |
 | P16 | PostgreSQL must durably model all manager assignments, runtime/storage configuration, execution clients, environments, leases and lifecycle operations. Personal mode must not depend on a separate execution-manager service, per-owner SQLite state or independent static execution configuration. |
+| P17 | Each enabled, commissioned Hermes gateway must stay running at one desired replica for native cron and background integrations. HTTP inactivity must not trigger Hermes scale-to-zero; terminal worker lifetimes remain independently configurable. |
 
 ## Assignment administration
 
@@ -126,6 +127,14 @@ Assignment access states are `enabled`, `suspended` and `revoked`. Only explicit
 administrator commands can enable access. Suspension/revocation retain the
 identity, instance ID and data. Re-enabling requires a new audited command;
 directory synchronization cannot silently undo an administrator's revocation.
+
+Enabled Hermes instances run continuously, including when no browser, HTTP
+request or terminal lease is active. Maintain one desired application replica;
+do not add an HTTP activator/autoscaler to stop or wake Hermes based on traffic.
+Its native cron scheduler stays inside the running gateway. Terminal Pods may
+be started, idled or retired independently by the unified manager's execution
+module. Explicit suspend/revoke, maintenance, recovery and failure handling still
+use the controlled manager lifecycle.
 
 Instance observed states include `Pending`, `Provisioning`, `Ready`, `Blocked`,
 `Suspending`, `Suspended`, `Retained`, `Deleting`, `Deleted` and `Error`.
@@ -536,6 +545,8 @@ administrators are identity-provider roles, not a second user-password database.
 | Custom terminal image and private registry | Compatible non-root SSH image runs with scoped pull credentials; image/entrypoint incompatibility or pull failure is reported without fallback |
 | Terminal policy change during active leases | Only affected work drains; matching database policy/admission activate together and desired/effective status remains accurate |
 | Shared manager restart and concurrent execution requests | PostgreSQL recovers environments, requests and leases; no duplicate Pod/lease grant, foreign owner access, expired-lease revival or per-owner manager service |
+| Enabled Hermes with no browser traffic | One desired gateway replica remains running and a fixture cron job fires; it can acquire an on-demand terminal worker without a user request |
+| Idle terminal cleanup | Terminal worker retirement leaves Hermes, its native cron scheduler and retained state running |
 | Assignment revoke during terminal acquisition | No new ready lease after revocation; pending terminal generations are fenced and existing work drains within the configured bound |
 | Execution client tries another API boundary | Cannot call administration, route resolution or checkpoint methods, or nominate another instance/namespace |
 | Owner NFS/SMB folder and unavailable required share | Selected path/access is enforced; no foreign share, host path or empty-directory fallback; external data is retained on revoke/removal |
