@@ -23,8 +23,8 @@ mutable application state or deployment-specific backup scripts.
 Use Python 3.14 and `uv sync --locked`. After edits run:
 
 ```bash
-uv run ruff check agent_platform tests
-uv run ruff format --check agent_platform tests
+uv run ruff check agent_platform tests services/tools/platform_bootstrap
+uv run ruff format --check agent_platform tests services/tools/platform_bootstrap
 uv run pytest -q
 helm lint charts/agent-platform
 ```

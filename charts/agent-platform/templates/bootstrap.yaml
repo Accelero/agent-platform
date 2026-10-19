@@ -1,0 +1,133 @@
+{{- if .Values.bootstrap.enabled }}
+{{- $b := .Values.bootstrap }}
+{{- $account := default (printf "%s-bootstrap" .Release.Name) $b.existingServiceAccount }}
+{{- $execution := required "bootstrap requires sandbox.namespace" .Values.sandbox.namespace }}
+{{- $configuration := dict "namespace" .Release.Namespace "executionNamespace" $execution "installation" (required "bootstrap.installation is required" $b.installation) "recoveryGate" $b.recoveryGate "leaseName" $b.leaseName "email" (required "bootstrap requires multica.ownerEmail" .Values.multica.ownerEmail) "workspace" $b.workspace "agent" $b.agent "agentSeedFile" $b.agentSeedFile "databaseUrl" .Values.multica.databaseUrl "serverUrl" $b.serverUrl "publicUrl" .Values.multica.publicUrl "onboardingSecret" $b.onboardingSecret "profileSecret" $b.profileSecret "home" "/opt/data" "lifecycle" $b.lifecycle "writers" $b.writers }}
+{{- range $phase := list "before" "after" "checkpoint" }}
+{{- if not (get $b.lifecycle $phase) }}{{ fail (printf "bootstrap.lifecycle.%s is required" $phase) }}{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-bootstrap
+  namespace: {{ .Release.Namespace }}
+data:
+  config.json: {{ $configuration | toJson | quote }}
+{{- if not $b.existingServiceAccount }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $account }}
+  namespace: {{ .Release.Namespace }}
+automountServiceAccountToken: false
+{{- end }}
+{{- range $namespace := list .Release.Namespace $execution }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $.Release.Name }}-bootstrap
+  namespace: {{ $namespace }}
+rules:
+  - apiGroups: ['']
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [{{ if eq $namespace $.Release.Namespace }}{{ $b.onboardingSecret }}{{ else }}{{ $b.profileSecret }}{{ end }}]
+    verbs: [get, patch]
+  {{- if eq $namespace $.Release.Namespace }}
+  - apiGroups: ['']
+    resources: [configmaps]
+    resourceNames: [{{ $b.recoveryGate }}]
+    verbs: [get]
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [apps]
+    resources: [deployments, deployments/scale]
+    resourceNames: {{ toJson $b.writers }}
+    verbs: [get, patch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [{{ $b.leaseName }}]
+    verbs: [get, update, delete]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $.Release.Name }}-bootstrap
+  namespace: {{ $namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $account }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $.Release.Name }}-bootstrap
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Namespace }}-{{ .Release.Name }}-bootstrap
+rules:
+  - apiGroups: ['']
+    resources: [namespaces]
+    resourceNames: [{{ .Release.Namespace }}, {{ $execution }}]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Namespace }}-{{ .Release.Name }}-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: {{ $account }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Namespace }}-{{ .Release.Name }}-bootstrap
+{{- $pod := include "agent-platform.bootstrapPod" . | fromYaml }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Immutable Pod templates get a new Job on each Helm revision, including retries.
+  name: {{ .Release.Name }}-bootstrap-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  {{- with $b.labels }}
+  labels: {{ toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 1200
+  template: {{ toYaml $pod | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-bootstrap
+  namespace: {{ .Release.Namespace }}
+spec:
+  suspend: true
+  schedule: '0 0 1 1 *'
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels: {{ toYaml $b.labels | nindent 8 }}
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1200
+      ttlSecondsAfterFinished: 86400
+      template: {{ toYaml $pod | nindent 8 }}
+{{- end }}

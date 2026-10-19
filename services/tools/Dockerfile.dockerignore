@@ -2,3 +2,5 @@
 !services/
 !services/tools/
 !services/tools/Dockerfile
+!services/tools/platform_bootstrap/
+!services/tools/platform_bootstrap/**

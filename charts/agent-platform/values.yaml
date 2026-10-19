@@ -1111,3 +1111,33 @@ hermes:
   maxConcurrentTasks: 1
   providerSecret: hermes-provider-credentials
   providerKeys: []
+# Bootstrap is opt-in. Deployment values must supply recovery and lifecycle hooks.
+bootstrap:
+  enabled: false
+  existingServiceAccount: ''
+  labels: {}
+  installation: ''
+  recoveryGate: agent-platform-recovery
+  leaseName: agent-state-operation
+  onboardingSecret: agent-onboarding
+  profileSecret: profile-personal-assistant
+  serverUrl: http://multica-backend:8080
+  agentSeedFile: ''
+  workspace:
+    name: Research
+    slug: research
+    issuePrefix: RES
+  agent:
+    name: Personal Assistant
+    description: ''
+    permission_mode: private
+    max_concurrent_tasks: 1
+  lifecycle:
+    before: []
+    after: []
+    checkpoint: []
+  writers: [multica-backend, multica-web, multica-gateway, hermes, hermes-gateway, runtime-manager]
+  env: []
+  envFrom: []
+  volumes: []
+  volumeMounts: []

@@ -124,3 +124,71 @@ removed. Old client configurations must be updated before starting the applicati
 The obsolete `execution-manager`, `worker` and `release` GHCR packages are removed.
 Historical chart/Git tags are retained, but releases depending on those deleted
 packages are no longer supported. Publish a new version for all subsequent changes.
+
+## First deployment and explicit enrollment repair
+
+Enable `bootstrap.enabled` to deploy the automatic Job and the permanently
+suspended `<release>-bootstrap` CronJob template. Set `multica.ownerEmail`,
+`bootstrap.workspace`, a stable `bootstrap.installation`, and the restore gate
+and lifecycle command contract below. This currently enrolls the shipped Hermes
+controller/profile and its `agent-runtime` template. Terminal Pods receive task
+context; they do not register a second daemon. This is separate from future
+multi-user runtime provisioning.
+
+The Job waits for native schema migrations, then checks application users and
+workspaces. Existing/restored installations are successful no-ops, including
+changed or absent enrollment credentials. Native IDs and live settings are not
+reconciled from Helm values. The installation journal and the existing onboarding
+Secret allow interrupted, known bootstrap work to resume without duplicate PATs,
+users, workspaces or agents. Unknown/foreign state is never adopted automatically.
+
+Deployment integration must provide:
+
+- `bootstrap.recoveryGate`: a ConfigMap with `record.json` containing
+  `installation`, `ready: true`, `fresh: true|false` and `namespaceUIDs`, mapping
+  the platform and execution namespaces to their current UIDs. Publish it only
+  after archive selection and restore finish. `fresh` means the backup archive
+  was positively checked empty, not that storage could not be read. A restored
+  empty database cannot become a fresh installation.
+- `bootstrap.lifecycle.before`, `after` and `checkpoint`: command argument arrays.
+  Before mutation, create a verified checkpoint, fence dispatch, drain work and
+  stop all native writers. After successful reconnection, restore dispatch and
+  writers. Finally publish a verified encrypted checkpoint including the native
+  database, home and both enrollment Secrets. Commands must fail on any missing
+  durability prerequisite. The Job captures private command output.
+- `bootstrap.volumes`, `volumeMounts`, `env` and `envFrom`: private deployment
+  inputs for those commands; keep credentials in referenced Secrets. Optional
+  `agentSeedFile` loads initial agent instructions from a mounted private JSON
+  file, keeping prompts out of public charts/images/releases.
+- `bootstrap.leaseName`: the installation-wide operation Lease (default
+  `agent-state-operation`). Backup/recovery commands must honor it. A child
+  command in the same Pod may reuse the parent's lease without releasing it.
+  Use `existingServiceAccount` when lifecycle commands require additional
+  deployment-owned permissions. The chart grants only enrollment permissions;
+  the Job is an administrator workload, never a worker Pod.
+
+The automatic Job uses a new name for each Helm revision; install/upgrade must
+wait for Jobs. The manual template never runs on a schedule. For a normal retry:
+
+```bash
+kubectl -n agents create job --from=cronjob/agents-bootstrap agents-bootstrap-manual
+kubectl -n agents wait --for=condition=complete job/agents-bootstrap-manual --timeout=1200s
+```
+
+For explicit repair, generate a one-off Job and add `--force` to its container
+arguments before creating it (the template and Helm values stay unchanged):
+
+```bash
+kubectl -n agents create job --from=cronjob/agents-bootstrap agents-bootstrap-repair \
+  --dry-run=client -o json |
+  jq '.spec.template.spec.containers[0].args = ["--force"]' |
+  kubectl -n agents create -f -
+```
+
+Force replaces the fixed runtime's daemon/profile PATs, preserves native daemon,
+runtime, workspace and agent IDs and user preferences, verifies reconnection,
+retires explicitly replaced PATs and checkpoints the result. It never wipes the
+database, changes S3 keys or the backup encryption password, or overrides pending
+recovery. Failures retain progress and state for retry. A completed mutation with
+an interrupted checkpoint retries only checkpoint publication; it does not replay
+auth writes or automatically resume restored task dispatch.

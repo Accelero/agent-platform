@@ -196,12 +196,24 @@ def build(
             images["tools"],
             "-c",
             (
-                "import boto3,kubernetes,yaml; import subprocess; "
+                "import boto3,kubernetes,yaml,platform_bootstrap.__main__; "
+                "import subprocess; "
                 'subprocess.run(["pg_dump","--version"],check=True); '
                 'subprocess.run(["restic","version"],check=True)'
             ),
         ],
         timeout=180,
+    )
+    run(
+        [
+            sys.executable,
+            "-m",
+            "agent_platform.bootstrap_check",
+            "--backend",
+            images["multica-backend"],
+        ],
+        cwd=ROOT,
+        timeout=420,
     )
     sys.stdout.write("Validating chart.\n")
     sys.stdout.flush()

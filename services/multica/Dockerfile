@@ -11,14 +11,18 @@ COPY auth-boundary.patch /tmp/auth-boundary.patch
 RUN patch --batch --forward --fuzz=0 -p1 < /tmp/auth-boundary.patch
 COPY auth-boundary_test.go ./server/platformauth/auth_boundary_test.go
 COPY maintenance_linux_test.go ./server/platformauth/maintenance_linux_test.go
+COPY bootstrap/ ./server/cmd/platform-bootstrap/
 ARG VERSION=v0.6.0
 ARG COMMIT=ea94c7cd5bbce9c8e1f28c5fa049c47ee7651d02
 # The focused package has no upstream TestMain that silently skips without DB.
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     cd server && CGO_ENABLED=0 go test ./platformauth -count=1 -v \
-    && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
+    && CGO_ENABLED=0 go build -o /out/multica-bootstrap ./cmd/platform-bootstrap \
+ && CGO_ENABLED=0 go test ./cmd/platform-bootstrap -count=1 -v \
+ && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
        -o /out/server ./cmd/server
 
 FROM ${MULTICA_BACKEND_IMAGE}
 COPY --from=builder /out/server /app/server
+COPY --from=builder /out/multica-bootstrap /usr/local/bin/multica-bootstrap
 LABEL org.hermes.multica-auth-boundary="human-credential-administration-v1"

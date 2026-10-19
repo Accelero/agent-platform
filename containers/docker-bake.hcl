@@ -47,5 +47,6 @@ target "tools" {
   inherits = ["metadata"]
   context = "."
   dockerfile = "services/tools/Dockerfile"
+  contexts = { multica-backend = "target:multica-backend" }
   tags = [image("tools")]
 }

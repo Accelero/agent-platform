@@ -17,7 +17,9 @@
     "templates/storage.yaml",
     "templates/workloads.yaml",
     "values.schema.json",
-    "values.yaml"
+    "values.yaml",
+    "templates/bootstrap.yaml",
+    "templates/_bootstrap.tpl"
   ],
   "contexts": {
     "hermes": {
@@ -65,7 +67,10 @@
         "Dockerfile",
         "auth-boundary.patch",
         "auth-boundary_test.go",
-        "maintenance_linux_test.go"
+        "maintenance_linux_test.go",
+        "bootstrap/main.go",
+        "bootstrap/main_test.go",
+        "bootstrap/migrations.txt"
       ]
     },
     "platform-tools": {
@@ -84,7 +89,9 @@
       "root": ".",
       "files": [
         "services/tools/Dockerfile",
-        "services/tools/Dockerfile.dockerignore"
+        "services/tools/Dockerfile.dockerignore",
+        "services/tools/platform_bootstrap/__init__.py",
+        "services/tools/platform_bootstrap/__main__.py"
       ]
     }
   }

@@ -490,6 +490,36 @@
           }
         }
       }
+    },
+    "bootstrap": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "workspace": {
+          "type": "object",
+          "required": [
+            "name",
+            "slug",
+            "issuePrefix"
+          ]
+        },
+        "lifecycle": {
+          "type": "object",
+          "required": [
+            "before",
+            "after",
+            "checkpoint"
+          ],
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
     }
   }
 }

@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python3
  && python3 -m venv /app/.venv \
  && /app/.venv/bin/pip install --no-cache-dir kubernetes==31.0.0 boto3==1.40.12 PyYAML==6.0.2
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
+COPY --from=multica-backend /usr/local/bin/multica-bootstrap /usr/local/bin/multica-bootstrap
+COPY services/tools/platform_bootstrap/ /app/platform_bootstrap/
 RUN mkdir -p /app
 RUN rm -f /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem
 # Copy the cleaned filesystem so inherited layers cannot retain the unused key.
