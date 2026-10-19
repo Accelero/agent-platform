@@ -1,0 +1,8 @@
+# Overlay on examples/lightweight/values.yaml for chart 0.6.0 or newer.
+hermes:
+  dashboardAuth:
+    mode: oidc
+    oidc:
+      issuer: https://sso.example.org/realms/example
+      clientId: hermes
+      publicUrl: https://hermes.example.org

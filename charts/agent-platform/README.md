@@ -5,7 +5,7 @@ services, similar in scope to a Compose application. Helm renders Kubernetes
 resources; Kubernetes runs and reconciles them. An installed Helm release is an
 instance of this chart, separate from the GitHub Release that distributes it.
 
-Version **0.4.1** packages Multica backend/frontend, Hermes, two same-origin HTTP
+The chart packages Multica backend/frontend, Hermes, two same-origin HTTP
 gateways and a runtime manager, together with configuration and isolation rules.
 Agent-runtime Pods are created on demand by the manager rather than pre-created
 by Helm. Browser/search/memory and further agents remain optional and disabled.
@@ -73,7 +73,8 @@ Important values:
   operations tools references. Packaged releases populate these exact manifest digests.
 - `multica`: public URL, allowed owner, database connection/CA reference and outbound
   mail Secret/key names. Credentials are named references, not inline values.
-- `hermes`: dashboard username, concurrency and provider Secret/key names.
+- `hermes`: dashboard authentication, username, concurrency and provider Secret/key
+  names. `dashboardAuth.mode` selects `basic` or `oidc`.
 - `runtimeManager`: native templates/clients, non-root identity, token and TLS Secret
   references. The server certificate must cover `runtime-manager` and the service
   DNS names used by clients. Mounts contain only selected existing keys.
@@ -105,6 +106,63 @@ backups, bucket credentials, PVC backing and VPN ingress are infrastructure duti
 Mutable native settings live in retained storage, not Helm values. Claims and a
 chart-created sandbox namespace are retained on uninstall; losing the node disk
 still requires a separately designed backup/restore strategy.
+
+## Hermes dashboard OIDC
+
+Version 0.6.0 adds `hermes.dashboardAuth`. Earlier charts do not have this
+interface. Basic authentication remains the default for existing users.
+Select OIDC through chart values without replacing workload environment lists:
+
+```yaml
+hermes:
+  dashboardAuth:
+    mode: oidc
+    oidc:
+      issuer: https://sso.example.org/realms/example
+      clientId: hermes
+      publicUrl: https://hermes.example.org
+      scopes: openid email profile
+```
+
+Configure an OIDC client with authorization code flow and PKCE S256. Register the
+exact redirect URI `https://hermes.example.org/auth/callback` and browser origin
+`https://hermes.example.org`. The example uses a public client; no client secret
+is needed. A confidential client can additionally select an existing Secret:
+
+```yaml
+hermes:
+  dashboardAuth:
+    oidc:
+      clientSecretRef:
+        name: hermes-oidc
+        key: client-secret
+```
+
+This fragment extends the OIDC settings above. The chart never creates or embeds
+that Secret. Restart Hermes after rotating a referenced client Secret. Configure
+client access at the identity provider to admit only the owner and trusted
+administrators of this shared personal instance. Successful OIDC login does not
+provision another personal instance or a Multica account.
+
+OIDC mode removes every `HERMES_DASHBOARD_BASIC_AUTH_*` environment and Secret
+reference, including the default password and cookie-secret references. Existing
+`DASHBOARD_PASSWORD` and `DASHBOARD_SECRET` keys are therefore unnecessary for OIDC;
+the independent `API_SERVER_KEY` and provider credentials remain required. Native
+Hermes handles the callback, session, logout and WebSocket authentication. Its
+retained home stores its session state.
+
+Helm validates complete HTTPS issuer/public URL settings, client ID, `openid`
+scope and Secret references before installation. Direct `HERMES_DASHBOARD_OIDC_*`
+and `HERMES_DASHBOARD_PUBLIC_URL` workload overrides are rejected in favor of
+this interface. The issuer's discovery, token and JWKS URLs must be reachable
+from the Hermes Pod with valid TLS and the same issuer as browser requests.
+Configure ingress, DNS and identity-provider entitlements in the deployment.
+No Keycloak installation or deployment-specific networking is generated here.
+
+The [OIDC example](../../examples/oidc/values.yaml) is an overlay for the
+lightweight example. Upgrade by setting the OIDC values and applying the release;
+the resulting environment changes restart Hermes. Returning to `mode: basic`
+requires the configured Basic-auth Secret keys again.
 
 ## Release and upgrade
 

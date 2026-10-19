@@ -109,6 +109,136 @@ def test_complete_application_uses_chart_defaults_and_named_credentials(
     }
 
 
+@pytest.fixture
+def oidc_values(values: dict) -> dict:
+    """Select a public PKCE client using only supported chart inputs."""
+    values["hermes"]["dashboardAuth"] = {
+        "mode": "oidc",
+        "oidc": {
+            "issuer": "https://sso.example.org/realms/example",
+            "clientId": "hermes",
+            "publicUrl": "https://hermes.example.org",
+        },
+    }
+    return values
+
+
+def test_oidc_replaces_basic_auth_without_replacing_workload_lists(
+    tmp_path: Path, oidc_values: dict
+) -> None:
+    """OIDC removes both literal and Secret-based Basic auth while keeping API auth."""
+    oidc_values["workloads"]["hermes"]["env"] = [
+        {"name": "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "value": "legacy-fixture"},
+        {"name": "KEEP_CUSTOM_SETTING", "value": "preserved"},
+    ]
+    objects = render(tmp_path, oidc_values)
+    container = objects["Deployment", "hermes"]["spec"]["template"]["spec"][
+        "containers"
+    ][0]
+    env = {item["name"]: item for item in container["env"]}
+    assert not any(name.startswith("HERMES_DASHBOARD_BASIC_AUTH_") for name in env)
+    assert env["HERMES_DASHBOARD_OIDC_ISSUER"]["value"] == (
+        "https://sso.example.org/realms/example"
+    )
+    assert env["HERMES_DASHBOARD_OIDC_CLIENT_ID"]["value"] == "hermes"
+    assert env["HERMES_DASHBOARD_OIDC_SCOPES"]["value"] == "openid email profile"
+    assert env["HERMES_DASHBOARD_PUBLIC_URL"]["value"] == "https://hermes.example.org"
+    assert "HERMES_DASHBOARD_OIDC_CLIENT_SECRET" not in env
+    assert env["KEEP_CUSTOM_SETTING"]["value"] == "preserved"
+    assert env["API_SERVER_KEY"]["valueFrom"]["secretKeyRef"]["key"] == "API_SERVER_KEY"
+    assert env["EXAMPLE_API_KEY"]["valueFrom"]["secretKeyRef"]["name"] == (
+        "hermes-provider-credentials"
+    )
+    assert len(env) == len(container["env"])
+    assert not any(kind == "Secret" for kind, _name in objects)
+
+
+def test_oidc_confidential_client_uses_only_a_named_secret_key(
+    tmp_path: Path, oidc_values: dict
+) -> None:
+    """A confidential client references one existing key without embedding a value."""
+    oidc_values["hermes"]["dashboardAuth"]["oidc"]["clientSecretRef"] = {
+        "name": "dashboard-oidc",
+        "key": "client",
+    }
+    objects = render(tmp_path, oidc_values)
+    env = objects["Deployment", "hermes"]["spec"]["template"]["spec"]["containers"][0][
+        "env"
+    ]
+    secret = next(
+        item for item in env if item["name"] == "HERMES_DASHBOARD_OIDC_CLIENT_SECRET"
+    )
+    assert secret == {
+        "name": "HERMES_DASHBOARD_OIDC_CLIENT_SECRET",
+        "valueFrom": {"secretKeyRef": {"name": "dashboard-oidc", "key": "client"}},
+    }
+
+
+def test_default_basic_auth_is_preserved(tmp_path: Path, values: dict) -> None:
+    """Existing chart consumers retain their username and password Secret inputs."""
+    values["hermes"]["dashboardUsername"] = "operator"
+    objects = render(tmp_path, values)
+    env = {
+        item["name"]: item
+        for item in objects["Deployment", "hermes"]["spec"]["template"]["spec"][
+            "containers"
+        ][0]["env"]
+    }
+    assert env["HERMES_DASHBOARD_BASIC_AUTH_USERNAME"]["value"] == "operator"
+    for name, key in (
+        ("PASSWORD", "DASHBOARD_PASSWORD"),
+        ("SECRET", "DASHBOARD_SECRET"),
+    ):
+        assert env["HERMES_DASHBOARD_BASIC_AUTH_" + name]["valueFrom"][
+            "secretKeyRef"
+        ] == {"name": "agent-platform-secrets", "key": key}
+    assert not any(name.startswith("HERMES_DASHBOARD_OIDC_") for name in env)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("issuer", ""),
+        ("issuer", "http://sso.example.org"),
+        ("issuer", "https://user@sso.example.org"),
+        ("issuer", "https://sso.example.org?query=value"),
+        ("issuer", "https://sso.example.org#fragment"),
+        ("clientId", ""),
+        ("clientId", "has spaces"),
+        ("publicUrl", ""),
+        ("publicUrl", "http://hermes.example.org"),
+        ("publicUrl", "https://hermes.example.org/path"),
+        ("publicUrl", "https://hermes.example.org?query=value"),
+        ("scopes", "email profile"),
+        ("clientSecret", "inline-credentials-are-unsupported"),
+        ("clientSecretRef", {"name": "unsafe/name", "key": "client"}),
+    ],
+)
+def test_invalid_oidc_inputs_fail_before_installation(
+    tmp_path: Path, oidc_values: dict, key: str, value: object
+) -> None:
+    """Incomplete, ambiguous or unsafe OIDC settings cannot silently enable a gate."""
+    oidc_values["hermes"]["dashboardAuth"]["oidc"][key] = value
+    assert "schema" in render(tmp_path, oidc_values, valid=False)
+
+
+@pytest.mark.parametrize("mode", ["basic", "oidc"])
+@pytest.mark.parametrize("field", ["env", "secretEnv"])
+@pytest.mark.parametrize(
+    "name", ["HERMES_DASHBOARD_OIDC_ISSUER", "HERMES_DASHBOARD_PUBLIC_URL"]
+)
+def test_oidc_environment_overrides_cannot_conflict_with_chart_configuration(
+    tmp_path: Path, oidc_values: dict, mode: str, field: str, name: str
+) -> None:
+    """The selected auth mode is authoritative for both public and secret settings."""
+    oidc_values["hermes"]["dashboardAuth"]["mode"] = mode
+    oidc_values["workloads"]["hermes"][field] = [
+        {"name": name, **({"value": "conflict"} if field == "env" else {"key": "x"})}
+    ]
+    error = render(tmp_path, oidc_values, valid=False)
+    assert "hermes.dashboardAuth" in error
+
+
 def test_non_root_hermes_can_read_group_restricted_credentials(
     tmp_path: Path, values: dict
 ) -> None:

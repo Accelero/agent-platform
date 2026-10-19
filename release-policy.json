@@ -5,6 +5,7 @@
     "files/hermes-gateway.nginx.conf",
     "files/multica-gateway.nginx.conf",
     "templates/_application.tpl",
+    "templates/_dashboard.tpl",
     "templates/_helpers.tpl",
     "templates/_runtime.tpl",
     "templates/configmaps.yaml",

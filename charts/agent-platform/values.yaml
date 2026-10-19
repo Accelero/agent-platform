@@ -1108,6 +1108,17 @@ multica:
   mailKeys: []
 hermes:
   dashboardUsername: admin
+  dashboardAuth:
+    mode: basic
+    oidc:
+      issuer: ''
+      clientId: ''
+      publicUrl: ''
+      scopes: openid email profile
+      # Optional for confidential clients. Empty name selects public PKCE.
+      clientSecretRef:
+        name: ''
+        key: client-secret
   maxConcurrentTasks: 1
   providerSecret: hermes-provider-credentials
   providerKeys: []

@@ -488,6 +488,97 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "dashboardAuth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "oidc"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "basic",
+                "oidc"
+              ]
+            },
+            "oidc": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "issuer",
+                "clientId",
+                "publicUrl",
+                "scopes",
+                "clientSecretRef"
+              ],
+              "properties": {
+                "issuer": {
+                  "type": "string"
+                },
+                "clientId": {
+                  "type": "string"
+                },
+                "publicUrl": {
+                  "type": "string"
+                },
+                "scopes": {
+                  "type": "string",
+                  "pattern": "(^|\\s)openid(\\s|$)"
+                },
+                "clientSecretRef": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "key"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "maxLength": 253,
+                      "pattern": "^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$"
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9._-]+$"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "mode": {
+                    "const": "oidc"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "oidc": {
+                    "properties": {
+                      "issuer": {
+                        "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$"
+                      },
+                      "clientId": {
+                        "minLength": 1,
+                        "pattern": "^\\S+$"
+                      },
+                      "publicUrl": {
+                        "pattern": "^https://[^/?#@\\s]+/?$"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     },
