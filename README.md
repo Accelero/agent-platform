@@ -76,6 +76,15 @@ project their own reviewed backup/seed/restore scripts and mount persistent data
 An alternative tools image can provide these dependencies; publishing them once
 keeps backup and recovery independent of package installation at runtime.
 
+## Personal Hermes design
+
+The proposed next step is a personal Hermes manager with a built-in assignment
+administration interface and a router for a common OIDC-protected entry point.
+Read the [implementation plan](docs/personal-hermes/plan.md),
+[specification](docs/personal-hermes/specification.md) and
+[architecture](docs/personal-hermes/architecture.md). These describe future work;
+release 0.6.1 does not implement the manager, router or their proposed APIs.
+
 ## Development
 
 Use Python 3.14, uv, Docker Buildx and Helm 3:
