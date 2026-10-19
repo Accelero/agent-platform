@@ -4,13 +4,16 @@ info:
   version: 0.1.0
   description: >-
     Versioned administration boundary under development, not part of release
-    0.6.1. The current API-only implementation authenticates Keycloak access
+    0.6.1. The API authenticates Keycloak access
     tokens for the configured management audience, authorized client and
     management-client administrator role. Personal assignments, realm membership,
     service certificates and asserted headers grant no administrator permission.
     Require a signed Keycloak user-session sid; client-credentials tokens are
     unsupported. Management/router OIDC clients must disable service accounts.
-    Browser OIDC sessions and their CSRF checks will use the same API.
+    Optional browser OIDC sessions use S256 PKCE, server-side encrypted tokens,
+    opaque host-only HttpOnly cookies and the same API. Cookie mutations require
+    the exact administration Origin and X-CSRF-Token from GET /api/v1/session.
+    Do not combine cookie and bearer credentials. UI serving is still pending.
     Every response is no-store. Request bodies and headers are each limited to
     16 KiB. Mutations commit desired state, optimistic version, actor-scoped
     idempotency result, audit event and operation before returning 202. Native
@@ -21,7 +24,58 @@ servers:
   - url: https://hermes-admin.example.org
 security:
   - AdministratorAccessToken: []
+  - AdministratorSession: []
 paths:
+  /auth/login:
+    get:
+      operationId: beginAdministratorLogin
+      security: []
+      parameters:
+        - name: returnTo
+          in: query
+          schema: { type: string, maxLength: 2048, default: '/' }
+          description: Local UI path only; auth, API and platform paths are rejected
+      responses:
+        '303':
+          description: Committed single-use PKCE/state flow, then provider redirect; previous browser sessions invalidated
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        '422': { $ref: '#/components/responses/InvalidRequest' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /auth/oidc/callback:
+    get:
+      operationId: completeAdministratorLogin
+      security: []
+      description: Browser proof and current single-use state required; codes and provider errors are never reflected
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string, maxLength: 128 } }
+        - { name: code, in: query, schema: { type: string, maxLength: 4096 } }
+        - { name: iss, in: query, schema: { type: string } }
+        - { name: session_state, in: query, schema: { type: string, maxLength: 1024 } }
+        - { name: error, in: query, schema: { type: string } }
+        - { name: error_description, in: query, schema: { type: string } }
+      responses:
+        '303':
+          description: Committed opaque administrator session, then local UI redirect
+          headers:
+            Location: { schema: { type: string } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /auth/logout:
+    post:
+      operationId: logoutAdministrator
+      security:
+        - AdministratorSession: []
+      description: Exact Origin and session CSRF required; durable session revocation precedes best-effort provider token revocation
+      parameters:
+        - { name: Origin, in: header, required: true, schema: { type: string, format: uri } }
+        - { name: X-CSRF-Token, in: header, required: true, schema: { type: string, pattern: '^[a-f0-9]{64}$' } }
+      responses:
+        '204': { description: Session revoked and browser cookies expired }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
   /api/v1/session:
     get:
       operationId: getAdministrationSession
@@ -250,6 +304,11 @@ paths:
         '503': { $ref: '#/components/responses/Unavailable' }
 components:
   securitySchemes:
+    AdministratorSession:
+      type: apiKey
+      in: cookie
+      name: __Host-hermes-admin
+      description: Opaque Secure/HttpOnly/SameSite=Lax cookie, bound to a separate opaque __Host-hermes-admin-browser proof cookie
     AdministratorAccessToken:
       type: http
       scheme: bearer

@@ -6,9 +6,11 @@ use std::{
 
 use hermes_adapters::{
     auth::{AccessTokenVerifier, TokenPolicy, http_client},
-    http::{admin_router, resolver_router},
+    auth_config::{SessionConfig, read},
+    http::{admin_router_with_browser, resolver_router},
     postgres::PgStore,
     server::{bind, serve_until, tls_config},
+    session_crypto::Purpose,
 };
 use hermes_application::{AdminPolicy, Error, InstallationScope, routing::RoutePolicy};
 use jsonwebtoken::Algorithm;
@@ -52,6 +54,7 @@ struct Admin {
     allowed_clients: BTreeSet<String>,
     management_client: String,
     administrator_role: String,
+    browser: Option<SessionConfig>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -62,23 +65,6 @@ struct Resolver {
     service_identity: String,
     audience: String,
     authorized_client: String,
-}
-
-async fn read(path: &Path, maximum: usize) -> Result<Vec<u8>, Error> {
-    // No secret-bearing path/value/underlying error is printed on failure.
-    let metadata = tokio::fs::metadata(path)
-        .await
-        .map_err(|_| Error::Unavailable)?;
-    if metadata.len() > maximum as u64 {
-        return Err(Error::Invalid);
-    }
-    let value = tokio::fs::read(path)
-        .await
-        .map_err(|_| Error::Unavailable)?;
-    if value.is_empty() || value.len() > maximum {
-        return Err(Error::Invalid);
-    }
-    Ok(value)
 }
 
 async fn run() -> Result<(), Error> {
@@ -100,8 +86,8 @@ async fn run() -> Result<(), Error> {
     if scope.id.is_nil() || scope.epoch < 1 {
         return Err(Error::Invalid);
     }
-    let database_url = String::from_utf8(read(&config.database_url_file, 16 * 1024).await?)
-        .map_err(|_| Error::Invalid)?;
+    let database_bytes = read(&config.database_url_file, 16 * 1024).await?;
+    let database_url = std::str::from_utf8(&database_bytes).map_err(|_| Error::Invalid)?;
     let store = PgStore::connect(database_url.trim()).await?;
     if args[0] == "migrate" {
         return store.migrate(&scope).await;
@@ -123,7 +109,7 @@ async fn run() -> Result<(), Error> {
         return Err(Error::Invalid);
     }
     let ca = if let Some(path) = config.oidc.ca_file {
-        Some(read(&path, 64 * 1024).await?)
+        Some(read(&path, 64 * 1024).await?.to_vec())
     } else {
         None
     };
@@ -133,7 +119,7 @@ async fn run() -> Result<(), Error> {
             issuer: scope.issuer.clone(),
             jwks_url: config.oidc.jwks_url.clone(),
             audience: config.admin.audience.clone(),
-            authorized_clients: config.admin.allowed_clients,
+            authorized_clients: config.admin.allowed_clients.clone(),
             algorithms: vec![Algorithm::RS256],
             maximum_age_seconds: None,
         },
@@ -148,18 +134,39 @@ async fn run() -> Result<(), Error> {
             algorithms: vec![Algorithm::RS256],
             maximum_age_seconds: Some(120),
         },
-        client,
+        client.clone(),
     )?;
-    let admin = admin_router(
+    let admin_policy = AdminPolicy {
+        issuer: scope.issuer.clone(),
+        audience: config.admin.audience,
+        management_client: config.admin.management_client,
+        administrator_role: config.admin.administrator_role,
+    };
+    let browser = if let Some(browser) = config.admin.browser {
+        if !config.admin.allowed_clients.contains(&browser.client_id) {
+            return Err(Error::Invalid);
+        }
+        Some(
+            browser
+                .build(
+                    scope.clone(),
+                    Purpose::Administration,
+                    admin_tokens.clone(),
+                    client,
+                    Some(admin_policy.clone()),
+                )
+                .await?,
+        )
+    } else {
+        None
+    };
+    let cleanup = browser.clone();
+    let admin = admin_router_with_browser(
         store.clone(),
         scope.clone(),
-        AdminPolicy {
-            issuer: scope.issuer.clone(),
-            audience: config.admin.audience,
-            management_client: config.admin.management_client,
-            administrator_role: config.admin.administrator_role,
-        },
+        admin_policy,
         admin_tokens,
+        browser,
     )?;
     let resolver = resolver_router(
         store,
@@ -185,6 +192,9 @@ async fn run() -> Result<(), Error> {
     let (admin_listener, _) = bind(&config.admin.listen).await?;
     let (resolver_listener, _) = bind(&config.resolver.listen).await?;
     let (stop, stop_rx) = tokio::sync::watch::channel(false);
+    if let Some(auth) = cleanup {
+        tokio::spawn(auth.cleanup_until(stop_rx.clone()));
+    }
     let mut resolver_stop = stop_rx.clone();
     let mut admin_stop = stop_rx;
     tokio::spawn(async move {

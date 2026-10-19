@@ -1,6 +1,6 @@
 """Exercise the compiled manager process using disposable PostgreSQL and TLS.
 
-Run after cargo build --bin hermes-manager --locked. Requires an existing
+Run after cargo build --workspace --bins --locked. Requires an existing
 disposable PostgreSQL container (the Checks job supplies its service container).
 All configuration, keys and registry records are ephemeral fixtures.
 """
@@ -18,6 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BINARY = ROOT / "services/hermes-manager/target/debug/hermes-manager"
+ROUTER_BINARY = ROOT / "services/hermes-manager/target/debug/hermes-router-auth"
 
 
 def command(args, **kwargs):
@@ -29,6 +30,7 @@ def main():
     parser.add_argument("--postgres-container", default="personal-hermes-manager-tests")
     args = parser.parse_args()
     assert BINARY.is_file(), "Build hermes-manager before running the process test"
+    assert ROUTER_BINARY.is_file(), "Build hermes-router-auth before the process test"
     database = "hermes_process_" + uuid.uuid4().hex
 
     def sql(statement, target="hermes_test"):
@@ -98,6 +100,26 @@ def main():
                 f"postgres://hermes_test@127.0.0.1:{host_port}/{database}"
             )
             database_file.chmod(0o600)
+            encryption_key = directory / "session-key"
+            encryption_key.write_bytes(bytes(range(32)))
+            encryption_key.chmod(0o600)
+            keyring = directory / "keyring.json"
+            keyring.write_text(
+                json.dumps(
+                    {
+                        "activeKeyId": "fixture",
+                        "keyFiles": {"fixture": str(encryption_key)},
+                    }
+                )
+            )
+            session_config = {
+                "databaseUrlFile": str(database_file),
+                "publicOrigin": "https://admin.example.org",
+                "otherOrigin": "https://hermes.example.org",
+                "clientId": "manager-admin",
+                "scopes": ["openid"],
+                "encryptionKeyringFile": str(keyring),
+            }
             installation = str(uuid.uuid4())
             config = {
                 "installation": {
@@ -116,6 +138,7 @@ def main():
                     "allowedClients": ["manager-admin"],
                     "managementClient": "manager-admin",
                     "administratorRole": "platform-administrator",
+                    "browser": session_config,
                 },
                 "resolver": {
                     "listen": f"127.0.0.1:{route_port}",
@@ -166,9 +189,9 @@ def main():
             try:
                 tls = ssl.create_default_context(cafile=str(ca))
 
-                def get(path):
+                def get(path, port=admin_port):
                     connection = http.client.HTTPSConnection(
-                        "127.0.0.1", admin_port, context=tls, timeout=1
+                        "127.0.0.1", port, context=tls, timeout=1
                     )
                     try:
                         connection.request("GET", path)
@@ -226,9 +249,79 @@ def main():
                 ).returncode
                 != 0
             )
+            router_config = {
+                "installation": dict(config["installation"], id=installation),
+                "oidc": dict(config["oidc"], audience="route-api"),
+                "session": dict(
+                    session_config,
+                    publicOrigin="https://hermes.example.org",
+                    otherOrigin="https://admin.example.org",
+                    clientId="hermes-router",
+                ),
+                "public": {
+                    "listen": f"127.0.0.1:{admin_port}",
+                    "certificateFile": str(ca),
+                    "privateKeyFile": str(key),
+                },
+                "internal": {
+                    "listen": f"127.0.0.1:{route_port}",
+                    "certificateFile": str(ca),
+                    "privateKeyFile": str(key),
+                    "clientCaFile": str(ca),
+                    "forwardAuthIdentity": "spiffe://agents.example.org/router-forward-auth",
+                    "sessionPluginIdentity": "spiffe://agents.example.org/router-plugin",
+                },
+            }
+            router_file = directory / "router.json"
+            router_file.write_text(json.dumps(router_config))
+            process = subprocess.Popen(
+                [str(ROUTER_BINARY), "--config", str(router_file)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    assert process.poll() is None, "Router auth process failed startup"
+                    try:
+                        if get("/healthz")[0] == 200:
+                            break
+                    except OSError, http.client.HTTPException:
+                        pass
+                    time.sleep(0.05)
+                else:
+                    raise AssertionError("Router auth process never became healthy")
+                assert get("/_platform/me")[0] == 401
+                assert get("/api/v1/session")[0] == 404
+                assert get("/internal/v1/forward-auth")[0] == 404
+                connection = http.client.HTTPSConnection(
+                    "127.0.0.1", route_port, context=tls, timeout=1
+                )
+                try:
+                    try:
+                        connection.request("GET", "/healthz")
+                        connection.getresponse()
+                    except OSError, http.client.HTTPException:
+                        pass
+                    else:
+                        raise AssertionError(
+                            "Router internal listener accepted missing mTLS"
+                        )
+                finally:
+                    connection.close()
+            finally:
+                process.kill()
+                process.communicate(timeout=10)
+            router_config["installation"]["epoch"] = 2
+            router_file.write_text(json.dumps(router_config))
+            assert (
+                command([str(ROUTER_BINARY), "--config", str(router_file)]).returncode
+                != 0
+            )
             print(
-                "PASS: real API process migration/startup/TLS boundaries, abrupt "
-                "kill, registry reopening and mismatch denial"
+                "PASS: real API and router auth startup/TLS/session boundaries, "
+                "abrupt kill, registry reopening and identity/epoch mismatch denial"
             )
     finally:
         sql(f"DROP DATABASE {database} WITH (FORCE);")

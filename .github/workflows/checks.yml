@@ -72,7 +72,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
-      - run: cargo build --bin hermes-manager --locked
+      - run: cargo build --workspace --bins --locked
       - name: Test API process and registry after abrupt termination
         run: uv run python ../../tests/personal_hermes/api_process.py --postgres-container '${{ job.services.postgres.id }}'
 

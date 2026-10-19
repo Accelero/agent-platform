@@ -17,7 +17,17 @@
     "audience": "manager-api",
     "allowedClients": ["manager-admin"],
     "managementClient": "manager-admin",
-    "administratorRole": "platform-administrator"
+    "administratorRole": "platform-administrator",
+    "browser": {
+      "databaseUrlFile": "/run/secrets/manager-admin-session/database-url",
+      "publicOrigin": "https://hermes-admin.example.org",
+      "otherOrigin": "https://hermes.example.org",
+      "clientId": "manager-admin",
+      "clientSecretFile": "/run/secrets/manager-admin-session/client-secret",
+      "scopes": ["openid"],
+      "revocationUrl": "https://sso.example.org/realms/agents/protocol/openid-connect/revoke",
+      "encryptionKeyringFile": "/run/secrets/manager-admin-session/keyring.json"
+    }
   },
   "resolver": {
     "listen": "0.0.0.0:8444",

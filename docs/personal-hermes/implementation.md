@@ -1,6 +1,6 @@
 # Personal Hermes implementation evidence
 
-Branch: `feat/personal-hermes-manager`. Release 0.6.1 remains the current
+Branch: `feat/personal-hermes-commissioning`. Release 0.6.1 remains the current
 published application. This file tracks evidence against the full
 [plan](plan.md), not a replacement scope or a claim of release readiness.
 
@@ -13,7 +13,8 @@ published application. This file tracks evidence against the full
   names. Display/email matching cannot grant ownership.
 - Explicit administrator audience/client-role checks on application commands,
   with a TLS API-only HTTP transport and verified Keycloak access-token adapter.
-  Browser login/session persistence and CSRF still need implementation.
+  Optional browser OIDC login, encrypted session persistence and CSRF use the
+  same versioned API; presentation serving remains outstanding.
 - Transactional create/access/retry commands: optimistic versions, stable
   instance reservation, actor-scoped body-checked idempotency, immutable audit
   and proactive durable commissioning work. Revoke retains records and retry
@@ -45,20 +46,30 @@ published application. This file tracks evidence against the full
   age-bounded. JWKS calls are fixed-origin HTTPS, bounded and size-limited with
   no redirects/proxy environment fallback. A service certificate alone cannot
   assert a user or administration permission.
+- OIDC code flow through the maintained protocol library with S256 PKCE,
+  single-use browser-bound state, nonce/signature/issuer/audience/subject checks
+  and encrypted server-side tokens. Separate administrator/router session
+  schemas and SQL roles, absolute expiry, generation-fenced login/logout and
+  installation epoch mirrors. Refresh claims commit before provider calls;
+  uncertain refresh outcomes require a fresh login. Bounded credential cleanup.
+- Compiled `hermes-router-auth` process with separate public and internal mTLS
+  listeners. Distinct service identities protect ForwardAuth and established
+  connection session checks. Public session metadata contains no provider token;
+  authentication cannot create assignments or access assignment SQL.
 
 ## Evidence and remaining gates
 
 | Area | Executable evidence | Still required |
 | --- | --- | --- |
-| Identity/domain | Rust domain/application tests; signed-JWT native provider test; real HTTP access-token verification | OIDC authorization-code/refresh/session adapter, full native session/middleware coverage, public-subject compatibility |
-| Assignment persistence and resolver | 22 PostgreSQL tests, seven real HTTPS/mTLS integration tests, API-only workflow and OpenAPI validation | Browser sessions/CSRF, remaining runtime/storage/owner/checkpoint endpoints and integrated provider acceptance |
+| Identity/domain | Rust domain/application tests; signed-JWT native provider test; real HTTPS OIDC/access-token/session checks | Full native session/middleware coverage, configured Keycloak/public-subject compatibility and external revocation bound |
+| Assignment persistence and resolver | 22 registry tests, ten session/crypto tests, seven token/API HTTPS tests and eight browser/router HTTPS tests, API-only workflow and OpenAPI validation | Remaining runtime/storage/owner/checkpoint endpoints and integrated provider acceptance |
 | Crash journal | PostgreSQL intent, lease/fence, unknown-result and delete-absence tests | Owned-resource registry, real Kubernetes verification, forced-process-death tests at every external boundary |
 | Proxy plugin | Go tests with race detector | Full native HTTP/upload/browser/cookie behavior and configured provider revocation |
 | Traefik | `tests/personal_hermes/router_compatibility.py`, pinned official image | End-to-end Rust/Keycloak/native Hermes acceptance |
-| Existing release | Python checks, 91 pytest tests including OpenAPI validation, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
+| Existing release | Python checks, 92 pytest tests including OpenAPI validation, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
 | Runtime policy/execution | Domain mount-path validation | Catalog/storage/effective-policy database model, execution API, environment/lease transactions, SSH driver and adapter extension |
 | Commissioning | Durable outbox and stable instance reservation | Controller process, bootstrap RBAC/admission, ownership intents/UIDs, templates, create-once secrets, home initialization, readiness and retained suspension |
-| Administration UI | Versioned administration contract and API-only executable; presentation-separated application ports | Remaining runtime/storage/owner/checkpoint contracts, OIDC/CSRF, generated client and React/Vite build |
+| Administration UI | Versioned administration contract, bearer and browser-session API; presentation-separated application ports | Remaining runtime/storage/owner/checkpoint contracts, generated client and React/Vite build |
 | Recovery | Fresh/existing registry gate and maintenance/epoch fencing | Trusted inventory scanner, checkpoint/receipt/restore lifecycle and coordinated full-data recovery tests |
 | Distribution | New workspace/plugin checks in CI | Dockerfiles, reviewed release inputs, opt-in chart values/schema/RBAC/networking, operator docs and acceptance qualification |
 | Adoption | Existing singleton code/chart untouched | Explicit deployment-specific storage/ownership migration after all platform gates pass |
@@ -80,8 +91,8 @@ with the same email is rejected, changing the email preserves ownership, invalid
 signature/issuer is rejected, malformed pin configuration fails, and unpinned
 singleton compatibility passes. Run `uv run python tests/personal_hermes/native_owner.py`.
 
-The compiled API process test passes migration/startup/TLS boundary checks,
-abrupt termination, registry reopening and mismatched-installation rejection.
+The compiled API/router-auth process test passes migration/startup/TLS boundary
+checks, abrupt termination, registry reopening and mismatched installation/epoch rejection.
 The seven real HTTPS tests exercise the Rust API and resolver with generated
 certificates and signed tokens, including live access revocation, wrong mTLS
 identity, token claim/signature failures, input bounds, JWKS outage and a database

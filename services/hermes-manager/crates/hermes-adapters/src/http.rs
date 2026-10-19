@@ -23,8 +23,11 @@ use uuid::Uuid;
 
 use crate::{
     auth::{AccessTokenVerifier, unix_time},
+    browser_auth::BrowserAuth,
+    browser_http,
     postgres::PgStore,
     server::PeerIdentity,
+    session_crypto::Purpose,
 };
 
 struct AdminState {
@@ -36,7 +39,10 @@ struct AdminState {
 struct AdminAuth {
     tokens: AccessTokenVerifier,
     policy: AdminPolicy,
+    browser: Option<BrowserAuth>,
 }
+#[derive(Clone)]
+struct BrowserCsrf(Option<String>);
 struct ResolverState {
     routes: Routes<PgStore>,
     tokens: AccessTokenVerifier,
@@ -47,7 +53,7 @@ fn response(status: StatusCode, body: Value) -> Response {
     (status, Json(body)).into_response()
 }
 
-fn api_error(error: Error) -> Response {
+pub(crate) fn api_error(error: Error) -> Response {
     let (status, code) = match error {
         Error::Invalid => (StatusCode::UNPROCESSABLE_ENTITY, "invalid_request"),
         Error::InvalidIdentityEvidence => (StatusCode::UNAUTHORIZED, "invalid_identity_evidence"),
@@ -70,7 +76,7 @@ fn api_error(error: Error) -> Response {
     result
 }
 
-fn one_header<'a>(headers: &'a HeaderMap, key: &str) -> Result<&'a str, Error> {
+pub(crate) fn one_header<'a>(headers: &'a HeaderMap, key: &str) -> Result<&'a str, Error> {
     let mut values = headers.get_all(key).iter();
     let value = values.next().ok_or(Error::Invalid)?;
     if values.next().is_some() {
@@ -93,17 +99,49 @@ fn bearer(headers: &HeaderMap) -> Result<&str, Error> {
 }
 
 async fn admin_auth(State(auth): State<AdminAuth>, mut request: Request, next: Next) -> Response {
-    let principal = match bearer(request.headers()) {
-        Ok(token) => match auth.tokens.verify(token).await {
-            Ok(verified) => verified.principal(),
-            Err(error) => return api_error(error),
-        },
-        Err(error) => return api_error(error),
+    let headers = request.headers().clone();
+    let method = request.method().clone();
+    let result = async {
+        let session = match &auth.browser {
+            Some(browser) => browser_http::cookie(&headers, browser.session_cookie())?,
+            None => None,
+        };
+        if headers.contains_key(header::AUTHORIZATION) {
+            if session.is_some() {
+                return Err(Error::InvalidIdentityEvidence);
+            }
+            return Ok((
+                auth.tokens.verify(bearer(&headers)?).await?.principal(),
+                None,
+            ));
+        }
+        let browser = auth
+            .browser
+            .as_ref()
+            .ok_or(Error::InvalidIdentityEvidence)?;
+        let session = session.ok_or(Error::InvalidIdentityEvidence)?;
+        let proof = browser_http::cookie(&headers, browser.browser_cookie())?
+            .ok_or(Error::InvalidIdentityEvidence)?;
+        let verified = browser.authenticate(session, proof).await?;
+        if !matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS") {
+            browser.check_origin(one_header(&headers, "origin").map_err(|_| Error::Forbidden)?)?;
+            BrowserAuth::check_csrf(
+                &verified.csrf_token,
+                one_header(&headers, "x-csrf-token").map_err(|_| Error::Forbidden)?,
+            )?;
+        }
+        Ok((verified.access.principal(), Some(verified.csrf_token)))
+    }
+    .await;
+    let (principal, csrf) = match result {
+        Ok(value) => value,
+        Err(e) => return api_error(e),
     };
     if let Err(error) = auth.policy.authorize(&principal) {
         return api_error(error);
     }
     request.extensions_mut().insert(principal);
+    request.extensions_mut().insert(BrowserCsrf(csrf));
     next.run(request).await
 }
 
@@ -120,7 +158,7 @@ async fn bounded(request: Request, next: Next, deadline: Duration, resolver: boo
         .iter()
         .map(|(key, value)| key.as_str().len() + value.as_bytes().len())
         .sum();
-    let mut result = if header_size > 16 * 1024 {
+    let mut result = if header_size > 16 * 1024 || request.uri().to_string().len() > 8192 {
         api_error(Error::Invalid)
     } else {
         match tokio::time::timeout(deadline, next.run(request)).await {
@@ -158,6 +196,10 @@ async fn bounded(request: Request, next: Next, deadline: Duration, resolver: boo
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
+    result.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     result
 }
 
@@ -174,6 +216,22 @@ pub fn admin_router(
     policy: AdminPolicy,
     tokens: AccessTokenVerifier,
 ) -> Result<Router, Error> {
+    admin_router_with_browser(store, scope, policy, tokens, None)
+}
+
+pub fn admin_router_with_browser(
+    store: PgStore,
+    scope: InstallationScope,
+    policy: AdminPolicy,
+    tokens: AccessTokenVerifier,
+    browser: Option<BrowserAuth>,
+) -> Result<Router, Error> {
+    if browser
+        .as_ref()
+        .is_some_and(|auth| auth.purpose() != Purpose::Administration)
+    {
+        return Err(Error::Invalid);
+    }
     let state = Arc::new(AdminState {
         commands: Assignments::new(store.clone(), scope.clone(), policy.clone())?,
         store,
@@ -196,10 +254,18 @@ pub fn admin_router(
         .route("/api/v1/operations/{id}", get(operation))
         .route("/api/v1/audit-events", get(audit))
         .route_layer(middleware::from_fn_with_state(
-            AdminAuth { tokens, policy },
+            AdminAuth {
+                tokens,
+                policy,
+                browser: browser.clone(),
+            },
             admin_auth,
         ))
         .with_state(state);
+    let protected = match browser {
+        Some(auth) => protected.merge(browser_http::router(auth)),
+        None => protected,
+    };
     Ok(protected
         .route("/healthz", get(health))
         .fallback(not_found)
@@ -228,9 +294,12 @@ pub fn resolver_router(
         .layer(middleware::from_fn(bounded_resolver)))
 }
 
-async fn session(Extension(actor): Extension<VerifiedPrincipal>) -> Json<Value> {
+async fn session(
+    Extension(actor): Extension<VerifiedPrincipal>,
+    Extension(csrf): Extension<BrowserCsrf>,
+) -> Json<Value> {
     Json(
-        json!({"actor":actor.identity,"permittedActions":["assignment.create","assignment.set_access","instance.retry"],"csrfToken":null}),
+        json!({"actor":actor.identity,"permittedActions":["assignment.create","assignment.set_access","instance.retry"],"csrfToken":csrf.0}),
     )
 }
 

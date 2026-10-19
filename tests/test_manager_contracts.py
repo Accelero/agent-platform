@@ -10,7 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = ROOT / "contracts/hermes-manager"
 
 
-@pytest.mark.parametrize("name", ["openapi.yaml", "router.openapi.yaml"])
+@pytest.mark.parametrize(
+    "name", ["openapi.yaml", "router.openapi.yaml", "router-auth.openapi.yaml"]
+)
 def test_manager_contract_is_valid_openapi_31(name):
     path = CONTRACTS / name
     validate(yaml.safe_load(path.read_text()), base_uri=path.as_uri())

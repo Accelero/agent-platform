@@ -83,6 +83,18 @@ pub struct VerifiedAccess {
 }
 
 impl VerifiedAccess {
+    pub fn issued_at(&self) -> u64 {
+        self.claims.iat
+    }
+    pub fn expires_at(&self) -> u64 {
+        self.claims.exp
+    }
+    pub fn provider_session(&self) -> &str {
+        &self.claims.sid
+    }
+    pub fn authorized_client(&self) -> &str {
+        &self.claims.azp
+    }
     pub fn identity(&self) -> Identity {
         Identity {
             issuer: self.claims.iss.clone(),

@@ -1,6 +1,6 @@
 # Personal Hermes implementation plan
 
-Status: implementation in progress on `feat/personal-hermes-manager`. The
+Status: implementation in progress on `feat/personal-hermes-commissioning`. The
 services described here are not implemented in release 0.6.1. See the
 [implementation evidence](implementation.md) for implemented portions and
 remaining acceptance gates; an unchecked phase is not release-qualified.
