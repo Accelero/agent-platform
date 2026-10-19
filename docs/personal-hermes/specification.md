@@ -52,6 +52,7 @@ This is OIDC-based backend selection, not merely OIDC protecting a fixed backend
 | P15 | One Rust manager must administer user-to-instance assignments, serve route resolution and reconcile both Hermes instances and terminal worker Pods. Only its controller role receives elevated Kubernetes permissions. |
 | P16 | PostgreSQL must durably model all manager assignments, runtime/storage configuration, execution clients, environments, leases and lifecycle operations. Personal mode must not depend on a separate execution-manager service, per-owner SQLite state or independent static execution configuration. |
 | P17 | Each enabled, commissioned Hermes gateway must stay running at one desired replica for native cron and background integrations. HTTP inactivity must not trigger Hermes scale-to-zero; terminal worker lifetimes remain independently configurable. |
+| P18 | Every acknowledged manager mutation and every external lifecycle action must have a durable PostgreSQL recovery record at the required commit boundary. After an ungraceful restart, reconciliation resumes committed work without duplicate instances, worker generations, lease grants or destructive replay. |
 
 ## Assignment administration
 
@@ -106,8 +107,9 @@ Use versioned PostgreSQL migrations and explicit constraints, at least:
 | Execution client | Stable ID, owning instance, credential hash/reference, allowed profiles, rotation/revocation state; cannot assert another owner or administer configuration |
 | Execution environment/generation | Installation/instance, profile, runtime version, session or profile lifetime key, effective policy digest, desired/observed generation, namespace/Pod UID binding, readiness and drain/retirement state; unique active scoped environment identity |
 | Execution request/lease | Client-scoped idempotency request/body digest and environment, lease ID, parent/delegate relationship, expiry/heartbeat/release state and fencing version; transactional uniqueness and exclusive-mode constraints |
-| Owned resource | Instance ID, kind, namespace, name, observed UID, purpose and retention disposition; reject foreign UID adoption |
-| Operation/outbox | Type, instance, desired generation, idempotency key/body digest, lease owner/expiry, fencing version, bounded retry status |
+| Owned resource | Instance ID, kind, namespace/name, reserved creation-operation identity, expected namespace UID, intended spec digest, observed resource UID, purpose and retention disposition; reject foreign UID adoption |
+| Operation/outbox | Durable operation/target IDs, type, immutable policy/input references, desired generation, idempotency key/body digest, state/current step, lease owner/expiry, fencing version, next-attempt time and bounded retry status |
+| Operation step | Operation/step key, committed action intent, expected UID/resource version and manifest digest, attempt/fencing token, observed result/UID, verification state and redacted failure; unique `(operation_id, step_key)` |
 | Audit event | Immutable actor issuer/subject or authenticated service ID, action, target, timestamp, request ID and redacted change metadata |
 | Checkpoint | Installation/maintenance epoch, inventory schema/digest, participating instances, completion and verified recovery receipt |
 
@@ -159,6 +161,67 @@ command, an explicit target/version/retention decision, a matching checkpoint
 receipt or a separately explicit discard decision, and full ownership checks.
 It is not part of the initial UI's normal disable operation. Never cascade-delete
 homes because an identity disappeared from a directory response.
+
+## Crash recovery and persistence boundaries
+
+Recovery must work after abrupt process death without shutdown hooks. Use logged
+PostgreSQL tables and durable commits; require `fsync`, `full_page_writes` and
+`synchronous_commit` enabled for manager state. In-memory queues, timers, watch
+caches and database notifications are accelerators, not recovery records.
+Database migrations and startup checks must verify the expected schema,
+installation identity and recovery/maintenance epoch before enabling operations.
+These are manager process-recovery requirements; coordinated database/data loss
+recovery follows the separate checkpoint contract.
+
+| Boundary | Commit before action or response | Recovery and completion rule |
+| --- | --- | --- |
+| Assignment/configuration mutation | Desired state, version, idempotency result, audit event and outbox operation in one transaction before `202`/success | Retry with the same key returns the recorded result; a process crash cannot lose an acknowledged change or its pending work |
+| Resource create/update | Stable target identity/name, pinned policy/spec digest, next step, operation fence and any encrypted bootstrap material before the Kubernetes call | Read the exact target and verify ownership, intent and applied spec; persist observed UID/result before advancing; an uncertain response is reconciled rather than blindly repeated |
+| Native initialization | Initialization operation, seed/schema version and create-once credential intent before dispatch | Reuse the matching durable receipt or resume an idempotent initializer; never reseed an existing home or regenerate credentials merely because a response was lost |
+| Execution lease grant/heartbeat/release | Scoped lease identity, environment/generation, expiry and request outcome committed before returning success | Lost-response retries reuse the committed live lease; expired/released leases remain terminal and cannot be revived; expiry uses database time |
+| Resource retirement/delete | Retiring/tombstone state, exact resource UID, retention decision and required checkpoint receipt before deletion | Delete with UID/resource-version preconditions; observe absence of that resource before marking complete; an accepted delete is not completed cleanup |
+
+Creation has a specific recovery window: Kubernetes may create an object before
+the process records its UID. Before the call, persist a unique creation intent
+and verifiable installation/instance/operation/generation marker bound to the
+target and manifest digest. While the first UID is still unbound, recovery may
+bind only the exact outstanding intent after verifying that marker, namespace
+UID where applicable and intended resource fields. Namespace creation first
+verifies installation/cluster scope and binds the namespace UID before any
+child resource is created. Name/label matching alone is insufficient.
+Once bound, a different UID blocks adoption or replacement until the explicit
+lifecycle permits it. Generated bootstrap secrets must retain their original
+encrypted material or verified reference across retries.
+
+Track operation states such as `Pending`, `Running`, `Waiting`, `RetryAt`,
+`Succeeded`, `Blocked` and `Failed`, with durable step outcomes and bounded retry
+times. Claim work in short transactions, with database-time leases and increasing
+fencing tokens. No SQL transaction may remain open across an external call.
+Every result/state transition compares the operation fence, desired generation
+and installation epoch. Stale workers cannot commit progress or renew ownership.
+External updates/deletes also use Kubernetes UID/resource-version preconditions;
+a database lease check alone does not make a Kubernetes write atomic with SQL.
+
+After a timeout or lost response, record an unknown outcome, observe the target
+and reconcile it before issuing the next action. Delivery is at least once;
+operation identity, idempotent effects and verification provide convergence.
+Do not claim exactly-once execution across PostgreSQL and Kubernetes. An
+initializer or external action without a verifiable receipt/idempotency contract
+must enter `Blocked` for review instead of being replayed automatically.
+
+At startup, rebuild pending work and due timers from PostgreSQL, reclaim only
+expired operation leases and relist registered owned Kubernetes resources.
+Reconcile live UIDs/specs/readiness with pending steps, including actions that
+succeeded before a crash. Preserve unexpired execution leases and their original
+expiry; retire expired ones rather than extending them to restart time. Missing
+or failed observations must not be treated as proof of absence. Periodic resync
+must repair a missed watch event or lost notification without manual re-enqueue.
+
+Database unavailability stops new grants and lifecycle writes; it must not cause
+fresh-install fallback or a second local state store. Healthy Hermes/worker Pods
+are not restarted merely because the manager restarted. Arbitrary terminal
+commands, agent turns and cron side effects are not automatically replayed by
+manager recovery; their application execution receipts remain authoritative.
 
 ## API contracts
 
@@ -545,6 +608,10 @@ administrators are identity-provider roles, not a second user-password database.
 | Custom terminal image and private registry | Compatible non-root SSH image runs with scoped pull credentials; image/entrypoint incompatibility or pull failure is reported without fallback |
 | Terminal policy change during active leases | Only affected work drains; matching database policy/admission activate together and desired/effective status remains accurate |
 | Shared manager restart and concurrent execution requests | PostgreSQL recovers environments, requests and leases; no duplicate Pod/lease grant, foreign owner access, expired-lease revival or per-owner manager service |
+| Kill manager before/after each commit and Kubernetes call | Resume from PostgreSQL and observed resources; one target generation, preserved owner data and accurate operation status, including create-success-before-UID-save |
+| API or lease response lost after commit | Retry the same idempotency key returns the recorded operation/live lease; changed payload conflicts and expired leases are not recreated |
+| Stale worker, delayed Kubernetes response or watch gap | Fences/preconditions reject stale progress, uncertain effects are reconciled and periodic resync finds missed work without destructive replay |
+| Restart during initialization, policy activation or deletion | Resume the recorded step and credentials; never reseed live state, mix policy generations or report deletion complete before verified absence |
 | Enabled Hermes with no browser traffic | One desired gateway replica remains running and a fixture cron job fires; it can acquire an on-demand terminal worker without a user request |
 | Idle terminal cleanup | Terminal worker retirement leaves Hermes, its native cron scheduler and retained state running |
 | Assignment revoke during terminal acquisition | No new ready lease after revocation; pending terminal generations are fenced and existing work drains within the configured bound |

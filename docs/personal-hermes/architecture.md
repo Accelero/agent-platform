@@ -196,6 +196,56 @@ instance, namespace and UID checks agree. A name or label match alone cannot
 authorize adoption. Disable races cannot publish a usable route because route
 resolution independently reads the current assignment on every request.
 
+### Durable operation steps and restart recovery
+
+The manager is a reconciler backed by PostgreSQL, with durable per-operation
+steps. Committing only the final outcome is insufficient: every Kubernetes or
+initialization action needs a committed intent before dispatch, followed by
+observation and a fenced completion commit. The specification's
+[persistence boundaries](specification.md#crash-recovery-and-persistence-boundaries)
+apply to commissioning, terminal creation, policy changes, credentials, leases,
+suspension, deletion and checkpoints.
+
+```mermaid
+sequenceDiagram
+  participant U as API caller
+  participant A as Rust API
+  participant P as PostgreSQL
+  participant C as Rust controller
+  participant K as Kubernetes
+  U->>A: Idempotent command
+  A->>P: Commit desired state, audit, request result and outbox
+  P-->>A: Commit confirmed
+  A-->>U: Accepted operation ID
+  C->>P: Claim operation and commit step intent with fence
+  P-->>C: Intent committed
+  C->>K: Apply exact reserved target and generation
+  Note over C,K: Crash or lost response may occur here
+  C->>K: Observe target and verify creation intent, ownership and spec
+  K-->>C: Verified UID and observed state
+  C->>P: Compare fence/generation, commit result and next step
+```
+
+Reserve resource identities, immutable input/policy references and create-once
+bootstrap material before external writes. Use an authenticated creation marker
+to bind an observed UID only to its exact outstanding creation intent; subsequent
+UID changes remain conflicts. Record deletion intent before the delete call and
+verify absence before completion. Use Kubernetes UID/resource-version
+preconditions in addition to SQL fencing, and reconcile uncertain outcomes.
+PostgreSQL and Kubernetes do not share an atomic transaction; retry convergence
+comes from operation identities, idempotent actions and verified observations.
+See [PostgreSQL reliability](https://www.postgresql.org/docs/current/wal-reliability.html)
+and [Kubernetes API concurrency](https://kubernetes.io/docs/reference/using-api/api-concepts/).
+
+On restart, validate schema/installation/recovery gates, reload durable pending
+steps and timers, reclaim expired worker claims and relist registered resources.
+Keep unexpired execution leases and existing healthy Pods; never reset lease or
+idle deadlines to startup time. Periodic resync supplements watches/notifications.
+If a non-idempotent initializer has no provable completion receipt, block that
+operation for review. Recovery must pass forced-process-death tests, including
+Kubernetes success before UID/result persistence and API success before a lost
+response, without relying on graceful shutdown or an in-memory work queue.
+
 ## Instance namespaces and the elevated controller
 
 The first implementation uses one namespace per personal instance, with names

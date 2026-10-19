@@ -15,6 +15,10 @@ Read the [specification](specification.md) for required behavior and the
   terminal lifecycle in one Rust manager with one PostgreSQL control model.
   Its API/UI and controller are process roles of the same product; only the
   controller is elevated. Do not deploy per-Hermes execution managers.
+- Make manager recovery independent of graceful shutdown: commit API results and
+  pending work before acknowledgement, persist each external action's intent
+  before dispatch, then verify and commit its observed result. Restart resumes
+  from PostgreSQL plus verified Kubernetes state.
 - Keycloak authenticates people and supplies stable OIDC identities.
 - An explicit assignment in the manager's PostgreSQL database decides whether a
   person gets a personal Hermes instance. A Keycloak user or group membership
@@ -104,6 +108,9 @@ bootstrap cannot grant the controller access to an unrelated namespace.
   in Rust with both mTLS and fresh user identity evidence.
 - [ ] Implement versioned SQL migrations, unique identity/assignment constraints,
   desired and observed generations, operation leases, idempotency and audit data.
+- [ ] Implement a durable operation-step journal and commit boundaries from the
+  specification. Require logged tables/durable PostgreSQL settings and startup
+  schema/installation checks. Lost notifications must not lose committed work.
 - [ ] Add immutable terminal-runtime versions, assignment defaults/allowlists,
   owner storage bindings and desired/effective execution-policy generations.
 - [ ] Model scoped execution clients, environment/Pod generations, acquisition
@@ -168,6 +175,10 @@ can later move to a separate service without changing the core use cases.
 - [ ] Render worker specs and image/mount/identity admission from one PostgreSQL
   policy generation. Fence acquisitions and drain affected leases on
   updates, with explicit applied status and bounded recovery of failed changes.
+- [ ] Reconcile uncertain Kubernetes outcomes using reserved creation identities,
+  authenticated intent markers, exact UIDs/specs and resource-version preconditions.
+  Persist create-once credential material before dispatch and retirement intent
+  before deletion. Advance steps only after verified results and fenced commits.
 - [ ] Prove custom terminal-image SSH compatibility and namespace-local registry
   pull credentials. Apply approved pull refs in the new Rust execution driver.
 - [ ] Integrate owner storage bindings for existing or adapter-provisioned
@@ -179,6 +190,12 @@ can later move to a separate service without changing the core use cases.
 - [ ] Implement capacity limits, bounded work queues, readiness conditions,
   per-owner/global execution quotas, retry/backoff and crash recovery after each
   Hermes or terminal provisioning step.
+- [ ] Add forced-kill/lost-response tests around every commit/external-call
+  boundary using PostgreSQL and a disposable local Kubernetes fixture. Cover
+  create-before-UID-save, lease grant before lost response, initialization,
+  policy activation, revoke, deletion, stale workers and dropped watch events.
+  Prove startup/periodic resync preserves live leases, expires old ones and
+  resumes pending work without reseeding homes or replaying terminal commands.
 - [ ] Deny routing before suspension/decommissioning work, drain bounded active
   work and retain storage. Make permanent purge a separate explicit operation.
 

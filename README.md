@@ -90,6 +90,8 @@ provisioning, terminal image/mount policy, execution Pods and leases. Personal
 mode has no separate per-Hermes execution-manager service.
 Enabled Hermes gateways stay running for native cron/background work; terminal
 workers have independent, configurable lifetimes.
+The manager resumes interrupted lifecycle operations from durable PostgreSQL
+step records and verified Kubernetes state after a crash.
 Read the [implementation plan](docs/personal-hermes/plan.md),
 [specification](docs/personal-hermes/specification.md) and
 [architecture](docs/personal-hermes/architecture.md). These describe future work;
