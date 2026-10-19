@@ -495,6 +495,21 @@ with the pinned proxy/native combination before adopting Traefik. Do not claim
 that removing a route closes existing streams or silently weaken the revocation
 requirement to make the off-the-shelf proxy fit.
 
+The initial plugin implementation tracks the hijacked downstream connection.
+Every five seconds it calls the auth adapter's restricted
+`POST /internal/v1/sessions/authorize` over mTLS with the opaque server-side
+session handle supplied by ForwardAuth. Only the configured plugin service
+identity may call this endpoint. The adapter must re-evaluate that session and
+return fresh route-audience access-token evidence for its exact current owner;
+it must reject missing/revoked sessions, stale provider verification and identity
+switching. The response is internal, bounded and `no-store`, never browser data.
+The plugin then queries the manager again and requires the original instance,
+route generation and authorization version. Each call has a two-second deadline
+and the cycle a four-second deadline; failure closes the connection. The actual
+Traefik/Yaegi transport proof uses fixtures and is recorded in the
+[implementation evidence](implementation.md). Full provider/native session
+acceptance remains required.
+
 ## Model credentials and Multica
 
 A commissioned instance starts with generic software and no other person's

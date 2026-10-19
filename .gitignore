@@ -15,6 +15,7 @@ kubeconfig*
 /credentials.*
 *.tgz
 node_modules/
+target/
 .DS_Store
 /config/agents/
 /profiles/

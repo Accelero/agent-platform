@@ -1,7 +1,9 @@
 # Personal Hermes implementation plan
 
-Status: design for a future release. The services described here are not
-implemented in release 0.6.1. This change adds documentation only.
+Status: implementation in progress on `feat/personal-hermes-manager`. The
+services described here are not implemented in release 0.6.1. See the
+[implementation evidence](implementation.md) for implemented portions and
+remaining acceptance gates; an unchecked phase is not release-qualified.
 
 Read the [specification](specification.md) for required behavior and the
 [architecture](architecture.md) for component boundaries and deployment decisions.

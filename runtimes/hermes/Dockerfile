@@ -3,6 +3,8 @@ ARG HERMES_IMAGE=nousresearch/hermes-agent@sha256:d4da4a40cd7a28aba983775d9fd31d
 FROM ${MULTICA_BACKEND_IMAGE} AS multica
 FROM ${HERMES_IMAGE}
 USER root
+COPY runtimes/hermes/dashboard-owner.py runtimes/hermes/patch-dashboard-owner.py /usr/local/lib/
+RUN /opt/hermes/.venv/bin/python /usr/local/lib/patch-dashboard-owner.py
 COPY --from=multica /app/multica /usr/local/bin/multica
 COPY --from=multica /app/LICENSE /app/NOTICE /usr/local/share/multica/
 COPY runtimes/hermes/multica-run /etc/s6-overlay/s6-rc.d/multica/run

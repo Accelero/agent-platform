@@ -38,3 +38,65 @@ jobs:
           output.mkdir(parents=True)
           render_chart(output, ROOT / "charts/agent-platform")
           PY
+
+  hermes-manager:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: services/hermes-manager
+    services:
+      postgres:
+        image: postgres@sha256:2a0d0fe14825b0939f78a8cad5cd4e6aa68bf94d0e5dd96e24b6d23af4315545
+        env:
+          POSTGRES_USER: hermes_test
+          POSTGRES_DB: hermes_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hermes_test -d hermes_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://hermes_test@127.0.0.1:5432/hermes_test
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  hermes-router-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.13.0'
+          python-version: '3.14'
+      - run: uv sync --locked
+      - name: Install the pinned Go toolchain
+        env:
+          GO_ARCHIVE_SHA256: 42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d
+        run: |
+          curl --fail --location --silent --show-error --max-time 120 \
+            https://go.dev/dl/go1.26.9.linux-amd64.tar.gz --output "$RUNNER_TEMP/go.tar.gz"
+          printf '%s  %s\n' "$GO_ARCHIVE_SHA256" "$RUNNER_TEMP/go.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/go.tar.gz" -C "$RUNNER_TEMP"
+          printf '%s\n' "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+      - name: Go formatting, vet and race tests
+        working-directory: plugins/hermes-route-resolver
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race -count=1 ./...
+      - name: Load Yaegi and test routing and open-WebSocket revocation
+        run: uv run python tests/personal_hermes/router_compatibility.py
+      - name: Verify native owner pin against the real Hermes provider
+        run: uv run python tests/personal_hermes/native_owner.py

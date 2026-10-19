@@ -27,6 +27,8 @@
       "root": ".",
       "files": [
         "runtimes/hermes/Dockerfile",
+        "runtimes/hermes/dashboard-owner.py",
+        "runtimes/hermes/patch-dashboard-owner.py",
         "runtimes/hermes/multica-run",
         "runtimes/hermes/multica-checkout-run",
         "runtimes/hermes/managed-exec",

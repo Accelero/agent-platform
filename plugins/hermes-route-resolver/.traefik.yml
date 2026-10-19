@@ -1,0 +1,12 @@
+displayName: Personal Hermes route resolver
+type: middleware
+import: github.com/accelero/hermesrouteresolver
+summary: Resolve exact authenticated owners through the manager and revoke open WebSockets
+testData:
+  managerURL: https://hermes-manager.internal.example.org/internal/v1/routes/resolve
+  sessionURL: https://hermes-auth.internal.example.org/internal/v1/sessions/authorize
+  issuer: https://sso.example.org/realms/agents
+  installationPrefix: aaaaaaaaaaaaaaaaaaaaaaaa
+  caFile: /run/hermes-router/ca.crt
+  certFile: /run/hermes-router/tls.crt
+  keyFile: /run/hermes-router/tls.key
