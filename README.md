@@ -79,7 +79,9 @@ keeps backup and recovery independent of package installation at runtime.
 ## Personal Hermes design
 
 The proposed next step is a personal Hermes manager with a built-in assignment
-administration interface and a router for a common OIDC-protected entry point.
+administration interface and OIDC-based routing to the authenticated owner's
+instance. New manager/authentication services use Rust; Traefik is the preferred
+proxy transport pending the documented routing and revocation compatibility tests.
 Read the [implementation plan](docs/personal-hermes/plan.md),
 [specification](docs/personal-hermes/specification.md) and
 [architecture](docs/personal-hermes/architecture.md). These describe future work;

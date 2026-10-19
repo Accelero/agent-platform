@@ -11,6 +11,11 @@ The router exposes a common Hermes URL and routes authenticated requests to
 that user's instance. The manager includes the first administration UI, behind a
 separate versioned API so presentation can later move into its own service.
 
+The new manager and OIDC routing adapter are Rust services. The preferred proxy
+transport is Traefik Proxy with authentication before child-route selection,
+conditional on proving the session and active-connection revocation requirements.
+This is OIDC-based backend selection, not merely OIDC protecting a fixed backend.
+
 | Term | Meaning |
 | --- | --- |
 | Identity | Exact configured OIDC issuer and verified subject; email is descriptive |
@@ -35,6 +40,7 @@ separate versioned API so presentation can later move into its own service.
 | P09 | Revocation must deny access and stop owned execution through a bounded lifecycle, retaining data until a separate purge decision. |
 | P10 | Backup/restore must preserve registry ownership and instance data together, with fail-closed recovery and teardown gates. |
 | P11 | New assignments must not inherit a board owner's enrollment, model login, API keys, private prompts or service privileges. |
+| P12 | The verified OIDC `(issuer, subject)` must determine backend selection through the manager assignment. The same hostname and path must reach different backends for different configured owners. |
 
 ## Assignment administration
 
@@ -175,6 +181,23 @@ Every HTTP request resolves current assignment authorization; initially do not
 cache positive assignment decisions. Browser path, host, email, headers, cookie
 contents and callback parameters cannot independently select an instance.
 
+Derive identity from a validated OIDC session, including the verified issuer and
+subject. Decoding JWT claims without signature/issuer/audience validation is
+invalid. Manager assignments authorize that identity's backend; they do not
+replace OIDC authentication or allow a caller to nominate another subject.
+
+For Traefik, the parent router must run Rust OIDC/ForwardAuth validation before
+child selection. Remove client-supplied `X-Hermes-Instance` and internal identity
+headers before validation. Only the authenticated adapter may supply the resolved
+instance ID. Children map that ID to registered Services and cannot be reached
+through a separate public entry point. Strip internal decision headers before
+native forwarding. A failed or unavailable validator cannot yield a route.
+
+Generate hierarchical routes through the supported file provider using atomic,
+validated snapshots. Stale route configuration cannot override a revoked
+assignment. The proxy has no Kubernetes API credential, and neither the browser
+nor the UI can publish destinations or routing configuration.
+
 The native provider must independently check the expected instance owner after
 OIDC verification, including refresh and existing-session verification. Keep
 state/nonce/PKCE, audience, issuer, key and algorithm validation. A globally
@@ -218,6 +241,11 @@ Identity refresh must re-evaluate provider status/claims; checking an old JWT's
 signature repeatedly does not meet the revocation bound. A router/manager outage
 must not extend cached authorization indefinitely. Health probes are separate
 minimal endpoints and do not reveal user inventories.
+
+The Traefik compatibility test must independently prove active-connection
+revocation. ForwardAuth at handshake time and configuration reloads alone are not
+accepted as proof that an existing WebSocket meets these bounds. Proxy adoption
+remains blocked until that mechanism is demonstrated.
 
 ## Kubernetes and storage requirements
 
@@ -282,6 +310,7 @@ administrators are identity-provider roles, not a second user-password database.
 | Test | Required result |
 | --- | --- |
 | Two configured identities, one common URL | Distinct instances, settings, sessions, uploads and native owner checks |
+| Same hostname/path, different verified OIDC subjects | Each request reaches its assigned backend; changing browser headers, email or unverified JWT claims cannot select another backend |
 | Valid but unassigned identity | Denied; no commissioning side effect |
 | Concurrent enable/login/retry and controller crash | One stable instance; interrupted work reconciles safely |
 | Email rename or recreated email under a new subject | Original ownership unchanged; new subject cannot inherit data |

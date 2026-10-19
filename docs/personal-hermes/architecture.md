@@ -21,6 +21,33 @@ the same email does not transfer its instance.
 Administration initially lives inside `hermes-manager`. Extracting the panel
 later must change deployment and presentation only, not these ownership rules.
 
+## Implementation stack
+
+Implement the new manager and OIDC routing adapter in Rust. Use Axum/Tokio for
+HTTP and asynchronous services, kube-rs for Kubernetes reconciliation, SQLx for
+PostgreSQL and migrations, and the openidconnect crate for OIDC protocol work.
+Keep domain types and application interfaces separate from framework adapters.
+The manager serves its built-in UI assets and versioned administration API.
+
+The preferred proxy transport is an official, pinned Traefik Proxy image using
+multi-layer routing, with a separate Rust ForwardAuth/OIDC adapter. This choice
+requires a local compatibility spike, including active WebSocket revocation;
+the documented revocation bound remains a release gate. The platform must not
+assume the Kubernetes distribution's bundled proxy supports the required version.
+
+[Traefik itself is written in Go](https://github.com/traefik/traefik); Rust is the
+language of our manager and external authentication adapter. The adapter is a
+separate HTTP service called through built-in ForwardAuth, not a Rust plugin
+loaded into Traefik. The parent/child routing hierarchy uses built-in proxy
+configuration. An Envoy alternative would likewise need an authentication and
+assignment integration, for example its external-authorization API; neither
+proxy automatically understands the manager's user-to-instance registry.
+
+Routing is based on verified OIDC identity: `(issuer, subject)` selects the
+enabled manager assignment and its registered instance. A routing header is only
+an internal representation of that already-authorized result. Neither a browser
+header nor an unverified decoded JWT is an identity or routing authority.
+
 ## Components
 
 ```mermaid
@@ -45,7 +72,8 @@ flowchart LR
 | --- | --- | --- |
 | Manager API/UI | Administrator login, assignment commands, status, audit and internal route resolution | Manager application database role, admin OIDC client, optional directory reader; no Kubernetes token |
 | Manager controller | Reconcile desired instances and coordinated lifecycle operations | Controller database role, constrained namespace bootstrap and instance-scoped Kubernetes bindings |
-| Router | Authenticate, resolve the current owner mapping, proxy native traffic and end revoked connections | Router OIDC client, restricted session-store role and manager mTLS client; no Kubernetes token or assignment writes |
+| Rust router auth adapter | Validate OIDC sessions, resolve the current owner's assignment and supply an authorized routing decision | Router OIDC client, restricted session-store role and manager mTLS client; no Kubernetes token or assignment writes |
+| Traefik proxy | Apply parent authentication before selecting a child backend; proxy native HTTP/WebSockets | Restricted ForwardAuth mTLS client and read-only generated routing configuration; no OIDC secrets or Kubernetes token |
 | Personal Hermes | Native dashboard, agent state, model onboarding and exact owner authentication | Its own home, native session keys and approved service credentials |
 | Personal execution manager | Existing command-execution and lease management for that owner | A distinct client credential and namespaced worker permissions with exact admission policy |
 | Deployment/backup integration | Database, storage classes, ingress, identity-provider clients, encryption and external recovery storage | Deployment-owned infrastructure credentials, never distributed to personal instances |
@@ -53,7 +81,9 @@ flowchart LR
 The API/UI and controller are two process roles in one new manager image, run as
 separate Deployments. This keeps the initial product together while preventing
 the browser-facing process from holding the controller's Kubernetes credential.
-The router is a second new image. No separate frontend service is required yet.
+The Rust router auth adapter is a second new platform image. Traefik uses its
+official image. Together they implement the logical `hermes-router` component;
+no separate frontend service is required yet.
 
 ## Administration boundary and future panel extraction
 
@@ -61,24 +91,23 @@ Proposed source boundaries:
 
 ```text
 contracts/hermes-manager/openapi.yaml
-services/hermes-manager/hermes_manager/
-  domain/                 # identities, assignments, instance state and invariants
-  application/            # commands, queries, authorization and port definitions
-  adapters/http/          # admin v1, routing v1, status and lifecycle endpoints
-  adapters/postgres/      # repositories, migrations, durable operations and audit
-  adapters/directory/     # optional read-only Keycloak adapter
-  adapters/kubernetes/    # object rendering, ownership checks and reconciliation
-  ui/                     # built-in administration presentation
-  entrypoints/            # API/UI and controller process composition
-services/hermes-router/hermes_router/
+services/hermes-manager/
+  Cargo.toml                          # Rust workspace
+  crates/hermes-domain/src/            # identity, assignments and instance invariants
+  crates/hermes-application/src/       # commands, queries and interface traits
+  crates/hermes-adapters/src/          # HTTP, PostgreSQL, directory and Kubernetes
+  crates/hermes-manager/src/bin/       # API/UI and controller process roles
+  crates/hermes-router-auth/src/       # OIDC sessions and ForwardAuth adapter
+  ui/                                 # built-in administration presentation
 ```
 
 These paths describe work to create, not existing packages. Domain code imports
 no HTTP, UI, Kubernetes or identity-provider SDK. Application code depends on
 ports such as `AssignmentRepository`, `InstanceRepository`, `IdentityDirectory`,
 `InstanceDriver`, `OperationQueue`, `AuditSink` and `CheckpointCoordinator`.
-Adapters implement those ports. HTTP endpoints invoke application commands and
-queries using a validated actor, never a UI-supplied administrator flag.
+Rust traits express these ports; adapters implement them. HTTP endpoints invoke
+application commands and queries using a validated actor, never a UI-supplied
+administrator flag.
 
 The browser UI calls the versioned administration API. It has no SQL connection,
 Kubernetes client or direct directory access. API-only mode disables UI serving
@@ -236,11 +265,44 @@ effect.
 
 ## Routing and revocation
 
-The router authenticates the request and calls the manager's private route API
-over mTLS. That service identity can resolve routes but cannot create assignments
-or call administrator/lifecycle commands. Browser input cannot address this
+The Rust routing adapter authenticates the OIDC session and calls the manager's
+private route API over mTLS. That service identity can resolve routes but cannot
+create assignments or call administrator/lifecycle commands. Browser input cannot address this
 internal API directly. The manager authenticates the caller and validates the
 freshness and issuer of its identity evidence.
+
+For the Traefik implementation, use the following ordered flow:
+
+1. The common-host parent router removes incoming internal identity/routing
+   headers, then calls the Rust adapter through authenticated ForwardAuth.
+2. The adapter validates the OIDC session, derives the exact issuer/subject and
+   resolves its current enabled assignment through the manager. It returns an
+   internal `X-Hermes-Instance` value only after successful authorization.
+3. A child router selects the registered Service for that exact instance ID.
+   Children have no independent public entry point or authentication bypass.
+   Missing authorization, unknown IDs and unmatched routes deny access.
+4. Before forwarding to native Hermes, remove internal routing headers and
+   platform cookies/tokens. Native owner verification remains enabled.
+
+Explicit platform login/callback routes terminate at the Rust adapter, allowing
+authentication to begin before a session exists. They expose no backend selection
+or internal manager API. Every native Hermes route, including its callback and
+WebSocket upgrade, passes through the authenticated parent pipeline.
+
+The controller publishes only approved child routes and Services through the
+file provider's versioned dynamic configuration, mounted read-only into Traefik.
+It must not give the proxy Kubernetes credentials. Validate complete snapshots,
+watch the mounted directory rather than a single projected file, and test atomic
+reload behavior. Admission/readiness and the live assignment check remain
+authoritative when a route snapshot is stale. The API/UI process cannot publish
+arbitrary proxy configuration.
+
+Traefik's
+[multi-layer routing](https://doc.traefik.io/traefik/v3.7/reference/routing-configuration/http/routing/multi-layer-routing/)
+supports authentication middleware before child selection. Ordinary single-layer
+ForwardAuth alone does not define this backend-selection sequence. Use a reviewed
+version/provider combination; this proposal uses the file provider, not ordinary
+Kubernetes Ingress, Gateway API or the HTTP provider for hierarchical routes.
 
 Return only a commissioned backend, route generation and authorization version
 for that exact owner. Validate namespace and Service names against platform
@@ -253,6 +315,12 @@ assignments change or identity evidence expires. Normal HTTP mutations are never
 automatically replayed after backend failure. Forward streaming responses,
 uploads and WebSocket upgrades without weakening native ticket/origin checks.
 The specification fixes the timeout and revocation bounds to test.
+
+ForwardAuth at upgrade time does not establish periodic authorization or closure
+of an already-open WebSocket. Prove an explicit connection-revocation mechanism
+with the pinned proxy/native combination before adopting Traefik. Do not claim
+that removing a route closes existing streams or silently weaken the revocation
+requirement to make the off-the-shelf proxy fit.
 
 ## Model credentials and Multica
 

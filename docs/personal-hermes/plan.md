@@ -8,6 +8,9 @@ Read the [specification](specification.md) for required behavior and the
 
 ## Product decisions
 
+- Implement the new manager and OIDC routing adapter in Rust with separate
+  domain/application crates and framework adapters. Use Axum/Tokio, kube-rs,
+  SQLx/PostgreSQL and the openidconnect crate.
 - Keycloak authenticates people and supplies stable OIDC identities.
 - An explicit assignment in the manager's PostgreSQL database decides whether a
   person gets a personal Hermes instance. A Keycloak user or group membership
@@ -19,7 +22,10 @@ Read the [specification](specification.md) for required behavior and the
 - Enabling an assignment commissions its instance proactively. First login can
   report or retry existing work, but cannot grant itself an instance.
 - `hermes-router` serves one common Hermes hostname and selects the backend from
-  the authenticated issuer/subject and current assignment. No user-selected
+  the cryptographically verified OIDC issuer/subject and current assignment.
+  Prefer Traefik Proxy transport with a Rust OIDC/ForwardAuth adapter and
+  authentication before child-route selection, subject to the phase-0 proof.
+  Internal routing headers carry only the authorized result. No user-selected
   backend, email-based routing or fallback to a shared owner's instance.
 - Each owner gets a namespace, persistent state, native authentication keys and
   credentials. Reuse the existing execution `runtime-manager` inside that
@@ -35,6 +41,13 @@ until the explicit adoption phase succeeds.
 
 ### 0. Prove identity and isolation assumptions
 
+- [ ] Pin a Traefik version supporting multi-layer routing with the file provider.
+  Prove two OIDC users requesting the identical hostname/path reach different
+  registered backends. Forged identity/routing headers and unverified tokens must
+  not choose a backend or bypass the parent authentication step.
+- [ ] Prove a mechanism meeting existing-WebSocket revocation bounds. A successful
+  ForwardAuth check during upgrade or removal of a child route is insufficient
+  evidence. Keep proxy adoption blocked if this requirement cannot be met.
 - [ ] Record the supported native Hermes revision and public APIs used for
   authentication, sessions, logout, uploads, HTTP mutations and WebSockets.
 - [ ] Prove the router OIDC flow and native Hermes flow can share a public
@@ -57,9 +70,9 @@ bootstrap cannot grant the controller access to an unrelated namespace.
 
 ### 1. Define the manager contracts and durable model
 
-- [ ] Add typed domain/application packages and adapter interfaces described in
-  the architecture. Keep HTTP/UI, PostgreSQL, Keycloak and Kubernetes code out of
-  the domain package.
+- [ ] Create the Rust workspace with domain/application crates and adapter traits
+  described in the architecture. Keep HTTP/UI, PostgreSQL, Keycloak and Kubernetes
+  code out of the domain package.
 - [ ] Publish an OpenAPI contract for the administration, router-resolution,
   owner-status and checkpoint APIs before implementing the UI.
 - [ ] Implement versioned SQL migrations, unique identity/assignment constraints,
@@ -118,7 +131,10 @@ cannot select each other's homes or credentials.
 
 ### 4. Implement authenticated routing and native sessions
 
-- [ ] Add the `hermes-router` image, OIDC login and server-side session store.
+- [ ] Package the Rust router auth adapter and pin the official Traefik image.
+  Implement OIDC login, server-side sessions and the parent/child route pipeline.
+- [ ] Generate validated dynamic route snapshots from the commissioned inventory;
+  test directory-mounted configuration reloads and stale/missing route behavior.
 - [ ] Resolve each request through the manager's internal routing API. Keep the
   router free of Kubernetes credentials and assignment database permissions.
 - [ ] Implement the separate platform/native callback routes, exact native owner
@@ -165,6 +181,8 @@ the planned teardown rather than bypassing retention safeguards.
   recovery prerequisites, unsupported Kubernetes policy support and unsafe RBAC.
 - [ ] Complete the acceptance matrix in the specification, repository checks,
   release privacy review and anonymous chart/image pull verification.
+- [ ] Add locked Rust build/test checks, workspace formatting, Clippy and database
+  migration tests alongside existing Python release-tooling and Helm checks.
 - [ ] Document operator installation, adding/disabling people, model onboarding,
   incidents, backup/restore and the separate-panel extraction procedure.
 
