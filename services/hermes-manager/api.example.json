@@ -1,0 +1,33 @@
+{
+  "installation": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "epoch": 1,
+    "issuer": "https://sso.example.org/realms/agents"
+  },
+  "databaseUrlFile": "/run/secrets/manager/database-url",
+  "oidc": {
+    "jwksUrl": "https://sso.example.org/realms/agents/protocol/openid-connect/certs"
+  },
+  "admin": {
+    "listen": "0.0.0.0:8443",
+    "tls": {
+      "certificateFile": "/run/secrets/manager-admin/tls.crt",
+      "privateKeyFile": "/run/secrets/manager-admin/tls.key"
+    },
+    "audience": "manager-api",
+    "allowedClients": ["manager-admin"],
+    "managementClient": "manager-admin",
+    "administratorRole": "platform-administrator"
+  },
+  "resolver": {
+    "listen": "0.0.0.0:8444",
+    "tls": {
+      "certificateFile": "/run/secrets/manager-resolver/tls.crt",
+      "privateKeyFile": "/run/secrets/manager-resolver/tls.key"
+    },
+    "clientCaFile": "/run/secrets/router-client/ca.crt",
+    "serviceIdentity": "spiffe://agents.example.org/router-plugin",
+    "audience": "route-api",
+    "authorizedClient": "hermes-router"
+  }
+}

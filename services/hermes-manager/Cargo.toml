@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/hermes-domain", "crates/hermes-application", "crates/hermes-adapters"]
+members = ["crates/hermes-domain", "crates/hermes-application", "crates/hermes-adapters", "crates/hermes-manager"]
 resolver = "3"
 
 [workspace.package]
@@ -12,14 +12,24 @@ publish = false
 hermes-domain = { path = "crates/hermes-domain" }
 hermes-application = { path = "crates/hermes-application" }
 async-trait = "=0.1.92"
+axum = "=0.8.9"
+base64 = "=0.22.1"
+hyper-util = { version = "=0.1.20", features = ["server-auto", "service", "tokio"] }
+jsonwebtoken = { version = "=11.1.0", features = ["rust_crypto"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "json"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "=2.2.0"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 sha2 = "=0.11.1"
 sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "uuid", "json", "migrate", "macros"] }
 thiserror = "=2.0.21"
-tokio = { version = "=1.53.3", features = ["macros", "rt-multi-thread", "time", "sync"] }
+tokio = { version = "=1.53.3", features = ["macros", "rt-multi-thread", "time", "sync", "net", "signal", "fs", "process", "io-util"] }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
+tempfile = "=3.27.0"
 url = "=2.5.8"
 uuid = { version = "=1.28.0", features = ["v4", "serde"] }
+x509-parser = "=0.18.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

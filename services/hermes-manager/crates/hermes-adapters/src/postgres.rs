@@ -22,6 +22,8 @@ use uuid::Uuid;
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
+mod administration;
+
 #[derive(Clone)]
 pub struct PgStore {
     pool: PgPool,
@@ -60,7 +62,42 @@ impl PgStore {
     }
 
     /// Explicit operator action, separate from opening an existing installation.
-    pub async fn migrate(&self) -> Result<(), Error> {
+    pub async fn migrate(&self, scope: &InstallationScope) -> Result<(), Error> {
+        hermes_domain::validate_issuer(&scope.issuer)?;
+        if scope.id.is_nil() || scope.epoch < 1 {
+            return Err(Error::Invalid);
+        }
+        let existing: bool =
+            sqlx::query_scalar("SELECT to_regclass('manager.installations') IS NOT NULL")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(db_error)?;
+        if existing {
+            let row = sqlx::query(
+                "SELECT id,issuer,epoch,mode FROM manager.installations WHERE singleton",
+            )
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db_error)?
+            .ok_or(Error::RecoveryRequired)?;
+            if row.get::<Uuid, _>("id") != scope.id
+                || row.get::<String, _>("issuer") != scope.issuer
+                || row.get::<i64, _>("epoch") != scope.epoch
+            {
+                return Err(Error::RecoveryRequired);
+            }
+            let applied: i64 = sqlx::query_scalar(
+                "SELECT coalesce(max(version),0) FROM _sqlx_migrations WHERE success",
+            )
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| Error::RecoveryRequired)?;
+            if MIGRATOR.iter().any(|migration| migration.version > applied)
+                && row.get::<String, _>("mode") != "maintenance"
+            {
+                return Err(Error::Maintenance);
+            }
+        }
         MIGRATOR
             .run(&self.pool)
             .await
@@ -102,6 +139,21 @@ impl PgStore {
     }
 
     pub async fn check_existing(&self, scope: &InstallationScope) -> Result<(), Error> {
+        self.check_startup(scope, true).await
+    }
+
+    /// API/authentication and lifecycle coordination may stay reachable during
+    /// maintenance/restore. Every assignment/route/execution write still uses
+    /// the active-operation gate in its own SQL transaction.
+    pub async fn check_registry(&self, scope: &InstallationScope) -> Result<(), Error> {
+        self.check_startup(scope, false).await
+    }
+
+    async fn check_startup(
+        &self,
+        scope: &InstallationScope,
+        require_active: bool,
+    ) -> Result<(), Error> {
         // Compare migration history as well as the installation version. Reject
         // a future/modified schema without trying to migrate it on startup.
         let applied =
@@ -125,7 +177,11 @@ impl PgStore {
             return Err(Error::RecoveryRequired);
         }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
-        gate(&mut tx, scope).await?;
+        if require_active {
+            gate(&mut tx, scope).await?;
+        } else {
+            installation_mode(&mut tx, scope).await?;
+        }
         tx.commit().await.map_err(db_error)
     }
 }
@@ -140,6 +196,17 @@ fn db_error(error: sqlx::Error) -> Error {
 /// Held only over SQL, so a concurrent maintenance transition cannot pass an
 /// acknowledged mutation or journal completion under an old epoch.
 async fn gate(tx: &mut Transaction<'_, Postgres>, scope: &InstallationScope) -> Result<(), Error> {
+    match installation_mode(tx, scope).await?.as_str() {
+        "active" => Ok(()),
+        "maintenance" => Err(Error::Maintenance),
+        _ => Err(Error::RecoveryRequired),
+    }
+}
+
+async fn installation_mode(
+    tx: &mut Transaction<'_, Postgres>,
+    scope: &InstallationScope,
+) -> Result<String, Error> {
     let row = sqlx::query("SELECT id, issuer, epoch, mode, schema_version, template_schema_version FROM manager.installations WHERE singleton FOR SHARE")
         .fetch_optional(&mut **tx).await.map_err(db_error)?.ok_or(Error::RecoveryRequired)?;
     if row.get::<Uuid, _>("id") != scope.id
@@ -150,11 +217,7 @@ async fn gate(tx: &mut Transaction<'_, Postgres>, scope: &InstallationScope) -> 
     {
         return Err(Error::RecoveryRequired);
     }
-    match row.get::<String, _>("mode").as_str() {
-        "active" => Ok(()),
-        "maintenance" => Err(Error::Maintenance),
-        _ => Err(Error::RecoveryRequired),
-    }
+    Ok(row.get("mode"))
 }
 
 #[async_trait]
@@ -179,7 +242,30 @@ impl AssignmentStore for PgStore {
             return Ok(accepted);
         }
 
-        let accepted = match &mutation.command {
+        // Resolve an omitted template version only AFTER replaying an existing
+        // idempotency receipt. A later catalog version must not change the result
+        // of the same acknowledged request.
+        let command = if let AssignmentCommand::CreateDefaultTemplate {
+            identity,
+            access,
+            template_id,
+        } = &mutation.command
+        {
+            let version: i64 = sqlx::query_scalar("SELECT version FROM manager.instance_templates WHERE id=$1 AND approved AND schema_version=1 ORDER BY version DESC LIMIT 1")
+                .bind(template_id).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or(Error::TemplateUnavailable)?;
+            AssignmentCommand::Create {
+                identity: identity.clone(),
+                access: *access,
+                template: TemplateVersion {
+                    id: template_id.clone(),
+                    version,
+                },
+            }
+        } else {
+            mutation.command.clone()
+        };
+        let accepted = match &command {
+            AssignmentCommand::CreateDefaultTemplate { .. } => return Err(Error::Invalid),
             AssignmentCommand::Create {
                 identity,
                 access,

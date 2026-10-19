@@ -91,6 +91,11 @@ pub enum AssignmentCommand {
         access: Access,
         template: TemplateVersion,
     },
+    CreateDefaultTemplate {
+        identity: Identity,
+        access: Access,
+        template_id: String,
+    },
     SetAccess {
         assignment_id: Uuid,
         expected_version: i64,
@@ -105,7 +110,7 @@ pub enum AssignmentCommand {
 impl AssignmentCommand {
     pub fn scope(&self) -> &'static str {
         match self {
-            Self::Create { .. } => "assignment.create",
+            Self::Create { .. } | Self::CreateDefaultTemplate { .. } => "assignment.create",
             Self::SetAccess { .. } => "assignment.set_access",
             Self::Retry { .. } => "instance.retry",
         }
@@ -113,6 +118,14 @@ impl AssignmentCommand {
 
     fn validate(&self, issuer: &str) -> Result<(), Error> {
         match self {
+            Self::CreateDefaultTemplate {
+                identity,
+                template_id,
+                ..
+            } => {
+                identity.validate(issuer)?;
+                validate_name(template_id)?;
+            }
             Self::Create {
                 identity, template, ..
             } => {
@@ -389,6 +402,7 @@ pub trait OperationQueue: Send + Sync {
     async fn finish(&self, scope: &InstallationScope, claim: &OperationClaim) -> Result<(), Error>;
 }
 
+pub mod administration;
 pub mod routing;
 
 #[cfg(test)]

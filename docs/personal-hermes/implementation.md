@@ -11,8 +11,9 @@ published application. This file tracks evidence against the full
 - Exact case-sensitive issuer/subject keys, immutable database ownership,
   approved versioned instance-template references and stable private namespace
   names. Display/email matching cannot grant ownership.
-- Explicit administrator audience/client-role checks on application commands.
-  Transport authentication, browser sessions and CSRF still need implementation.
+- Explicit administrator audience/client-role checks on application commands,
+  with a TLS API-only HTTP transport and verified Keycloak access-token adapter.
+  Browser login/session persistence and CSRF still need implementation.
 - Transactional create/access/retry commands: optimistic versions, stable
   instance reservation, actor-scoped body-checked idempotency, immutable audit
   and proactive durable commissioning work. Revoke retains records and retry
@@ -33,20 +34,31 @@ published application. This file tracks evidence against the full
   build-time SHA-256 guard. The hook checks verified issuer/subject on login,
   session verification and refresh; incomplete pin configuration fails closed.
   Both values absent preserve the explicit legacy singleton behavior.
+- Compiled `hermes-manager api/migrate/check` process roles, reference-based
+  secret/configuration inputs, separate administrator TLS and resolver mTLS
+  listeners, bounded request/connection/header/body handling and redacted errors.
+- Administration OpenAPI contract and HTTP workflow for identities, templates,
+  assignment create/access/retry, instance/operation metadata and immutable audit.
+  An omitted template version is pinned once without changing replay semantics.
+- Cryptographic access-token checks pin signature algorithm, issuer, audience,
+  authorized client, user-session identity and lifetime; route evidence is also
+  age-bounded. JWKS calls are fixed-origin HTTPS, bounded and size-limited with
+  no redirects/proxy environment fallback. A service certificate alone cannot
+  assert a user or administration permission.
 
 ## Evidence and remaining gates
 
 | Area | Executable evidence | Still required |
 | --- | --- | --- |
-| Identity/domain | Rust domain/application tests; signed-JWT native provider test in pinned Hermes | Real router/admin OIDC adapter, full native session/middleware coverage, public-subject compatibility |
-| Assignment persistence and resolver | 20 PostgreSQL migration/concurrency/recovery/routing tests | HTTP API contracts/handlers and cryptographic authentication |
+| Identity/domain | Rust domain/application tests; signed-JWT native provider test; real HTTP access-token verification | OIDC authorization-code/refresh/session adapter, full native session/middleware coverage, public-subject compatibility |
+| Assignment persistence and resolver | 22 PostgreSQL tests, seven real HTTPS/mTLS integration tests, API-only workflow and OpenAPI validation | Browser sessions/CSRF, remaining runtime/storage/owner/checkpoint endpoints and integrated provider acceptance |
 | Crash journal | PostgreSQL intent, lease/fence, unknown-result and delete-absence tests | Owned-resource registry, real Kubernetes verification, forced-process-death tests at every external boundary |
 | Proxy plugin | Go tests with race detector | Full native HTTP/upload/browser/cookie behavior and configured provider revocation |
 | Traefik | `tests/personal_hermes/router_compatibility.py`, pinned official image | End-to-end Rust/Keycloak/native Hermes acceptance |
-| Existing release | Python checks, 88 pytest tests, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
+| Existing release | Python checks, 91 pytest tests including OpenAPI validation, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
 | Runtime policy/execution | Domain mount-path validation | Catalog/storage/effective-policy database model, execution API, environment/lease transactions, SSH driver and adapter extension |
 | Commissioning | Durable outbox and stable instance reservation | Controller process, bootstrap RBAC/admission, ownership intents/UIDs, templates, create-once secrets, home initialization, readiness and retained suspension |
-| Administration UI | Application ports separate presentation from persistence | Administration/owner/checkpoint OpenAPI, API/UI role, OIDC/CSRF, generated client and React/Vite build |
+| Administration UI | Versioned administration contract and API-only executable; presentation-separated application ports | Remaining runtime/storage/owner/checkpoint contracts, OIDC/CSRF, generated client and React/Vite build |
 | Recovery | Fresh/existing registry gate and maintenance/epoch fencing | Trusted inventory scanner, checkpoint/receipt/restore lifecycle and coordinated full-data recovery tests |
 | Distribution | New workspace/plugin checks in CI | Dockerfiles, reviewed release inputs, opt-in chart values/schema/RBAC/networking, operator docs and acceptance qualification |
 | Adoption | Existing singleton code/chart untouched | Explicit deployment-specific storage/ownership migration after all platform gates pass |
@@ -68,8 +80,17 @@ with the same email is rejected, changing the email preserves ownership, invalid
 signature/issuer is rejected, malformed pin configuration fails, and unpinned
 singleton compatibility passes. Run `uv run python tests/personal_hermes/native_owner.py`.
 
-All P01–P18 remain subject to integrated verification. The source foundation does
-not yet commission a Kubernetes instance or expose a production manager/router.
+The compiled API process test passes migration/startup/TLS boundary checks,
+abrupt termination, registry reopening and mismatched-installation rejection.
+The seven real HTTPS tests exercise the Rust API and resolver with generated
+certificates and signed tokens, including live access revocation, wrong mTLS
+identity, token claim/signature failures, input bounds, JWKS outage and a database
+lock that must deny within the two-second route-resolution bound. These prove
+transport/token behavior; they do not replace a real Keycloak/browser acceptance
+run or forced-death tests around Kubernetes/execution actions.
+
+All P01–P18 remain subject to integrated verification. The implementation does
+not yet commission a Kubernetes instance and is not feature-complete for release.
 No phase is complete merely because its unit tests pass. The source proofs must
 be combined with real database, Kubernetes, provider, native application and
 browser evidence before the feature is enabled or released.

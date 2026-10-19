@@ -9,10 +9,24 @@ publish.workspace = true
 hermes-domain.workspace = true
 hermes-application.workspace = true
 async-trait.workspace = true
+axum.workspace = true
+hyper-util.workspace = true
+jsonwebtoken.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 uuid.workspace = true
+url.workspace = true
+tokio-rustls.workspace = true
+x509-parser.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

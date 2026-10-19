@@ -458,6 +458,7 @@ async fn installation_modes_ids_epochs_and_schema_fail_closed(pool: PgPool) {
         .execute(&pool)
         .await
         .unwrap();
+    store.check_registry(&scope).await.unwrap();
     assert_eq!(
         service
             .execute(
@@ -477,6 +478,7 @@ async fn installation_modes_ids_epochs_and_schema_fail_closed(pool: PgPool) {
         .execute(&pool)
         .await
         .unwrap();
+    store.check_registry(&scope).await.unwrap();
     assert_eq!(
         store.check_existing(&scope).await,
         Err(Error::RecoveryRequired)
@@ -921,4 +923,122 @@ async fn stale_missing_or_foreign_route_bindings_have_no_destination(pool: PgPoo
             reason: UnavailableReason::RegistryUnavailable
         }
     );
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn default_template_is_pinned_once_and_catalog_changes_do_not_break_replay(pool: PgPool) {
+    let (store, scope, service) = fixture(&pool).await;
+    let command = AssignmentCommand::CreateDefaultTemplate {
+        identity: Identity {
+            issuer: ISSUER.into(),
+            subject: "owner-a".into(),
+        },
+        access: Access::Enabled,
+        template_id: "personal-default".into(),
+    };
+    let accepted = service
+        .execute(
+            &actor("administrator"),
+            Uuid::new_v4(),
+            "default-template",
+            command.clone(),
+        )
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO manager.instance_templates (id,version,schema_version,image,content_digest,approved) VALUES ('personal-default',2,1,$1,$2,true)")
+        .bind(format!("ghcr.io/example/hermes@sha256:{}","b".repeat(64))).bind("b".repeat(64)).execute(&pool).await.unwrap();
+    assert_eq!(
+        service
+            .execute(
+                &actor("administrator"),
+                Uuid::new_v4(),
+                "default-template",
+                command
+            )
+            .await
+            .unwrap(),
+        accepted
+    );
+    assert_eq!(
+        store
+            .get_assignment(&scope, accepted.assignment_id)
+            .await
+            .unwrap()
+            .template
+            .version,
+        1
+    );
+    let newer = service
+        .execute(
+            &actor("administrator"),
+            Uuid::new_v4(),
+            "new-default",
+            AssignmentCommand::CreateDefaultTemplate {
+                identity: Identity {
+                    issuer: ISSUER.into(),
+                    subject: "owner-b".into(),
+                },
+                access: Access::Enabled,
+                template_id: "personal-default".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .get_assignment(&scope, newer.assignment_id)
+            .await
+            .unwrap()
+            .template
+            .version,
+        2
+    );
+    assert_eq!(count(&pool, "audit_events").await, 2);
+}
+
+#[sqlx::test(migrations = false)]
+async fn existing_registry_upgrade_requires_matching_identity_and_maintenance(pool: PgPool) {
+    // Install the real first migration, then upgrade using the current compiled
+    // migrator. This exercises a genuine old schema, not edited success flags.
+    let directory = tempfile::tempdir().unwrap();
+    let initial = hermes_adapters::postgres::MIGRATOR.iter().next().unwrap();
+    tokio::fs::write(
+        directory.path().join("0001_registry.sql"),
+        initial.sql.as_str().as_bytes(),
+    )
+    .await
+    .unwrap();
+    sqlx::migrate::Migrator::new(directory.path())
+        .await
+        .unwrap()
+        .run(&pool)
+        .await
+        .unwrap();
+    let store = PgStore::connect_with((*pool.connect_options()).clone())
+        .await
+        .unwrap();
+    let scope = InstallationScope {
+        id: Uuid::new_v4(),
+        epoch: 1,
+        issuer: ISSUER.into(),
+    };
+    store.initialize_fresh(&scope, evidence()).await.unwrap();
+    let wrong = InstallationScope {
+        id: Uuid::new_v4(),
+        ..scope.clone()
+    };
+    assert_eq!(store.migrate(&wrong).await, Err(Error::RecoveryRequired));
+    assert_eq!(store.migrate(&scope).await, Err(Error::Maintenance));
+    sqlx::query("UPDATE manager.installations SET mode='maintenance'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    store.migrate(&scope).await.unwrap();
+    store.check_registry(&scope).await.unwrap();
+    assert_eq!(store.check_existing(&scope).await, Err(Error::Maintenance));
+    sqlx::query("UPDATE manager.installations SET mode='active'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    store.check_existing(&scope).await.unwrap();
 }

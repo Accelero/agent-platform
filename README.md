@@ -96,6 +96,8 @@ Read the [implementation plan](docs/personal-hermes/plan.md),
 [specification](docs/personal-hermes/specification.md) and
 [architecture](docs/personal-hermes/architecture.md). These describe future work;
 release 0.6.1 does not implement the manager, router or their proposed APIs.
+Source implementation and its remaining acceptance gates are tracked in the
+[implementation evidence](docs/personal-hermes/implementation.md).
 
 ## Development
 
