@@ -1,4 +1,5 @@
 //! Platform ownership and lifecycle invariants. No transport or infrastructure SDKs.
+pub mod resources;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

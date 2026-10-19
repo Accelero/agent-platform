@@ -75,6 +75,8 @@ jobs:
       - run: cargo build --workspace --bins --locked
       - name: Test API process and registry after abrupt termination
         run: uv run python ../../tests/personal_hermes/api_process.py --postgres-container '${{ job.services.postgres.id }}'
+      - name: Test resource ownership with a disposable Kubernetes API server
+        run: uv run python ../../tests/personal_hermes/kubernetes.py --postgres-container '${{ job.services.postgres.id }}'
 
   hermes-router-compatibility:
     runs-on: ubuntu-latest

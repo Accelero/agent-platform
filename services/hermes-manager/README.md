@@ -192,3 +192,60 @@ granting the session role permission to change it.
 The router still needs native cookie stripping/filtering, coordinated native
 logout/identity switching, owner status and full proxy/provider/native acceptance.
 These services do not yet commission Kubernetes resources or ship in the chart.
+
+## Owned-resource reconciliation
+
+The application resource reconciler now commits a resource reservation and its
+external-action journal entry together before calling the Kubernetes adapter.
+Creation provenance includes installation, cluster identity, instance, epoch,
+generation, creation operation, namespace UID, purpose, retention and intended
+manifest digest. HMAC-SHA256 authenticates that provenance. A same-named object
+without the correct proof and intended fields cannot be adopted. After the first
+UID binding, a different UID is always a conflict, even with copied annotations.
+
+The Kubernetes adapter uses kube-rs with explicit TLS configuration or in-cluster
+configuration. It does not infer a developer's current kubeconfig, run credential
+plugins, impersonate callers, accept invalid certificates or retry uncertain
+writes in its HTTP transport. Each external call has a bounded deadline. The
+registered cluster identity is checked against the live `kube-system` namespace
+UID; namespaced resources also require the exact registered parent namespace UID.
+
+Updates observe the existing UID/proof and resource version, commit an immutable
+update intent, and use UID/resource-version preconditions. A concurrent change
+returns a precondition failure rather than applying a blind write. Resource
+re-observation gives a retry a new immutable intent; older uncertain apply steps
+link to that intent without asserting that the original write never happened.
+Initializers and deletes do not use that replay path. Resource
+version observation alone never publishes desired-spec readiness. Namespace and
+home/workspace claims are retained; the ordinary retirement path cannot purge
+them. Other resources receive an exact-UID deletion intent first, remain
+`Retiring` while deletion is pending, and become tombstones only after verified
+absence. Deployment deletion requests foreground propagation.
+
+The initial verification key must be deployment-owned, distinct from browser
+session encryption keys and included in coordinated recovery. Retain old
+verification keys while live resources still use their proofs. Selecting a new
+active key alone does not rewrite existing objects.
+
+Run the explicit Kubernetes proof from the repository root:
+
+```bash
+uv run python tests/personal_hermes/kubernetes.py \
+  --postgres-container personal-hermes-manager-tests
+```
+
+The fixture creates its own digest-pinned k3s container and temporary kubeconfig,
+uses a loopback API port, runs the Rust integration test, then removes its
+container/volumes and credentials. The normal Rust suite deliberately lists this
+test as ignored; the explicit runner and CI execute it against a real API server.
+It proves creation success before UID persistence, lost worker claim recovery,
+UID/proof rejection, safe manifest updates, stale delete preconditions, pending
+finalizers and absence-before-completion. It uses fixture administrator access;
+it does **not** prove the eventual controller's restricted RBAC/admission policy.
+
+This is the resource reconciliation layer, not a completed commissioning
+controller. Approved workload rendering, create-once material encryption/native
+initialization, controller process scheduling/resync, admission/RBAC, execution
+policy, readiness publication and restore rebinding remain to be implemented.
+The bootstrap ciphertext table is reserved for that next integration; the current
+adapter cannot invent a missing material reference to create a Secret.

@@ -23,6 +23,7 @@ use uuid::Uuid;
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
 mod administration;
+mod resources;
 
 #[derive(Clone)]
 pub struct PgStore {
@@ -518,7 +519,9 @@ fn lease_duration(seconds: u16) -> Result<i32, Error> {
     Ok(i32::from(seconds))
 }
 
-/// Lock the instance before its operation, matching mutation lock order.
+/// Lock assignment and instance before its operation, matching mutation lock
+/// order. Exclusive instance locks also avoid a SHARE-to-UPDATE upgrade deadlock
+/// when concurrent callbacks try to bind a namespace under the same claim.
 async fn lock_claim(
     tx: &mut Transaction<'_, Postgres>,
     scope: &InstallationScope,
@@ -528,7 +531,7 @@ async fn lock_claim(
     if claim.epoch != scope.epoch {
         return Err(Error::StaleFence);
     }
-    let generation: Option<i64> = sqlx::query_scalar("SELECT i.desired_generation FROM manager.instances i JOIN manager.assignments a ON a.id=i.assignment_id WHERE i.id=$1 AND a.installation_id=$2 FOR SHARE OF i")
+    let generation: Option<i64> = sqlx::query_scalar("SELECT i.desired_generation FROM manager.instances i JOIN manager.assignments a ON a.id=i.assignment_id WHERE i.id=$1 AND a.installation_id=$2 FOR UPDATE OF a,i")
         .bind(claim.instance_id).bind(scope.id).fetch_optional(&mut **tx).await.map_err(db_error)?;
     if generation != Some(claim.generation) {
         return Err(Error::StaleFence);
@@ -633,12 +636,25 @@ impl OperationQueue for PgStore {
         key: &str,
         result: StepResult,
     ) -> Result<(), Error> {
+        if matches!(result, StepResult::Reconciled { .. }) {
+            return Err(Error::OwnershipConflict);
+        }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_claim(&mut tx, scope, claim).await?;
         let row = sqlx::query("SELECT intent,result,fence FROM manager.operation_steps WHERE operation_id=$1 AND step_key=$2 FOR UPDATE")
             .bind(claim.id).bind(key).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or(Error::NotFound)?;
         if row.get::<i64, _>("fence") != claim.fence {
             return Err(Error::StaleFence);
+        }
+        if matches!(
+            result,
+            StepResult::Verified { .. } | StepResult::Absent { .. }
+        ) {
+            let owned:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM manager.resource_steps WHERE operation_id=$1 AND step_key=$2)")
+                .bind(claim.id).bind(key).fetch_one(&mut *tx).await.map_err(db_error)?;
+            if owned {
+                return Err(Error::OwnershipConflict);
+            }
         }
         let intent: StepIntent =
             serde_json::from_value(row.get("intent")).map_err(|_| Error::RecoveryRequired)?;

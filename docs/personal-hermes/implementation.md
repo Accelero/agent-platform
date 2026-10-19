@@ -56,6 +56,12 @@ published application. This file tracks evidence against the full
   listeners. Distinct service identities protect ForwardAuth and established
   connection session checks. Public session metadata contains no provider token;
   authentication cannot create assignments or access assignment SQL.
+- Owned-resource reservations and atomic action journals, authenticated creation
+  provenance, first UID/namespace binding and immutable ownership/tombstones.
+  The application resource reconciler uses a bounded kube-rs adapter, checks the
+  live cluster/namespace UID, preserves resource versions in write/delete intents
+  and verifies absence before completing retirement. Retained data has no
+  ordinary delete path. This layer does not yet render or commission Hermes.
 
 ## Evidence and remaining gates
 
@@ -63,12 +69,12 @@ published application. This file tracks evidence against the full
 | --- | --- | --- |
 | Identity/domain | Rust domain/application tests; signed-JWT native provider test; real HTTPS OIDC/access-token/session checks | Full native session/middleware coverage, configured Keycloak/public-subject compatibility and external revocation bound |
 | Assignment persistence and resolver | 22 registry tests, ten session/crypto tests, seven token/API HTTPS tests and eight browser/router HTTPS tests, API-only workflow and OpenAPI validation | Remaining runtime/storage/owner/checkpoint endpoints and integrated provider acceptance |
-| Crash journal | PostgreSQL intent, lease/fence, unknown-result and delete-absence tests | Owned-resource registry, real Kubernetes verification, forced-process-death tests at every external boundary |
+| Crash journal and ownership | Registry tests plus ten resource/proof tests; real Kubernetes create-before-UID-save recovery, current-version update/retry, foreign UID/proof rejection and finalizer/absence tests | Full controller integration and forced-process-death tests at every external boundary |
 | Proxy plugin | Go tests with race detector | Full native HTTP/upload/browser/cookie behavior and configured provider revocation |
 | Traefik | `tests/personal_hermes/router_compatibility.py`, pinned official image | End-to-end Rust/Keycloak/native Hermes acceptance |
 | Existing release | Python checks, 92 pytest tests including OpenAPI validation, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
 | Runtime policy/execution | Domain mount-path validation | Catalog/storage/effective-policy database model, execution API, environment/lease transactions, SSH driver and adapter extension |
-| Commissioning | Durable outbox and stable instance reservation | Controller process, bootstrap RBAC/admission, ownership intents/UIDs, templates, create-once secrets, home initialization, readiness and retained suspension |
+| Commissioning | Durable outbox, stable instance/resource reservations, authenticated ownership/UID adapter and application resource reconciler | Controller process, bootstrap RBAC/admission, templates, create-once secrets, home initialization, readiness and retained suspension |
 | Administration UI | Versioned administration contract, bearer and browser-session API; presentation-separated application ports | Remaining runtime/storage/owner/checkpoint contracts, generated client and React/Vite build |
 | Recovery | Fresh/existing registry gate and maintenance/epoch fencing | Trusted inventory scanner, checkpoint/receipt/restore lifecycle and coordinated full-data recovery tests |
 | Distribution | New workspace/plugin checks in CI | Dockerfiles, reviewed release inputs, opt-in chart values/schema/RBAC/networking, operator docs and acceptance qualification |
@@ -105,3 +111,13 @@ not yet commission a Kubernetes instance and is not feature-complete for release
 No phase is complete merely because its unit tests pass. The source proofs must
 be combined with real database, Kubernetes, provider, native application and
 browser evidence before the feature is enabled or released.
+
+The explicit Kubernetes test uses a new isolated
+`rancher/k3s@sha256:ca7f37d993d82ef0dcdcfecb2e0e2618ea541dbaffc620c8cedebe01a82acd0d`
+API server and temporary fixture credentials. It passed on 2026-10-20. It recovers
+a Namespace created before its UID was committed, rejects the expired worker,
+updates an owned ConfigMap without changing its UID, rejects a copied-proof
+replacement and a changed unbound manifest, rejects stale destructive resource
+versions, and holds retirement until finalizers are removed and absence is
+observed. This is a transport/ownership proof with fixture administrator access,
+not admission, non-root Pod, storage, cron or full commissioning acceptance.

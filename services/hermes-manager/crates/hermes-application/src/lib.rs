@@ -342,6 +342,14 @@ impl StepIntent {
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepResult {
     Unknown,
+    /// A bound UID was re-observed and a new immutable apply intent committed.
+    /// This retains uncertainty about the original write rather than claiming
+    /// it was never applied. Initializers and deletes cannot use this outcome.
+    Reconciled {
+        uid: String,
+        resource_version: String,
+        next_step: String,
+    },
     Verified {
         uid: String,
         resource_version: String,
@@ -403,6 +411,7 @@ pub trait OperationQueue: Send + Sync {
 }
 
 pub mod administration;
+pub mod resources;
 pub mod routing;
 
 #[cfg(test)]
