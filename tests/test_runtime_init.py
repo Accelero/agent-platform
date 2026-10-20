@@ -124,3 +124,45 @@ def test_default_chart_has_no_named_persona_or_native_home_worker_mount(tmp_path
         "/etc/ssh/authorized_keys/worker",
     }
     assert "identity_kubernetes_claim" not in template["workdir_scope"]
+
+
+def _adapter_home(tmp_path: Path) -> Path:
+    plugin_home = tmp_path / "plugin-home"
+    (plugin_home / "plugins/hindsight").mkdir(parents=True)
+    (plugin_home / "plugins/hindsight/plugin.yaml").write_text("name: hindsight\n")
+    return plugin_home
+
+
+def test_managed_backend_covers_profiles_saved_without_terminal_backend(
+    tmp_path: Path, initializer
+):
+    home = tmp_path / "home"
+    profile = home / "profiles/research"
+    legacy = profile / "plugins/managed_execution"
+    legacy.mkdir(parents=True)
+    (legacy / "plugin.yaml").write_text("name: managed_execution\n")
+    # Native dashboard saves drop keys that the managed layer already supplies.
+    (profile / "config.yaml").write_text("terminal: {cwd: /workspace}\nmodel: chosen\n")
+    managed = tmp_path / "managed.yaml"
+    managed.write_text("terminal: {backend: managed_execution}\n")
+    initializer.initialize(
+        root=home, plugin_home=_adapter_home(tmp_path), managed=managed
+    )
+    assert not legacy.exists()
+    assert (profile / "plugins/hindsight/plugin.yaml").is_file()
+    assert (home / "workspaces/research").is_dir()
+    assert "model: chosen" in (profile / "config.yaml").read_text()
+
+
+def test_profile_without_managed_backend_policy_is_refused(tmp_path: Path, initializer):
+    home = tmp_path / "home"
+    profile = home / "profiles/research"
+    profile.mkdir(parents=True)
+    (profile / "config.yaml").write_text("terminal: {backend: local}\n")
+    with pytest.raises(RuntimeError, match="Unsafe native terminal backend"):
+        initializer.initialize(
+            root=home,
+            plugin_home=_adapter_home(tmp_path),
+            managed=tmp_path / "absent.yaml",
+        )
+    assert not (profile / "plugins").exists()

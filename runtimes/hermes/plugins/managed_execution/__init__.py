@@ -6,6 +6,7 @@ import os
 import threading
 import weakref
 from pathlib import Path
+import re
 import socket
 import shlex
 import ssl
@@ -39,6 +40,17 @@ def multica_workdir(home=None):
     if not workdir.is_dir() or workdir.resolve() != workdir:
         raise ValueError('Multica workdir is missing or traverses a symlink')
     return str(workdir)
+
+
+def ensure_profile_workspace(profile, root=Path('/opt/data/workspaces')):
+    """The manager mounts only an existing profile directory. Profiles created
+    after controller startup, for example in the dashboard, need one as well."""
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', profile) or root.is_symlink() or not root.is_dir():
+        return
+    target = root / profile
+    if target.is_symlink():
+        raise ValueError('Profile workspace must not be a symbolic link')
+    target.mkdir(mode=0o700, exist_ok=True)
 
 
 def invocation_cwd(cwd, task_id):
@@ -374,6 +386,8 @@ class Provider(TerminalEnvironmentProvider):
         if workdir or cwd not in ('/workspace', '/opt/data/workspaces/' + settings['profile']):
             # A profile-wide container cannot carry different task mounts safely.
             settings['mode'] = 'per_session'
+        else:
+            ensure_profile_workspace(settings['profile'])
         # Hermes uses both <session-id> (terminal calls) and session:<session-id>
         # (file/prompt calls without a task ID). Canonicalize inside the provider,
         # so its supported factory returns one transport for that conversation.

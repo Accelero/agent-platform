@@ -19,7 +19,7 @@ def main() -> None:
     path = Path(
         os.environ.get(
             "MANAGED_EXECUTION_PLUGIN",
-            "/opt/hermes-stack/plugin-home/plugins/managed_execution",
+            "/opt/hermes/plugins/managed_execution",
         )
     )
     spec = importlib.util.spec_from_file_location(
@@ -117,14 +117,41 @@ def main() -> None:
             assert config["terminal"]["backend"] == "managed_execution"
             assert "model" not in config
             assert not (home / "profiles").exists()
-            assert (home / "plugins/managed_execution/plugin.yaml").is_file()
+            # The bundled plugin serves every home; no per-home copy may shadow it.
+            assert not (home / "plugins/managed_execution").exists()
             (home / "config.yaml").write_text(
                 "terminal: {backend: managed_execution}\nmodel: user-choice\n"
             )
             saved = (home / "config.yaml").read_bytes()
             runtime.initialize(root=home)
             assert (home / "config.yaml").read_bytes() == saved
+    managed_policy_binds_new_profiles()
     print("Native Hermes plugin image selection, caching and initialization passed.")
+
+
+def managed_policy_binds_new_profiles() -> None:
+    """A profile created after startup, without terminal settings or a plugin copy,
+    must still resolve to managed SSH execution and never to local commands."""
+    from hermes_cli.plugins import discover_plugins, get_plugin_manager
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+    from tools.terminal_scope import build_profile_terminal_scope
+    from tools.terminal_tool_backends import _get_plugin_env_provider
+
+    with tempfile.TemporaryDirectory() as directory:
+        home = Path(directory) / "profiles" / "created-later"
+        home.mkdir(parents=True)
+        (home / "config.yaml").write_text("model:\n  default: chosen\n")
+        (home / ".env").write_text("TERMINAL_ENV=local\n")
+        scope = build_profile_terminal_scope(home)
+        assert scope["TERMINAL_ENV"] == "managed_execution", scope.get("TERMINAL_ENV")
+        token = set_hermes_home_override(home)
+        try:
+            discover_plugins(force=True)
+            plugin = get_plugin_manager()._plugins["managed_execution"]
+            assert plugin.enabled and plugin.manifest.source == "bundled"
+            assert _get_plugin_env_provider("managed_execution") is not None
+        finally:
+            reset_hermes_home_override(token)
 
 
 if __name__ == "__main__":

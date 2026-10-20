@@ -82,7 +82,7 @@ class Manager:
             template = runtime_template(template, json.loads(row['runtime']), row['session'])
         elif template.get('workdir_scope'):
             from hermes_policy import workdir_template
-            template = workdir_template(template, json.loads(row['runtime']), row['mode'])
+            template = workdir_template(template, json.loads(row['runtime']), row['mode'], row['profile'])
         generation = row["generation"] or uuid.uuid4().hex[:12]
         resource = json.loads(row["resource"]) if row["resource"] else None
         # Backend create is idempotent by generation name; reconciles a crash between create/save.
@@ -131,7 +131,7 @@ class Manager:
                     runtime_template(template, runtime, session)
                 elif template.get('workdir_scope'):
                     from hermes_policy import workdir_template
-                    workdir_template(template, runtime, mode)
+                    workdir_template(template, runtime, mode, profile)
                 elif runtime:
                     raise ValueError('Runtime mounts are not permitted for this template')
                 identity_parts = [deployment, profile, session if mode == "per_session" else "profile"]

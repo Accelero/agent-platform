@@ -96,16 +96,20 @@
   {{- with $scope := $template.profile_workspace -}}
     {{- $segment := "\\.*[A-Za-z0-9_-][A-Za-z0-9_.-]{0,255}" -}}
     {{- $subdir := printf "%s(?:/%s)*" $segment $segment -}}
+    {{- /* A {profile} token selects a separate subdirectory for every Hermes profile. */ -}}
+    {{- $profile := "[A-Za-z0-9][A-Za-z0-9_-]{0,63}" -}}
+    {{- $subpath := regexQuoteMeta $scope.kubernetes_subpath | replace "\\{profile\\}" $profile -}}
     {{- range $root := list $scope.mount_path $scope.controller_root -}}
+      {{- $quoted := regexQuoteMeta (trimSuffix "/" $root) | replace "\\{profile\\}" $profile -}}
       {{- $mounts = append $mounts (dict
         "claim" $scope.kubernetes_claim
-        "subPathPattern" (printf "^%s$" (regexQuoteMeta $scope.kubernetes_subpath))
-        "mountPathPattern" (printf "^%s$" (regexQuoteMeta $root))
+        "subPathPattern" (printf "^%s$" $subpath)
+        "mountPathPattern" (printf "^%s$" $quoted)
         "readOnly" false) -}}
       {{- $mounts = append $mounts (dict
         "claim" $scope.kubernetes_claim
-        "subPathPattern" (printf "^%s/%s$" (regexQuoteMeta $scope.kubernetes_subpath) $subdir)
-        "mountPathPattern" (printf "^%s/%s$" (regexQuoteMeta (trimSuffix "/" $root)) $subdir)
+        "subPathPattern" (printf "^%s/%s$" $subpath $subdir)
+        "mountPathPattern" (printf "^%s/%s$" $quoted $subdir)
         "readOnly" false) -}}
     {{- end -}}
   {{- end -}}

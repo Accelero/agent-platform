@@ -36,6 +36,7 @@
         "runtimes/hermes/plugins/managed_execution/plugin.yaml",
         "runtimes/hermes/native_files.py",
         "runtimes/hermes/runtime-init.py",
+        "runtimes/hermes/patch-terminal-scope.py",
         "runtimes/hermes/assistant-init",
         "runtimes/agent-runtime/multica-checkout-proxy.py",
         "config/managed-execution/config.yaml"

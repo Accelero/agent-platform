@@ -5,9 +5,23 @@ import re
 
 from kubernetes_mounts import mount_directory
 
+PROFILE_TOKEN = '{profile}'
 
-def profile_workdir(template, result, workdir):
+
+def profile_scope(scope, profile):
+    """Expand a per-profile workspace mapping; a literal mapping is shared as configured."""
+    if not any(PROFILE_TOKEN in str(scope.get(key, '')) for key in ('kubernetes_subpath', 'controller_root')):
+        return scope
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', profile or ''):
+        raise ValueError('Invalid profile for a per-profile workspace')
+    return {**scope, **{key: scope[key].replace(PROFILE_TOKEN, profile)
+                        for key in ('kubernetes_subpath', 'controller_root')}}
+
+
+def profile_workdir(template, result, workdir, profile=''):
     scope = template.get('profile_workspace')
+    if scope:
+        scope = profile_scope(scope, profile)
     if not scope:
         # These profiles retain their native ephemeral execution workspace.
         if workdir != '/workspace':
@@ -36,14 +50,14 @@ def profile_workdir(template, result, workdir):
     return result
 
 
-def workdir_template(template, runtime, mode):
+def workdir_template(template, runtime, mode, profile=''):
     if not isinstance(runtime, dict):
         raise ValueError('Invalid Hermes workdir scope')
     result = deepcopy(template)
     if not runtime:
         # Compatibility for an older controller during a rolling upgrade.
         if template.get('profile_workspace'):
-            return profile_workdir(template, result, template['profile_workspace']['mount_path'])
+            return profile_workdir(template, result, template['profile_workspace']['mount_path'], profile)
         return result
     if (set(runtime) not in ({'workdir'}, {'workdir', 'hermes_home'})
             or not isinstance(runtime['workdir'], str)):
@@ -58,7 +72,7 @@ def workdir_template(template, runtime, mode):
     if not workdir.is_relative_to(scope['controller_root']):
         if 'hermes_home' not in runtime:
             raise ValueError('Ordinary workspace selection requires invocation metadata')
-        return profile_workdir(template, result, str(workdir))
+        return profile_workdir(template, result, str(workdir), profile)
     if mode != 'per_session':
         raise ValueError('Multica workdirs require session-scoped execution')
     relative = workdir.relative_to(scope['controller_root'])

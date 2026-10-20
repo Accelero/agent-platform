@@ -173,6 +173,15 @@ these settings from the active profile, including task overlays. An explicit
 image is persisted with the execution environment so manager restarts and worker
 recycling keep that selection.
 
+Managed SSH execution is an administrator policy, not a per-profile choice. The
+image's managed Hermes layer (`/etc/hermes/config.yaml`) requires
+`terminal.backend: managed_execution` and binds every profile, including the
+per-profile terminal scope Hermes builds for routed dashboard and Multica turns.
+A profile's own `terminal.backend` or `TERMINAL_ENV` cannot select local or
+Docker execution. Since 0.6.4 the plugin is bundled with the image as a backend
+plugin, so profiles created later in the dashboard receive it without a restart;
+if it is unavailable, terminal calls fail instead of running in the controller.
+
 Authenticated clients can use any configured template from any profile, including
 new profiles created at runtime. `runtimeManager.config.default_template` defaults
 to `hermes`; an omitted plugin template selects it. The chosen template supplies
@@ -210,6 +219,14 @@ SSH public key. It does not mount the controller's native config, credentials,
 profile home, identity or skills. Add reviewed deployment mounts explicitly when
 needed. Task execution can mount its single validated Multica workdir through
 `workdir_scope`; it cannot name an arbitrary claim or mount its parent directory.
+
+A template's `profile_workspace` maps ordinary profile sessions to a persistent
+claim. A `{profile}` token in `kubernetes_subpath` and `controller_root` gives
+every Hermes profile its own subdirectory, for example `kubernetes_subpath:
+"{profile}"` with `controller_root: /opt/data/workspaces/{profile}`. The plugin
+creates a missing profile directory on the controller before requesting a
+worker, and admission accepts only valid profile names. A literal subpath shares
+one directory between all profiles using the template.
 
 The chart-owned execution namespace defaults to `<application namespace>-execution`,
 for example `agents-execution` when the application namespace is `agents`. Long

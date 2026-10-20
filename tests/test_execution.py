@@ -433,3 +433,108 @@ def test_default_template_must_exist(tmp_path: Path):
         valid=False,
     )
     assert "must name a configured template" in error
+
+
+def test_per_profile_workspace_mapping_mounts_only_the_selected_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.syspath_prepend(str(ROOT / "services/runtime-manager"))
+    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+    from api import ExecutionAPI
+    from backends import KubernetesBackend
+    from manager import Manager
+
+    validation = tmp_path / "profile-workspaces"
+    for profile in ("research", "coding"):
+        (validation / profile).mkdir(parents=True)
+    values = {
+        "workloads": {"runtime-manager": {"enabled": True}},
+        "runtimeManager": {
+            "config": {
+                "templates": {
+                    "hermes": {
+                        "profile_workspace": {
+                            "kubernetes_claim": "hermes-workspaces",
+                            "kubernetes_subpath": "{profile}",
+                            "mount_path": "/workspace",
+                            "controller_root": "/opt/data/workspaces/{profile}",
+                            "validation_root": str(validation),
+                        }
+                    }
+                }
+            }
+        },
+    }
+    objects = render(tmp_path, values)
+    config = native(objects)
+    rules = policy(objects)
+    assert "[A-Za-z0-9][A-Za-z0-9_-]{0,63}" in rules
+    assert "{profile}" not in rules
+    backend = KubernetesBackend(config["kubernetes"])
+    pods = {}
+
+    def kubectl(*args, body=None):
+        if args[0] == "create":
+            pod = deepcopy(body)
+            pod["status"] = {
+                "podIP": "127.0.0.1",
+                "conditions": [{"type": "Ready", "status": "True"}],
+            }
+            pods[pod["metadata"]["name"]] = pod
+            return pod
+        return pods.get(args[2], "")
+
+    monkeypatch.setattr(backend, "kubectl", kubectl)
+    manager = Manager(config, backend, str(tmp_path / "manager.db"))
+    api = ExecutionAPI(manager, {"hermes": "a" * 32})
+    try:
+        subpaths = {}
+        for profile in ("research", "coding"):
+            before = set(pods)
+            api.dispatch(
+                "hermes",
+                "/v1/leases/acquire",
+                {
+                    "profile": profile,
+                    "session": "conversation",
+                    "request": profile,
+                    "mode": "per_profile_on_demand",
+                    "runtime": {
+                        "hermes_home": "/opt/data/profiles/" + profile,
+                        "workdir": "/workspace",
+                    },
+                },
+            )
+            (name,) = set(pods) - before
+            spec = pods[name]["spec"]
+            volume = next(
+                volume
+                for volume in spec["volumes"]
+                if volume.get("persistentVolumeClaim", {}).get("claimName")
+                == "hermes-workspaces"
+            )
+            (mount,) = [
+                mount
+                for mount in spec["containers"][0]["volumeMounts"]
+                if mount["name"] == volume["name"]
+            ]
+            assert mount["mountPath"] == "/workspace"
+            subpaths[profile] = mount["subPath"]
+        assert subpaths == {"research": "research", "coding": "coding"}
+        with pytest.raises(ValueError, match="missing"):
+            api.dispatch(
+                "hermes",
+                "/v1/leases/acquire",
+                {
+                    "profile": "unprepared",
+                    "session": "conversation",
+                    "request": "unprepared",
+                    "mode": "per_profile_on_demand",
+                    "runtime": {
+                        "hermes_home": "/opt/data/profiles/unprepared",
+                        "workdir": "/workspace",
+                    },
+                },
+            )
+    finally:
+        manager.db.close()

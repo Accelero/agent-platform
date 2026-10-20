@@ -26,8 +26,13 @@ RUN mkdir -p /workspace \
 COPY runtimes/hermes/requirements.lock /tmp/assistant-requirements.lock
 RUN uv --no-config pip install --python /opt/hermes/.venv/bin/python --no-deps -r /tmp/assistant-requirements.lock \
  && HERMES_HOME=/opt/hermes-stack/plugin-home /opt/hermes/.venv/bin/hermes plugins install hindsight --ref 176f8c2de1369f569c489b831d143b78128b5535 --no-deps --no-enable
-COPY runtimes/hermes/plugins/managed_execution /opt/hermes-stack/plugin-home/plugins/managed_execution
+# Bundled backend plugins load for every profile, including ones created later.
+COPY runtimes/hermes/plugins/managed_execution /opt/hermes/plugins/managed_execution
 COPY config/managed-execution /etc/hermes
+COPY runtimes/hermes/patch-terminal-scope.py /tmp/patch-terminal-scope.py
+RUN /opt/hermes/.venv/bin/python /tmp/patch-terminal-scope.py /opt/hermes/tools/terminal_scope.py \
+ && rm /tmp/patch-terminal-scope.py \
+ && chmod -R a+rX /opt/hermes/plugins/managed_execution
 COPY runtimes/hermes/native_files.py runtimes/hermes/runtime-init.py /usr/local/lib/
 COPY runtimes/hermes/assistant-init /etc/cont-init.d/019-hermes-runtime
 RUN chmod 755 /etc/cont-init.d/019-hermes-runtime \

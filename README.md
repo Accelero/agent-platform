@@ -5,7 +5,7 @@ HTTPS runtime manager and isolated agent runtimes. One versioned Helm chart owns
 service wiring, gateway configuration and runtime isolation. Images and charts
 are built on GitHub-hosted runners independently of deployment tooling.
 
-The application chart is the deployment artifact. **0.6.3** is the current
+The application chart is the deployment artifact. **0.6.4** is the current
 release. GHCR deployment packages support anonymous public pulls once their
 package visibility is public. Source and package visibility are managed separately.
 
@@ -13,12 +13,12 @@ package visibility is public. Source and package visibility are managed separate
 
 | Artifact | Versioned reference |
 | --- | --- |
-| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.6.3` |
-| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.6.3` |
-| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.6.3` |
-| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.6.3` |
-| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/tools:0.6.3` |
-| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.6.3` |
+| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.6.4` |
+| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.6.4` |
+| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.6.4` |
+| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.6.4` |
+| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/tools:0.6.4` |
+| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.6.4` |
 
 The packaged chart pins all five images by manifest digest in `values.yaml`.
 The upstream Multica frontend also uses its reviewed digest. Containers remain
@@ -26,7 +26,7 @@ registry downloads; their filesystem layers are not embedded in the chart.
 Image `latest` tags are convenient for inspection. Deployments select one chart
 version or digest and use that chart's image defaults for a coherent application.
 
-The GitHub Release attaches the same `agent-platform-0.6.3.tgz` that is published
+The GitHub Release attaches the same `agent-platform-0.6.4.tgz` that is published
 to GHCR, plus an optional informational `artifacts.json`. Consumers need only the
 chart. There is no configuration ZIP or custom release container package in this
 release architecture. Obsolete `execution-manager`, `worker` and `release`
@@ -34,8 +34,10 @@ packages are retired.
 Earlier releases that reference those package names are no longer deployable.
 Superseded agent-runtime 0.2.0 through 0.4.0 and tools 0.4.0 images were also
 retired after the [0.4.1 release qualification](docs/releases/0.4.1.md).
-Release 0.6.3 leaves model/provider selection and model credentials to native
-Hermes onboarding. The chart has no dedicated model-provider Secret/key fields;
+Release 0.6.4 enforces managed SSH execution as an administrator policy for every
+Hermes profile, including profiles created later in the dashboard, and can give
+each profile its own persistent workspace subdirectory. Model/provider selection
+and model credentials remain native Hermes onboarding. The chart has no dedicated model-provider Secret/key fields;
 API-key providers can use native environment variables or generic workload Secret
 references. A fresh deployment needs administrator model setup. It retains normal
 dashboard transport, chart-owned OIDC, first-deployment bootstrap, explicit
@@ -53,7 +55,7 @@ creates short-lived agent-runtime Pods when an agent needs command execution.
 
 ```bash
 helm install agents oci://ghcr.io/accelero/agent-platform/charts/agent-platform \
-  --version 0.6.3 --namespace agents --values values.yaml
+  --version 0.6.4 --namespace agents --values values.yaml
 ```
 
 See the [chart interface and configuration example](charts/agent-platform/README.md).

@@ -1,5 +1,6 @@
 name: managed_execution
-version: 2.2.0
+version: 2.3.0
+kind: backend
 description: Infrastructure-provisioned SSH environments with conversation and profile lifetimes.
 provides_hooks: [pre_llm_call, on_session_end, on_session_finalize, on_session_reset]
 config_schema:
