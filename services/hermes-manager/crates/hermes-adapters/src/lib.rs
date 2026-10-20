@@ -1,13 +1,16 @@
 //! Infrastructure implementations. No adapter is imported by domain/application.
+pub mod admission;
 pub mod auth;
 pub mod auth_config;
 pub mod bootstrap;
 pub mod browser_auth;
 pub mod browser_http;
+pub mod controller;
 pub mod http;
 pub mod kubernetes;
 pub mod materials;
 pub mod native_bootstrap;
+pub mod native_probe;
 pub mod native_receipt;
 pub mod oidc;
 pub mod ownership;

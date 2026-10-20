@@ -15,6 +15,7 @@ pub enum ResourceKind {
     Service,
     Deployment,
     Pod,
+    InstancePolicy,
 }
 impl ResourceKind {
     pub fn as_str(self) -> &'static str {
@@ -29,6 +30,7 @@ impl ResourceKind {
             Self::Service => "Service",
             Self::Deployment => "Deployment",
             Self::Pod => "Pod",
+            Self::InstancePolicy => "InstancePolicy",
         }
     }
     pub fn api_version(self) -> &'static str {
@@ -36,6 +38,7 @@ impl ResourceKind {
             Self::RoleBinding => "rbac.authorization.k8s.io/v1",
             Self::NetworkPolicy => "networking.k8s.io/v1",
             Self::Deployment => "apps/v1",
+            Self::InstancePolicy => "hermes.agent-platform.io/v1alpha1",
             _ => "v1",
         }
     }
@@ -51,6 +54,7 @@ impl ResourceKind {
             Self::Service => "services",
             Self::Deployment => "deployments",
             Self::Pod => "pods",
+            Self::InstancePolicy => "instancepolicies",
         }
     }
 }

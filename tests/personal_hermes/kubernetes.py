@@ -125,6 +125,16 @@ def main():
             environment["DATABASE_URL"] = (
                 f"postgres://hermes_test@127.0.0.1:{postgres_port}/hermes_test"
             )
+            build = subprocess.run(
+                ["cargo", "build", "-p", "hermes-manager", "--locked", "--offline"],
+                cwd=ROOT / "services/hermes-manager",
+                env=environment,
+                timeout=300,
+            )
+            assert build.returncode == 0, "Controller process fixture build failed"
+            environment["HERMES_TEST_MANAGER_BINARY"] = str(
+                ROOT / "services/hermes-manager/target/debug/hermes-manager"
+            )
             result = subprocess.run(
                 [
                     "cargo",
@@ -146,7 +156,38 @@ def main():
         )
     finally:
         if identifier:
-            command(["docker", "rm", "--force", "--volumes", identifier])
+            # Docker can report a transient removal conflict while the server
+            # finishes exiting. Retry only this fixture's exact container ID;
+            # an inspect/daemon failure is never treated as proof of absence.
+            for attempt in range(3):
+                try:
+                    removed = subprocess.run(
+                        ["docker", "rm", "--force", "--volumes", identifier],
+                        capture_output=True,
+                        timeout=30,
+                    )
+                except subprocess.TimeoutExpired:
+                    # The daemon may finish after its CLI loses the response.
+                    # Observe this exact container before retrying removal.
+                    removed = None
+                if removed is not None and removed.returncode == 0:
+                    break
+                remaining = command(
+                    [
+                        "docker",
+                        "ps",
+                        "--all",
+                        "--no-trunc",
+                        "--filter",
+                        f"id={identifier}",
+                        "--format",
+                        "{{.ID}}",
+                    ]
+                )
+                if not remaining.strip():
+                    break
+                assert attempt < 2, "Disposable Kubernetes fixture cleanup failed"
+                time.sleep(0.2)
 
 
 if __name__ == "__main__":

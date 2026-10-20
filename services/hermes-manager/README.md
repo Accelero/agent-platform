@@ -57,7 +57,8 @@ tracks the broader service, router, UI, execution and recovery work.
 
 ## API process and authentication
 
-The `hermes-manager` executable implements `api`, `migrate` and `check` roles.
+The `hermes-manager` executable implements `api`, `migrate`, `check` and
+`controller` roles. The controller has a separate configuration described below.
 Use the [configuration reference](api.example.json) with deployment-owned Secret
 files. Configuration accepts file references, never inline database credentials
 or TLS keys. The manager does not print underlying configuration/database/TLS
@@ -191,7 +192,9 @@ granting the session role permission to change it.
 
 The router still needs native cookie stripping/filtering, coordinated native
 logout/identity switching, owner status and full proxy/provider/native acceptance.
-These services do not yet commission Kubernetes resources or ship in the chart.
+The controller commissions Kubernetes resources in the disposable fixture. These
+services do not yet ship in the chart or provide complete personal-instance
+lifecycle/routing readiness.
 
 ## Owned-resource reconciliation
 
@@ -240,12 +243,67 @@ container/volumes and credentials. The normal Rust suite deliberately lists this
 test as ignored; the explicit runner and CI execute it against a real API server.
 It proves creation success before UID persistence, lost worker claim recovery,
 UID/proof rejection, safe manifest updates, stale delete preconditions, pending
-finalizers and absence-before-completion. It uses fixture administrator access;
-it does **not** prove the eventual controller's restricted RBAC/admission policy.
+finalizers and absence-before-completion. A second test uses the actual
+constrained controller ServiceAccount, verifies bootstrap/admission, commissions
+an assignment from the PostgreSQL outbox and kills/reopens the compiled
+controller between Secret creation and UID persistence. The fixture uses an
+unavailable application image; creating resources does not prove a running
+native instance or publish a route.
 
-This is the resource reconciliation layer, not a completed commissioning
-controller. Approved workload rendering, create-once material encryption/native
-initialization, controller process scheduling/resync, admission/RBAC, execution
-policy, readiness publication and restore rebinding remain to be implemented.
-The bootstrap ciphertext table is reserved for that next integration; the current
-adapter cannot invent a missing material reference to create a Secret.
+## Commissioning controller
+
+```bash
+./target/debug/hermes-manager controller --config /run/manager/controller.json
+```
+
+Run this role separately from the API. Its JSON configuration contains
+`installation` (`id`, `epoch`, `issuer`), `databaseUrlFile`,
+`materialEncryptionKeyringFile`, `ownershipKeyringFile`, `clusterIdentity`,
+`executionUrl`, `workload` and `kubernetes`. Keys use the reference-only keyring
+format above; material encryption and ownership proofs require independent key
+bytes. `clusterIdentity` is the registered `kube-system` UID, not a context name.
+`executionUrl` must be an HTTPS URL ending in `/execution`.
+
+Choose `kubernetes: {"source":"inCluster"}` or an explicit
+`{"source":"kubeconfig","file":"/run/manager/kubeconfig","context":"controller"}`.
+The controller never infers a workstation context. An explicit kubeconfig must
+use absolute certificate/token file references and cannot use executable
+authentication, impersonation, a proxy or insecure certificate verification.
+Startup checks the supported database history/installation/epoch, registered
+live cluster identity, actual ServiceAccount and release-owned bootstrap policies.
+It cannot install or relax those shared policies itself.
+
+`workload` is the typed `WorkloadConfig` in `hermes-adapters/src/workloads.rs`:
+control namespace/ServiceAccount/reconciler role, public HTTPS origin, native OIDC
+client, execution port/public CA, optional private OIDC CA, exact service-egress
+selectors and optional public HTTPS egress. Public certificate material is
+validated. Instance templates must already have immutable approved definitions
+whose typed digest matches the registered image and schema. Template registration
+and chart configuration generation remain separate integration work.
+
+The worker claims committed operations using PostgreSQL leases. It persists
+encrypted create-once native credentials, then freezes the complete initial
+rendering before dispatching child resource actions. Restarting with changed
+public configuration cannot change an outstanding rendering or regenerate its
+credentials. Namespace and child UID binding use authenticated creation proofs;
+native workload admission derives from the same rendering and rejects foreign
+images, credentials, mounts, commands, owner/generation labels and resource limits.
+
+After applying resources it observes storage, Deployment/Pod ownership and the
+signed initialization receipt. A bounded HTTP probe verifies the sole native
+OIDC provider, login redirect and unauthenticated API denial through the owned
+Service, with no redirects, proxy environment or cookies. Probe ingress permits
+only controller/router components in the configured control namespace on the
+native dashboard port. It persists specific waiting conditions and retains the
+commissioning deadline. Passing these checks still waits for effective execution
+policy; the combined path also needs full native/cluster acceptance. No route is
+published by this implementation. Suspension/re-enable, periodic resync of
+completed instances, execution leases and coordinated recovery remain unfinished;
+do not enable this development controller against an existing deployment.
+
+The execution-policy foundation stores immutable runtime versions, owner-local
+storage/pull references and resolved desired policy generations with audited,
+idempotent optimistic mutations and independent fenced policy work. Applied
+generation remains zero until actual drain/admission/worker observations can
+authorize activation. It does not yet implement the execution HTTP API or grant
+terminal leases.

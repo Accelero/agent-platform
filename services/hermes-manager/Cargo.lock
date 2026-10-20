@@ -1226,8 +1226,10 @@ dependencies = [
  "hermes-application",
  "hermes-domain",
  "jsonwebtoken",
+ "kube",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "uuid",
 ]

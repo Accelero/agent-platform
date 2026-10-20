@@ -3,6 +3,12 @@
 //! must be tested separately before commissioning is enabled.
 #[path = "kubernetes/bootstrap.rs"]
 mod bootstrap;
+#[path = "kubernetes/controller.rs"]
+mod controller;
+#[path = "kubernetes/process.rs"]
+mod process;
+#[path = "kubernetes/workloads.rs"]
+mod workloads;
 use hermes_adapters::{
     kubernetes::{KubernetesDriver, Manifest},
     ownership::OwnershipSigner,

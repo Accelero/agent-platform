@@ -51,6 +51,7 @@ pub enum ConditionReason {
     Provisioning,
     StoragePending,
     NativePending,
+    NativeAuthInvalid,
     ExecutionPolicyPending,
     AdmissionUnavailable,
     TemplateUnavailable,

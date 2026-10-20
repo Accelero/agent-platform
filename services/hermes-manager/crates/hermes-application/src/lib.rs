@@ -35,6 +35,8 @@ pub enum Error {
     StaleFence,
     #[error("operation intent or resource ownership conflicts")]
     OwnershipConflict,
+    #[error("native authentication verification failed")]
+    NativeAuthInvalid,
     #[error("dependency unavailable")]
     Unavailable,
 }
@@ -412,6 +414,7 @@ pub trait OperationQueue: Send + Sync {
 
 pub mod administration;
 pub mod commissioning;
+pub mod execution;
 pub mod materials;
 pub mod resources;
 pub mod routing;

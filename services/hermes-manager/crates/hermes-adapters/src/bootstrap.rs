@@ -46,6 +46,8 @@ impl BootstrapPolicy {
         let identifier = format!("hb-{}", scope.id.simple());
         let namespace_policy = format!("{identifier}-namespace");
         let binding_policy = format!("{identifier}-binding");
+        let pod_policy = format!("{identifier}-pods");
+        let deployment_policy = format!("{identifier}-deployments");
         let subject = format!(
             "system:serviceaccount:{}:{}",
             config.control_namespace, config.controller_service_account
@@ -71,7 +73,7 @@ impl BootstrapPolicy {
             cel(&config.controller_service_account),
             cel(&config.control_namespace)
         );
-        let mut manifests = vec![];
+        let mut manifests = crate::admission::manifests(scope);
         for (name, group, resource, validations) in [
             (
                 &namespace_policy,
@@ -114,6 +116,7 @@ impl BootstrapPolicy {
             {"apiGroups":[""],"resources":["pods","services","persistentvolumeclaims","secrets","configmaps","serviceaccounts"],"verbs":["get","list","watch","create","patch","update","delete"]},
             {"apiGroups":["apps"],"resources":["deployments"],"verbs":["get","list","watch","create","patch","update","delete"]},
             {"apiGroups":["apps"],"resources":["replicasets"],"verbs":["get","list","watch"]},
+            {"apiGroups":["hermes.agent-platform.io"],"resources":["instancepolicies"],"verbs":["get","list","watch","create","patch","update","delete"]},
             {"apiGroups":["networking.k8s.io"],"resources":["networkpolicies"],"verbs":["get","list","watch","create","patch","update","delete"]}
         ]})));
         manifests.push(object("ClusterRole",&identifier,json!({"rules":[
@@ -121,7 +124,8 @@ impl BootstrapPolicy {
             {"apiGroups":["rbac.authorization.k8s.io"],"resources":["rolebindings"],"verbs":["get","list","watch","create","patch","update"]},
             {"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles"],"resourceNames":[config.reconciler_role],"verbs":["get","bind"]},
             {"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles","clusterrolebindings"],"resourceNames":[identifier],"verbs":["get"]},
-            {"apiGroups":["admissionregistration.k8s.io"],"resources":["validatingadmissionpolicies","validatingadmissionpolicybindings"],"resourceNames":[namespace_policy,binding_policy],"verbs":["get"]},
+            {"apiGroups":["admissionregistration.k8s.io"],"resources":["validatingadmissionpolicies","validatingadmissionpolicybindings"],"resourceNames":[namespace_policy,binding_policy,pod_policy,deployment_policy],"verbs":["get"]},
+            {"apiGroups":["apiextensions.k8s.io"],"resources":["customresourcedefinitions"],"resourceNames":[crate::admission::CRD],"verbs":["get"]},
             {"apiGroups":["authentication.k8s.io"],"resources":["selfsubjectreviews"],"verbs":["create"]},
             {"apiGroups":["authorization.k8s.io"],"resources":["selfsubjectaccessreviews"],"verbs":["create"]}
         ]})));
@@ -174,10 +178,9 @@ impl BootstrapPolicy {
             if manifest["kind"] == "ClusterRole" && !actual["aggregationRule"].is_null() {
                 return Err(Error::OwnershipConflict);
             }
-            let fields = if manifest["kind"]
-                .as_str()
-                .is_some_and(|k| k.starts_with("ValidatingAdmission"))
-            {
+            let fields = if manifest["kind"].as_str().is_some_and(|k| {
+                k.starts_with("ValidatingAdmission") || k == "CustomResourceDefinition"
+            }) {
                 vec!["spec"]
             } else if manifest["kind"] == "ClusterRole" {
                 vec!["rules"]
@@ -271,6 +274,7 @@ fn api(client: &Client, object: &Value) -> Result<Api<DynamicObject>, Error> {
         "ValidatingAdmissionPolicyBinding" => "validatingadmissionpolicybindings",
         "SelfSubjectReview" => "selfsubjectreviews",
         "SelfSubjectAccessReview" => "selfsubjectaccessreviews",
+        "CustomResourceDefinition" => "customresourcedefinitions",
         _ => return Err(Error::Invalid),
     };
     let resource =

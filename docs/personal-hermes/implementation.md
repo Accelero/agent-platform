@@ -69,9 +69,8 @@ published application. This file tracks evidence against the full
 - Typed personal workload renderer with separate retained home/workspace claims,
   default-deny networking, non-root restricted Pods, disabled service-account
   token mounting and one desired gateway/dashboard replica. Selected Secret files
-  keep the initialization key out of the running application. This renderer is
-  not yet connected to a controller. Approved definitions now have immutable
-  PostgreSQL storage and a typed, digest-checked commissioning-plan reader;
+  keep the initialization key out of the running application. Approved definitions
+  have immutable PostgreSQL storage and a typed, digest-checked commissioning-plan reader;
   release-owned definition registration remains to be integrated.
 - Native home initializer with durable signed intent/completion receipts,
   no-follow home I/O, atomic file creation and missing-only seeding. Rust verifies
@@ -95,7 +94,30 @@ published application. This file tracks evidence against the full
   role in an owned instance namespace. Preflight verifies exact policies/RBAC,
   type-check progress, positive/negative dry-run admission and critical denied
   privileges. The controller cannot install or relax these shared policies.
-  Workload/worker admission and chart/controller integration remain outstanding.
+  Worker admission and chart integration remain outstanding.
+- Compiled controller role with separate reference-based configuration, explicit
+  Kubernetes transport and registered/live cluster verification. It claims the
+  PostgreSQL outbox, persists encrypted complete renderings before child actions,
+  binds all 14 resources and resumes committed inputs after abrupt death. Native
+  observation checks PVC binding, Deployment availability, Pod/ReplicaSet UID
+  ownership, template generation and signed initialization. It records pending
+  conditions. A bounded, credential-free HTTP probe checks native provider/login
+  behavior and private API denial through the exact bound Service. Seven transport
+  tests cover auth bypass, redirects, bodies and aggregate deadline. Effective
+  policy checks, route publication and combined native/cluster acceptance remain
+  unfinished.
+- Namespace-local typed admission parameters derived from the same native
+  rendering. Fail-closed Pod/Deployment policies constrain images, identity,
+  commands, public environment, resource limits, mounts and credential projection.
+  Live dry-run tests exercise altered workloads through the actual ServiceAccount.
+  The authenticated driver checks live namespace UID; admission preserves that
+  binding between the parameter and Pod labels.
+- Execution configuration foundation: immutable digest-pinned terminal versions,
+  owner-specific storage/pull references and resolved desired policy generations.
+  Mutations commit idempotency, optimistic versions, audit and policy work in the
+  same transaction. Independent database leases fence policy work. Applied policy
+  generation remains zero until real drain/admission/worker checks are integrated;
+  no terminal lease is granted by this foundation.
 
 ## Evidence and remaining gates
 
@@ -107,8 +129,8 @@ published application. This file tracks evidence against the full
 | Proxy plugin | Go tests with race detector | Full native HTTP/upload/browser/cookie behavior and configured provider revocation |
 | Traefik | `tests/personal_hermes/router_compatibility.py`, pinned official image | End-to-end Rust/Keycloak/native Hermes acceptance |
 | Existing release | Python checks including OpenAPI validation and native initialization, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
-| Runtime policy/execution | Domain mount-path validation | Catalog/storage/effective-policy database model, execution API, environment/lease transactions, SSH driver and adapter extension |
-| Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; encrypted-material and renderer tests, receipt/initialization tests, typed persisted plans/scheduling, real ServiceAccount bootstrap/admission and built native image startup/restart proof | Controller process, workload/worker admission, definition registration, readiness, execution policy and retained suspension integration |
+| Runtime policy/execution | Real PostgreSQL owner-isolation, immutable catalog/storage, optimistic/idempotent policy mutation and fenced policy-work tests | API/contracts, effective-policy activation, execution environments/leases, worker renderer/admission, SSH driver and adapter extension |
+| Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; encrypted material, frozen rendering, initialization/native observation and HTTP auth-gate probe tests; actual ServiceAccount bootstrap/workload admission, compiled controller create/kill/reopen proof and built native image startup/restart | Definition registration, integrated native/effective-policy readiness, route publication, worker admission, retained suspension and completed-instance resync |
 | Administration UI | Versioned administration contract, bearer and browser-session API; presentation-separated application ports | Remaining runtime/storage/owner/checkpoint contracts, generated client and React/Vite build |
 | Recovery | Fresh/existing registry gate and maintenance/epoch fencing | Trusted inventory scanner, checkpoint/receipt/restore lifecycle and coordinated full-data recovery tests |
 | Distribution | New workspace/plugin checks in CI | Dockerfiles, reviewed release inputs, opt-in chart values/schema/RBAC/networking, operator docs and acceptance qualification |
@@ -140,8 +162,9 @@ lock that must deny within the two-second route-resolution bound. These prove
 transport/token behavior; they do not replace a real Keycloak/browser acceptance
 run or forced-death tests around Kubernetes/execution actions.
 
-All P01–P18 remain subject to integrated verification. The implementation does
-not yet commission a Kubernetes instance and is not feature-complete for release.
+All P01–P18 remain subject to integrated verification. The implementation creates
+registered Kubernetes resources, but does not yet produce a fully usable and
+routed personal instance and is not feature-complete for release.
 No phase is complete merely because its unit tests pass. The source proofs must
 be combined with real database, Kubernetes, provider, native application and
 browser evidence before the feature is enabled or released.
@@ -164,8 +187,20 @@ subject, control-namespace binding and cluster-wide Secret reads are rejected.
 Preflight rejects administrator transport, missing policy, a relaxed failure
 policy and an additional binding that grants ClusterRoleBinding creation.
 Admission type checks and dry-run probes use the live API server. This proves the
-namespace/bootstrap boundary; it does not prove workload/worker image, mount or
-effective-policy admission, CNI enforcement or a functioning controller process.
+namespace/bootstrap boundary. Native workload dry runs also reject foreign
+images, mounts/credentials, identity/generation labels, commands, probes and
+resource limits. Worker effective-policy admission, CNI enforcement and full
+commissioning acceptance remain outstanding.
+
+The same fixture commissions a committed assignment using the constrained
+ServiceAccount and reopens the registry with unchanged credential bytes and
+resource UIDs. It also runs the compiled controller, blocks the Secret UID commit
+after actual creation, sends SIGKILL and restarts with changed public
+configuration. Recovery binds the original Secret UID/bytes and completes the
+original frozen resource set; no route is published. SIGTERM exits cleanly. The
+fixture deliberately uses an unavailable native image, so this proves process
+recovery and resource commissioning, not native startup, PVC payload behavior or
+an authenticated end-to-end route.
 
 The personal native runtime test builds the actual Hermes Dockerfile using only
 `release-policy.json` inputs. It runs both gateway and dashboard as UID/GID 1000,

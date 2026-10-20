@@ -1,4 +1,8 @@
 //! Bounded Kubernetes ownership transport. Never infer a workstation kubeconfig.
+mod quantity;
+mod readiness;
+pub use readiness::NativeReadiness;
+
 use crate::ownership::OwnershipSigner;
 use hermes_application::{
     Action, Error,
@@ -32,7 +36,6 @@ pub struct KubernetesDriver {
 /// Deliberately no Debug: Secret manifests may contain bootstrap credentials.
 pub struct Manifest(Value);
 impl Manifest {
-    #[cfg(test)]
     pub(crate) fn value(&self) -> &Value {
         &self.0
     }
@@ -51,7 +54,7 @@ impl Manifest {
         let digest = Sha256::digest(serde_json::to_vec(&self.0).map_err(|_| Error::Invalid)?);
         Ok(digest.iter().map(|v| format!("{v:02x}")).collect())
     }
-    fn validate(&self, spec: &ResourceSpec) -> Result<(), Error> {
+    pub(crate) fn validate(&self, spec: &ResourceSpec) -> Result<(), Error> {
         if self.0.get("apiVersion").and_then(Value::as_str) != Some(spec.kind.api_version())
             || self.0.get("kind").and_then(Value::as_str) != Some(spec.kind.as_str())
             || self.0.pointer("/metadata/name").and_then(Value::as_str) != Some(spec.name.as_str())
@@ -153,6 +156,33 @@ impl KubernetesDriver {
     ) -> Result<(), Error> {
         policy.verify(&self.client).await
     }
+    /// Read-only check of a previously bound UID and its exact approved fields.
+    /// Unlike a resource-version observation, this also checks the applied intent.
+    pub async fn verify_bound_manifest(
+        &self,
+        owned: &OwnedResource,
+        manifest: &Manifest,
+    ) -> Result<(), Error> {
+        self.readiness_object(owned, Some(manifest)).await?;
+        Ok(())
+    }
+    pub async fn verify_cluster(&self, registered_identity: &str) -> Result<(), Error> {
+        if registered_identity != self.cluster_identity {
+            return Err(Error::OwnershipConflict);
+        }
+        let namespaces: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(self.client.clone());
+        let cluster = timeout(
+            Duration::from_secs(6),
+            namespaces.get_metadata("kube-system"),
+        )
+        .await
+        .map_err(|_| Error::Unavailable)?
+        .map_err(api_error)?;
+        if cluster.metadata.uid.as_deref() != Some(registered_identity) {
+            return Err(Error::OwnershipConflict);
+        }
+        Ok(())
+    }
     fn api(&self, spec: &ResourceSpec) -> Api<DynamicObject> {
         let (group, version) = spec
             .kind
@@ -221,17 +251,7 @@ impl KubernetesDriver {
     }
     async fn namespace(&self, creation: &Creation) -> Result<(), Error> {
         self.context(creation)?;
-        let namespaces: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(self.client.clone());
-        let cluster = timeout(
-            Duration::from_secs(6),
-            namespaces.get_metadata("kube-system"),
-        )
-        .await
-        .map_err(|_| Error::Unavailable)?
-        .map_err(api_error)?;
-        if cluster.metadata.uid.as_deref() != Some(self.cluster_identity.as_str()) {
-            return Err(Error::OwnershipConflict);
-        }
+        self.verify_cluster(&creation.cluster_identity).await?;
         if let Some(namespace) = &creation.spec.namespace {
             let api: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(self.client.clone());
             let ns = timeout(Duration::from_secs(6), api.get_metadata(namespace))
@@ -512,17 +532,49 @@ fn step_spec(prepared: &PreparedResource) -> ResourceSpec {
 /// Kubernetes defaults are allowed, but every intended field and array element
 /// must still match. Arbitrary annotations alone cannot attest a changed spec.
 fn contains_fields(actual: &Value, wanted: &Value) -> bool {
+    let kind = wanted.get("kind").and_then(Value::as_str);
+    contains_fields_at(actual, wanted, kind, &mut Vec::new())
+}
+
+/// Explicit context for already-reviewed PodSpec fragments (Pod/ReplicaSet
+/// readiness). Generic JSON fragments never receive quantity interpretation.
+fn contains_pod_spec_fields(actual: &Value, wanted: &Value) -> bool {
+    contains_fields_at(actual, wanted, Some("Pod"), &mut vec!["spec"])
+}
+
+fn contains_fields_at<'a>(
+    actual: &Value,
+    wanted: &'a Value,
+    kind: Option<&str>,
+    path: &mut Vec<&'a str>,
+) -> bool {
     match wanted {
         Value::Object(fields) => actual.as_object().is_some_and(|a| {
-            fields
-                .iter()
-                .all(|(k, v)| a.get(k).is_some_and(|value| contains_fields(value, v)))
+            fields.iter().all(|(k, v)| {
+                path.push(k);
+                let matches = match a.get(k) {
+                    Some(value) => contains_fields_at(value, v, kind, path),
+                    // API encoding omits optional empty slices (for example
+                    // NetworkPolicy ingress/egress and container args). An
+                    // absent object is deliberately NOT equivalent to {}:
+                    // an empty namespaceSelector has distinct semantics.
+                    None => v.as_array().is_some_and(Vec::is_empty),
+                };
+                path.pop();
+                matches
+            })
         }),
         Value::Array(fields) => actual.as_array().is_some_and(|a| {
-            a.len() == fields.len() && a.iter().zip(fields).all(|(a, w)| contains_fields(a, w))
+            path.push("[]");
+            let matches = a.len() == fields.len()
+                && a.iter()
+                    .zip(fields)
+                    .all(|(a, w)| contains_fields_at(a, w, kind, path));
+            path.pop();
+            matches
         }),
         Value::Null => actual.is_null(),
-        _ => actual == wanted,
+        _ => actual == wanted || quantity::equivalent(kind, path, actual, wanted),
     }
 }
 

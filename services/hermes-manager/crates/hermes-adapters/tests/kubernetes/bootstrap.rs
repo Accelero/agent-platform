@@ -22,6 +22,7 @@ fn api(client: &Client, object: &Value) -> Api<DynamicObject> {
         "ClusterRoleBinding" => "clusterrolebindings",
         "ValidatingAdmissionPolicy" => "validatingadmissionpolicies",
         "ValidatingAdmissionPolicyBinding" => "validatingadmissionpolicybindings",
+        "CustomResourceDefinition" => "customresourcedefinitions",
         _ => panic!("unexpected fixture kind"),
     };
     let (group, version) = object["apiVersion"]
@@ -43,9 +44,11 @@ fn denied<T>(response: Result<T, kube::Error>) {
 fn namespace(scope: &InstallationScope, instance: Uuid) -> Namespace {
     serde_json::from_value(json!({"apiVersion":"v1","kind":"Namespace","metadata":{"name":hermes_domain::instance_namespace(scope.id,instance),"labels":{"agent-platform.io/installation":scope.id.to_string(),"agent-platform.io/instance":instance.to_string(),"pod-security.kubernetes.io/enforce":"restricted"}}})).unwrap()
 }
-#[tokio::test]
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
 #[ignore = "requires HERMES_TEST_KUBECONFIG from the disposable Kubernetes fixture"]
-async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_scope() {
+async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_scope(
+    pool: sqlx::PgPool,
+) {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let path = std::env::var("HERMES_TEST_KUBECONFIG").expect("disposable fixture only");
     let mut config = Config::from_custom_kubeconfig(
@@ -99,6 +102,7 @@ async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_sco
         .unwrap();
     config.auth_info = Default::default();
     config.auth_info.token = Some(token.into());
+    let controller_config = config.clone();
     let controller = Client::try_from(config).unwrap();
     let workload = WorkloadConfig {
         control_namespace: control.clone(),
@@ -120,6 +124,28 @@ async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_sco
             .create(&PostParams::default(), &data)
             .await
             .unwrap();
+        if manifest["kind"] == "CustomResourceDefinition" {
+            let deadline = Instant::now() + Duration::from_secs(20);
+            loop {
+                let current = api(&administrator, manifest)
+                    .get(manifest["metadata"]["name"].as_str().unwrap())
+                    .await
+                    .unwrap();
+                let current = serde_json::to_value(current).unwrap();
+                if current["status"]["conditions"]
+                    .as_array()
+                    .is_some_and(|conditions| {
+                        conditions
+                            .iter()
+                            .any(|c| c["type"] == "Established" && c["status"] == "True")
+                    })
+                {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "fixture CRD was not established");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
     }
     let reviews: Api<k8s_openapi::api::authentication::v1::SelfSubjectReview> =
         Api::all(controller.clone());
@@ -137,6 +163,23 @@ async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_sco
         if result.is_ok() {
             break;
         }
+        if Instant::now() >= deadline {
+            // These manifests contain only release-owned policy/RBAC/schema,
+            // never Secrets or owner content. Report schema paths, not values.
+            for expected in policy.manifests() {
+                let actual = api(&administrator, expected)
+                    .get(expected["metadata"]["name"].as_str().unwrap())
+                    .await
+                    .unwrap();
+                let actual = serde_json::to_value(actual).unwrap();
+                eprintln!(
+                    "policy kind={} differences={:?} warnings={}",
+                    expected["kind"],
+                    differences(&actual["spec"], &expected["spec"], "spec"),
+                    actual["status"]["typeChecking"]
+                );
+            }
+        }
         assert!(
             Instant::now() < deadline,
             "bootstrap policy did not become verifiable: {result:?}"
@@ -148,6 +191,7 @@ async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_sco
         Err(Error::Forbidden)
     ));
     let controller_namespaces: Api<Namespace> = Api::all(controller.clone());
+    super::controller::verify(&pool, &scope, controller_config, &workload).await;
     let own = namespace(&scope, Uuid::new_v4());
     let own_name = own.metadata.name.clone().unwrap();
     controller_namespaces
@@ -191,6 +235,13 @@ async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_sco
         .create(&PostParams::default(), &binding)
         .await
         .unwrap();
+    super::workloads::verify(
+        &controller,
+        &scope,
+        &workload,
+        &controller_namespaces.get(&own_name).await.unwrap(),
+    )
+    .await;
     let secret:Secret=serde_json::from_value(json!({"metadata":{"name":"fixture"},"type":"Opaque","stringData":{"value":"fixture-only"}})).unwrap();
     own_secrets
         .create(&PostParams::default(), &secret)
@@ -236,7 +287,11 @@ async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_sco
     }
     // Relaxation of a deployed policy is detected, even if negative probes
     // might still fail for an unrelated RBAC reason.
-    let manifest = &policy.manifests()[0];
+    let manifest = policy
+        .manifests()
+        .iter()
+        .find(|m| m["kind"] == "ValidatingAdmissionPolicy")
+        .unwrap();
     api(&administrator, manifest)
         .patch(
             manifest["metadata"]["name"].as_str().unwrap(),
@@ -249,4 +304,34 @@ async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_sco
         policy.verify(&controller).await,
         Err(Error::OwnershipConflict)
     ));
+}
+
+fn differences(actual: &Value, expected: &Value, path: &str) -> Vec<String> {
+    if actual == expected {
+        return vec![];
+    }
+    if let (Some(actual), Some(expected)) = (actual.as_object(), expected.as_object()) {
+        let keys: std::collections::BTreeSet<_> = actual.keys().chain(expected.keys()).collect();
+        return keys
+            .into_iter()
+            .flat_map(|key| {
+                differences(
+                    actual.get(key).unwrap_or(&Value::Null),
+                    expected.get(key).unwrap_or(&Value::Null),
+                    &format!("{path}.{key}"),
+                )
+            })
+            .collect();
+    }
+    if let (Some(actual), Some(expected)) = (actual.as_array(), expected.as_array())
+        && actual.len() == expected.len()
+    {
+        return actual
+            .iter()
+            .zip(expected)
+            .enumerate()
+            .flat_map(|(i, (a, e))| differences(a, e, &format!("{path}[{i}]")))
+            .collect();
+    }
+    vec![path.to_string()]
 }

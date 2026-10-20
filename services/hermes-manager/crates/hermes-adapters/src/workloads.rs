@@ -105,10 +105,39 @@ fn certificate(value: &str) -> Result<(), Error> {
     }
     Ok(())
 }
+
+// Emit canonical integer quantities so a server round-trip does not change
+// an authenticated manifest's intended fields. Definitions contain only whole
+// milli-CPU/MiB/GiB, never floating-point quantities.
+fn binary_quantity(mut value: u32, units: &[&str]) -> String {
+    let mut unit = 0;
+    while value.is_multiple_of(1024) && unit + 1 < units.len() {
+        value /= 1024;
+        unit += 1;
+    }
+    format!("{value}{}", units[unit])
+}
+
+fn cpu_quantity(millis: u32) -> String {
+    if millis.is_multiple_of(1000) {
+        (millis / 1000).to_string()
+    } else {
+        format!("{millis}m")
+    }
+}
 pub struct RenderedResource {
     pub key: String,
     pub spec: ResourceSpec,
     pub manifest: Manifest,
+}
+impl RenderedResource {
+    /// Public template inspection cannot decode an opaque Secret manifest.
+    pub fn deployment(&self) -> Result<k8s_openapi::api::apps::v1::Deployment, Error> {
+        if self.spec.kind != ResourceKind::Deployment {
+            return Err(Error::Invalid);
+        }
+        serde_json::from_value(self.manifest.value().clone()).map_err(|_| Error::Invalid)
+    }
 }
 
 fn resource(
@@ -245,7 +274,7 @@ pub fn render(
         "hermes-network",
         Retention::Retain,
         None,
-        json!({"metadata":{},"spec":{"podSelector":{"matchLabels":{"app.kubernetes.io/component":"hermes"}},"policyTypes":["Ingress","Egress"],"ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":config.control_namespace}},"podSelector":{"matchLabels":{"app.kubernetes.io/component":"hermes-router"}}}],"ports":[{"protocol":"TCP","port":9119}]}],"egress":egress}}),
+        json!({"metadata":{},"spec":{"podSelector":{"matchLabels":{"app.kubernetes.io/component":"hermes"}},"policyTypes":["Ingress","Egress"],"ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":config.control_namespace}},"podSelector":{"matchLabels":{"app.kubernetes.io/component":"hermes-router"}}},{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":config.control_namespace}},"podSelector":{"matchLabels":{"app.kubernetes.io/component":"hermes-controller"}}}],"ports":[{"protocol":"TCP","port":9119}]}],"egress":egress}}),
     )?;
     for (name, purpose, size) in [
         ("home", "home-storage", definition.home_gib),
@@ -257,7 +286,7 @@ pub fn render(
             purpose,
             Retention::Retain,
             None,
-            json!({"metadata":{},"spec":{"accessModes":["ReadWriteOnce"],"storageClassName":definition.storage_class,"resources":{"requests":{"storage":format!("{size}Gi")}}}}),
+            json!({"metadata":{},"spec":{"accessModes":["ReadWriteOnce"],"storageClassName":definition.storage_class,"resources":{"requests":{"storage":binary_quantity(size, &["Gi", "Ti", "Pi"])}}}}),
         )?;
     }
     let files = [
@@ -313,7 +342,7 @@ pub fn render(
         None,
         json!({"metadata":{},"data":trust}),
     )?;
-    let pod_labels = json!({"app.kubernetes.io/component":"hermes","agent-platform.io/installation":scope.id.to_string(),"agent-platform.io/instance":assignment.instance_id.to_string()});
+    let pod_labels = json!({"app.kubernetes.io/component":"hermes","agent-platform.io/installation":scope.id.to_string(),"agent-platform.io/instance":assignment.instance_id.to_string(),"agent-platform.io/policy-generation":assignment.desired_generation.to_string(),"agent-platform.io/namespace-uid":namespace_uid});
     let container_security = json!({"allowPrivilegeEscalation":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}});
     let mut env = vec![
         json!({"name":"HOME","value":"/opt/data"}),
@@ -329,7 +358,10 @@ pub fn render(
     if config.oidc_ca_pem.is_some() {
         env.push(json!({"name":"HERMES_PERSONAL_OIDC_CA_FILE","value":"/run/hermes/execution-ca/oidc-ca.crt"}));
     }
-    let resources = json!({"requests":{"cpu":format!("{}m",definition.cpu_millis),"memory":format!("{}Mi",definition.memory_mib)},"limits":{"cpu":format!("{}m",definition.cpu_millis),"memory":format!("{}Mi",definition.memory_mib)}});
+    let cpu = cpu_quantity(definition.cpu_millis);
+    let memory = binary_quantity(definition.memory_mib, &["Mi", "Gi", "Ti"]);
+    let resources =
+        json!({"requests":{"cpu":cpu,"memory":memory},"limits":{"cpu":cpu,"memory":memory}});
     let volumes = json!([
         {"name":"home","persistentVolumeClaim":{"claimName":"home"}}, {"name":"workspace","persistentVolumeClaim":{"claimName":"workspace"}},
         {"name":"tmp","emptyDir":{"sizeLimit":"256Mi"}},
@@ -358,6 +390,29 @@ pub fn render(
         None,
         json!({"metadata":{},"spec":{"selector":{"app.kubernetes.io/component":"hermes","agent-platform.io/instance":assignment.instance_id.to_string()},"ports":[{"name":"http","port":8080,"targetPort":"dashboard","protocol":"TCP"}]}}),
     )?;
+    // Derive policy parameters from the very same reviewed template. There is
+    // no independent image/environment/resource default for admission.
+    let deployment_index = output
+        .iter()
+        .position(|r| r.spec.kind == ResourceKind::Deployment)
+        .ok_or(Error::Invalid)?;
+    let pod = &output[deployment_index].manifest.value()["spec"]["template"]["spec"];
+    let policy = resource(
+        ResourceKind::InstancePolicy,
+        "instance-policy",
+        "instance-policy",
+        Some((ns, namespace_uid)),
+        Retention::Retain,
+        None,
+        crate::admission::parameters(
+            scope,
+            assignment.instance_id,
+            namespace_uid,
+            assignment.desired_generation,
+            pod,
+        )?,
+    )?;
+    output.insert(deployment_index, policy);
     Ok(output)
 }
 

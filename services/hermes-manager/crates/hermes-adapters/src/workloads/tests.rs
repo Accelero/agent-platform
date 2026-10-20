@@ -102,6 +102,31 @@ fn personal_workload_has_private_storage_scoped_credentials_and_always_running_n
         );
     }
     let workload = get("hermes-workload").manifest.value();
+    let policy = get("instance-policy").manifest.value();
+    assert_eq!(policy["spec"]["namespaceUID"], "namespace-uid");
+    assert_eq!(policy["spec"]["generation"], assignment.desired_generation);
+    assert_eq!(policy["spec"]["native"]["image"], definition.image);
+    assert_eq!(policy["spec"]["native"]["cpu"], "500m");
+    let policy_text = serde_json::to_string(policy).unwrap();
+    for secret in [
+        &bootstrap.initialization_key,
+        &bootstrap.execution_client_token,
+        &bootstrap.dashboard_session_token,
+        &bootstrap.ssh_private_key,
+    ] {
+        assert!(!policy_text.contains(secret));
+    }
+    assert!(
+        rendered
+            .iter()
+            .position(|r| r.key == "instance-policy")
+            .unwrap()
+            < rendered
+                .iter()
+                .position(|r| r.key == "hermes-workload")
+                .unwrap()
+    );
+    assert!(get("native-bootstrap").deployment().is_err());
     assert_eq!(workload["spec"]["replicas"], 1);
     assert_eq!(workload["spec"]["strategy"]["type"], "Recreate");
     let pod = &workload["spec"]["template"]["spec"];
@@ -200,6 +225,23 @@ fn personal_workload_has_private_storage_scoped_credentials_and_always_running_n
         network["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/component"],
         "hermes-router"
     );
+    let probes = &network["spec"]["ingress"][0]["from"][1];
+    assert_eq!(
+        probes["podSelector"]["matchLabels"]["app.kubernetes.io/component"],
+        "hermes-controller"
+    );
+    assert_eq!(
+        probes["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"],
+        config.control_namespace
+    );
+    assert_eq!(
+        network["spec"]["ingress"][0]["from"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(network["spec"]["ingress"][0]["ports"][0]["port"], 9119);
     let context: String = get("native-owner").manifest.value()["data"]["context.json"]
         .as_str()
         .unwrap()

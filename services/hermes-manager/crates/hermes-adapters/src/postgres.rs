@@ -24,6 +24,7 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
 mod administration;
 mod commissioning;
+mod execution;
 mod materials;
 mod resources;
 
@@ -150,6 +151,21 @@ impl PgStore {
     /// the active-operation gate in its own SQL transaction.
     pub async fn check_registry(&self, scope: &InstallationScope) -> Result<(), Error> {
         self.check_startup(scope, false).await
+    }
+
+    /// Explicit installation binding, including while the queue is idle. This
+    /// cannot be reconstructed from a configured context or namespace name.
+    pub async fn cluster_identity(&self, scope: &InstallationScope) -> Result<String, Error> {
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        installation_mode(&mut tx, scope).await?;
+        let identity =
+            sqlx::query_scalar("SELECT cluster_identity FROM manager.installations WHERE id=$1")
+                .bind(scope.id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db_error)?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(identity)
     }
 
     async fn check_startup(
