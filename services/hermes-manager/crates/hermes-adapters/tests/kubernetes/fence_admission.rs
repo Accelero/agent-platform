@@ -198,6 +198,7 @@ pub(super) async fn stop_without_parameters(
     ns: &str,
     deployment: &Value,
     policies: &Api<kube::core::DynamicObject>,
+    worker: &Value,
 ) {
     let deployments: Api<Deployment> = Api::namespaced(client.clone(), ns);
     let foreign: Api<Deployment> = Api::namespaced(administrator.clone(), ns);
@@ -267,6 +268,11 @@ pub(super) async fn stop_without_parameters(
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    let workers: Api<Pod> = Api::namespaced(client.clone(), ns);
+    assert!(
+        matches!(workers.create(&PostParams{dry_run:true,..Default::default()}, &serde_json::from_value(worker.clone()).unwrap()).await,
+        Err(kube::Error::Api(error)) if error.code == 422 && error.message.contains("no params found for policy binding"))
+    );
     // The main Deployment VAP retains missing-parameter Deny; only its separate
     // scale subresource can stop the unchanged parent without that parameter.
     denied(

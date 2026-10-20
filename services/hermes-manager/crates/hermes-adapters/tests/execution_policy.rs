@@ -157,6 +157,7 @@ fn policy(binding: &StorageBinding) -> AssignmentExecution {
     AssignmentExecution {
         default_runtime_id: "python-tools".into(),
         allowed: vec![AllowedRuntime {
+            limits: Default::default(),
             runtime: runtime().runtime,
             resources: runtime().resources,
             mounts: vec![MountSelection {
@@ -699,4 +700,196 @@ fn typed_policy_rejects_raw_specs_mount_traversal_overlap_and_root_ssh_workers()
     duplicate.mount.path = "/mnt/home/nested".into();
     selected.allowed[0].mounts.push(duplicate);
     assert_eq!(selected.validate(), Err(Error::Invalid));
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn catalog_and_storage_reads_use_bounded_latest_version_cursors(pool: PgPool) {
+    let f = fixture(&pool).await;
+    for (id, version) in [("python-tools", 1), ("python-tools", 2), ("shell-tools", 1)] {
+        let mut definition = runtime();
+        definition.runtime.id = id.into();
+        definition.runtime.version = version;
+        register(
+            &f,
+            &format!("{id}-{version}"),
+            ExecutionCommand::RegisterRuntime { definition },
+        )
+        .await
+        .unwrap();
+    }
+    let first = f.store.runtime_catalog(&f.scope, None, 1).await.unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].runtime.id, "python-tools");
+    assert_eq!(first[0].runtime.version, 2);
+    let second = f
+        .store
+        .runtime_catalog(&f.scope, Some(&first[0].runtime.id), 1)
+        .await
+        .unwrap();
+    assert_eq!(second[0].runtime.id, "shell-tools");
+    assert!(
+        f.store
+            .runtime_catalog(&f.scope, Some("shell-tools"), 1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        f.store.runtime_catalog(&f.scope, None, 0).await,
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        f.store
+            .runtime_catalog(&f.scope, Some("../invalid"), 10)
+            .await,
+        Err(Error::Invalid)
+    );
+    let binding = storage(&f.owners[0]);
+    register(
+        &f,
+        "storage",
+        ExecutionCommand::RegisterStorage {
+            binding: binding.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        f.store.storage_binding(&f.scope, binding.id).await.unwrap(),
+        binding
+    );
+    let mut other_installation = f.scope.clone();
+    other_installation.id = Uuid::new_v4();
+    assert!(
+        f.store
+            .storage_binding(&other_installation, binding.id)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        f.store.storage_binding(&f.scope, Uuid::new_v4()).await,
+        Err(Error::NotFound)
+    );
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn storage_updates_append_immutable_versions_with_atomic_preconditions_and_replay(
+    pool: PgPool,
+) {
+    let f = fixture(&pool).await;
+    let binding = storage(&f.owners[0]);
+    register(
+        &f,
+        "storage",
+        ExecutionCommand::RegisterStorage {
+            binding: binding.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    let mut next = binding.clone();
+    next.version = 2;
+    next.mounts[0].read_only = false;
+    let command = ExecutionCommand::UpdateStorage {
+        expected_version: 1,
+        binding: next.clone(),
+    };
+    let accepted = register(&f, "update", command.clone()).await.unwrap();
+    assert_eq!(
+        register(&f, "update", command.clone()).await.unwrap(),
+        accepted
+    );
+    assert_eq!(
+        register(&f, "stale", command).await,
+        Err(Error::PreconditionFailed)
+    );
+    assert_eq!(
+        f.store.storage_binding(&f.scope, binding.id).await.unwrap(),
+        next
+    );
+    assert_eq!(
+        f.store
+            .owner_storage_bindings(&f.scope, binding.instance_id, None, 10)
+            .await
+            .unwrap(),
+        vec![next.clone()]
+    );
+    let originals: serde_json::Value = sqlx::query_scalar(
+        "SELECT definition FROM manager.storage_binding_versions WHERE id=$1 AND version=1",
+    )
+    .bind(binding.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        serde_json::from_value::<StorageBinding>(originals).unwrap(),
+        binding
+    );
+    let mut skipped = next.clone();
+    skipped.version = 4;
+    assert_eq!(
+        register(
+            &f,
+            "skip",
+            ExecutionCommand::UpdateStorage {
+                expected_version: 2,
+                binding: skipped
+            }
+        )
+        .await,
+        Err(Error::Invalid)
+    );
+    let mut foreign = next.clone();
+    foreign.version = 3;
+    foreign.instance_id = f.owners[1].instance;
+    foreign.namespace = f.owners[1].namespace.clone();
+    foreign.namespace_uid = f.owners[1].namespace_uid.clone();
+    assert_eq!(
+        register(
+            &f,
+            "foreign",
+            ExecutionCommand::UpdateStorage {
+                expected_version: 2,
+                binding: foreign
+            }
+        )
+        .await,
+        Err(Error::OwnershipConflict)
+    );
+    let leaked: i64 = sqlx::query_scalar("SELECT count(*) FROM manager.mutation_requests WHERE idempotency_key IN ('stale','skip','foreign')").fetch_one(&pool).await.unwrap();
+    assert_eq!(leaked, 0);
+    let mut a = next.clone();
+    a.version = 3;
+    a.required = false;
+    let mut b = a.clone();
+    b.external = false;
+    let (a_result, b_result) = tokio::join!(
+        register(
+            &f,
+            "race-a",
+            ExecutionCommand::UpdateStorage {
+                expected_version: 2,
+                binding: a
+            }
+        ),
+        register(
+            &f,
+            "race-b",
+            ExecutionCommand::UpdateStorage {
+                expected_version: 2,
+                binding: b
+            }
+        )
+    );
+    assert!(matches!(
+        (&a_result, &b_result),
+        (Ok(_), Err(Error::PreconditionFailed)) | (Err(Error::PreconditionFailed), Ok(_))
+    ));
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM manager.storage_binding_versions WHERE id=$1")
+            .bind(binding.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 3);
 }

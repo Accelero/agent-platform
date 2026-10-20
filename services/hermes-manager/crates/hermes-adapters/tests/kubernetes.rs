@@ -9,6 +9,8 @@ mod controller;
 mod fence_admission;
 #[path = "kubernetes/process.rs"]
 mod process;
+#[path = "kubernetes/worker_admission.rs"]
+mod worker_admission;
 #[path = "kubernetes/workloads.rs"]
 mod workloads;
 use hermes_adapters::{

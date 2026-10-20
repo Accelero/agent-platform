@@ -18,6 +18,11 @@ use uuid::Uuid;
 mod support;
 use support::{ROUTER, Running, Secrets, start};
 
+#[path = "https/body_limit.rs"]
+mod body_limit;
+#[path = "https/execution.rs"]
+mod execution;
+
 struct Fixture {
     secrets: Secrets,
     scope: InstallationScope,

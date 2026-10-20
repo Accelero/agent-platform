@@ -75,7 +75,9 @@ These commands do not bootstrap an installation or adopt retained storage.
 `migrate` explicitly applies versioned migrations; existing registries require
 matching installation/issuer/epoch, and pending upgrades require maintenance.
 `check` requires supported migrations and an active installation. `api` validates
-the registry before binding its two TLS listeners. It can remain available for
+the registry before binding its administration and resolver TLS listeners. An
+optional `execution` configuration binds a third TLS listener using an independent
+certificate/key file pair; omitting it leaves the native execution API unbound. It can remain available for
 authentication/lifecycle coordination during maintenance/restore, while all
 assignment mutation and routing transactions retain their fail-closed gates.
 The trusted fresh inventory and checkpoint/restore adapters are still required
@@ -89,6 +91,39 @@ version ETag and every mutation requires an `Idempotency-Key`. An omitted
 template version is pinned in the transaction and remains stable on replay.
 Unknown command fields, ownership transfers and arbitrary workload specifications
 are rejected.
+
+Execution administration also exposes the contract's terminal-runtime catalog,
+immutable runtime versions, owner storage bindings, pull-Secret references and
+assignment execution policy. Catalog and version pages use exclusive string and
+integer cursors respectively; storage pages require an exact `instanceId` and
+use UUID cursors. Every page is bounded to 100 entries (50 by default). Storage
+registration starts at version 1; PATCH requires its strong `If-Match` ETag and
+appends version N+1. Binding ownership cannot transfer, and existing policies
+keep their pinned binding versions until a separate policy update.
+
+`GET/PATCH /api/v1/assignments/{id}/execution` uses the assignment ETag. PATCH
+resolves only approved runtime versions and that instance's registered storage
+and pull-Secret references; no raw Pod/PV specs, credential values or caller
+selected worker image enter the policy request. The response distinguishes
+desired from applied generation. Applied generation remains zero until a trusted
+worker/admission activation path exists; registering configuration does not make
+an instance Ready or publish a route. Execution mutations use the same current
+human administrator authorization and browser Origin/CSRF checks as assignments,
+with actor/body-scoped idempotency and durable execution configuration audit.
+Real PostgreSQL/HTTPS tests cover owner isolation, version/replay conflicts,
+bounded pagination, unknown/duplicate fields, rejected opaque native credentials,
+CSRF and administrator-role loss on session refresh.
+
+The optional execution TLS listener implements the separate
+[native protocol contract](../../contracts/hermes-manager/execution.openapi.yaml).
+It accepts only the exact instance's registered opaque execution credential and
+profile; JWTs and browser cookies grant no execution access. Native credentials
+grant no administration or router access. Acquisitions return pending while
+applied policy or trusted worker readiness is missing, and disabling an
+assignment invalidates its execution credential immediately. The execution HTTPS
+tests use actual encrypted bootstrap/client registration and desired policy;
+their separate historical Pending inventory fixture proves redacted owner
+listing without setting Ready/applied state or granting a lease.
 
 API-only authentication uses signed Keycloak user access tokens. Require
 the configured issuer/audience, approved authorized client, a user-session `sid`,
@@ -298,15 +333,17 @@ native dashboard port. It persists specific waiting conditions and retains the
 commissioning deadline. Passing these checks still waits for effective execution
 policy; the combined path also needs full native/cluster acceptance. No route is
 published by this implementation. Suspension/re-enable, periodic resync of
-completed instances, execution leases and coordinated recovery remain unfinished;
+completed instances and the terminal lifecycle need combined acceptance; coordinated
+recovery remains unfinished;
 do not enable this development controller against an existing deployment.
 
 The execution-policy foundation stores immutable runtime versions, owner-local
 storage/pull references and resolved desired policy generations with audited,
 idempotent optimistic mutations and independent fenced policy work. Applied
 generation remains zero until actual drain/admission/worker observations can
-authorize activation. It does not yet implement the execution HTTP API or grant
-terminal leases.
+authorize activation. The scoped execution HTTP and durable lease implementation
+are described above; production terminal grants remain blocked until trusted
+activation and authenticated SSH readiness are integrated.
 
 ## Retained lifecycle work
 

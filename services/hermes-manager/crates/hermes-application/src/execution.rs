@@ -215,6 +215,8 @@ pub struct AllowedRuntime {
     pub runtime: RuntimeRef,
     pub resources: WorkerResources,
     pub mounts: Vec<MountSelection>,
+    #[serde(default, skip_serializing_if = "default_limits")]
+    pub limits: crate::terminal::leases::ExecutionLimits,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -232,6 +234,7 @@ impl AssignmentExecution {
         for allowed in &self.allowed {
             allowed.runtime.validate()?;
             allowed.resources.validate()?;
+            allowed.limits.validate()?;
             if !ids.insert(&allowed.runtime.id) || allowed.mounts.len() > 16 {
                 return Err(Error::Invalid);
             }
@@ -268,6 +271,8 @@ pub struct ResolvedRuntime {
     pub resources: WorkerResources,
     pub mounts: Vec<ResolvedMount>,
     pub pull_secrets: Vec<PullSecretBinding>,
+    #[serde(default, skip_serializing_if = "default_limits")]
+    pub limits: crate::terminal::leases::ExecutionLimits,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -284,6 +289,11 @@ impl ResolvedPolicy {
     pub fn digest(&self) -> Result<String, Error> {
         digest(self)
     }
+}
+// Preserve the immutable digest of earlier default-only policy snapshots and
+// idempotent mutation bodies. Explicit nondefault limits remain authenticated.
+fn default_limits(value: &crate::terminal::leases::ExecutionLimits) -> bool {
+    value == &Default::default()
 }
 fn digest(value: &impl Serialize) -> Result<String, Error> {
     Ok(
@@ -303,6 +313,10 @@ pub enum ExecutionCommand {
     RegisterStorage {
         binding: StorageBinding,
     },
+    UpdateStorage {
+        expected_version: i64,
+        binding: StorageBinding,
+    },
     RegisterPullSecret {
         binding: PullSecretBinding,
     },
@@ -317,6 +331,16 @@ impl ExecutionCommand {
         match self {
             Self::RegisterRuntime { definition } => definition.validate(),
             Self::RegisterStorage { binding } => binding.validate(),
+            Self::UpdateStorage {
+                expected_version,
+                binding,
+            } => {
+                if *expected_version < 1 || expected_version.checked_add(1) != Some(binding.version)
+                {
+                    return Err(Error::Invalid);
+                }
+                binding.validate()
+            }
             Self::RegisterPullSecret { binding } => binding.validate(),
             Self::SetPolicy {
                 assignment_id,
@@ -334,6 +358,7 @@ impl ExecutionCommand {
         match self {
             Self::RegisterRuntime { .. } => "execution.runtime.register",
             Self::RegisterStorage { .. } => "execution.storage.register",
+            Self::UpdateStorage { .. } => "execution.storage.update",
             Self::RegisterPullSecret { .. } => "execution.pull-secret.register",
             Self::SetPolicy { .. } => "execution.policy.set",
         }
@@ -387,6 +412,17 @@ pub enum PolicyCondition {
 
 #[async_trait]
 pub trait ExecutionRepository: Send + Sync {
+    async fn runtime_catalog(
+        &self,
+        scope: &InstallationScope,
+        after: Option<&str>,
+        limit: u16,
+    ) -> Result<Vec<RuntimeDefinition>, Error>;
+    async fn storage_binding(
+        &self,
+        scope: &InstallationScope,
+        id: Uuid,
+    ) -> Result<StorageBinding, Error>;
     async fn runtime_versions(
         &self,
         scope: &InstallationScope,

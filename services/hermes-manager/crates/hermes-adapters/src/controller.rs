@@ -16,6 +16,7 @@ use hermes_application::{
     native_stop::NativeStopRepository,
     resources::{OwnedResource, ResourceReconciler, ResourceRepository},
     resync::PeriodicResync,
+    terminal::clients::{ExecutionClientRepository, ExecutionTokenHash, NATIVE_EXECUTION_PROFILE},
 };
 use hermes_domain::{
     Access,
@@ -140,6 +141,17 @@ impl Controller {
                 claim,
                 plan.assignment.template.clone(),
                 &self.execution_url,
+            )
+            .await?;
+        // Commit the scoped hashed credential before any Secret containing the
+        // corresponding raw bearer can be dispatched to the native application.
+        self.store
+            .register_under_current_claim(
+                &self.scope,
+                claim,
+                &material.context,
+                ExecutionTokenHash::from_token(&bootstrap.execution_client_token)?,
+                NATIVE_EXECUTION_PROFILE,
             )
             .await?;
         let resources =

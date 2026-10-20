@@ -6,6 +6,8 @@ pub mod bootstrap;
 pub mod browser_auth;
 pub mod browser_http;
 pub mod controller;
+pub mod execution_http;
+pub mod execution_workloads;
 pub mod http;
 pub mod kubernetes;
 pub mod materials;

@@ -1,6 +1,7 @@
 //! Namespace-local, typed admission parameters rendered from approved policy.
 //! Shared policy/CRD installation is a trusted release action, never a worker API.
 mod fence;
+mod worker;
 pub(crate) use fence::namespace_checks;
 use hermes_application::{Error, InstallationScope};
 use serde_json::{Value, json};
@@ -17,7 +18,7 @@ pub fn definition() -> Value {
         "image":string(),"environment":{"type":"object","additionalProperties":string(),"maxProperties":32},"cpu":string(),"memory":string()
     }});
     let spec = json!({"type":"object","required":["installationId","instanceId","namespaceUID","generation","native"],"properties":{
-        "installationId":string(),"instanceId":string(),"namespaceUID":string(),"generation":{"type":"integer","format":"int64","minimum":1},"native":native
+        "installationId":string(),"instanceId":string(),"namespaceUID":string(),"generation":{"type":"integer","format":"int64","minimum":1},"native":native,"worker":worker::schema()
     }});
     let schema = json!({"type":"object","required":["spec"],"properties":{
         "apiVersion":{"type":"string"},"kind":{"type":"string"},"metadata":{"type":"object"},"spec":spec
@@ -48,13 +49,33 @@ pub fn manifests(scope: &InstallationScope, controller_subject: &str) -> Vec<Val
         } else {
             checks.extend(fence::pod_start_checks(controller_subject));
         }
+        let mut variables = vec![
+            json!({"name":"pod","expression":pod}),
+            json!({"name":"labels","expression":labels}),
+        ];
+        if resource == "pods" {
+            checks = checks
+                .into_iter()
+                .map(|check| {
+                    format!(
+                        "variables.labels['app.kubernetes.io/component'] != 'hermes' || ({check})"
+                    )
+                })
+                .collect();
+            checks.extend(worker::checks(&scope.id.to_string(), controller_subject).into_iter().map(|check| format!("variables.labels['app.kubernetes.io/component'] != 'worker' || ({check})")));
+            checks.push(
+                "variables.labels['app.kubernetes.io/component'] in ['hermes','worker']".into(),
+            );
+            checks.push("request.operation != 'UPDATE' || oldObject.metadata.labels['app.kubernetes.io/component'] == variables.labels['app.kubernetes.io/component']".into());
+            variables.push(worker::runtime_variable());
+        }
         result.extend([
             json!({"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicy","metadata":{"name":name},"spec":{
                 "failurePolicy":"Fail","paramKind":{"apiVersion":VERSION,"kind":"InstancePolicy"},
                 "matchConstraints":{"matchPolicy":"Equivalent","namespaceSelector":{"matchLabels":{"agent-platform.io/installation":scope.id.to_string()}},"objectSelector":{},"resourceRules":[
                     {"apiGroups":[group],"apiVersions":["v1"],"operations":["CREATE","UPDATE"],"resources":[resource],"scope":"Namespaced"}
                 ]},
-                "variables":[{"name":"pod","expression":pod},{"name":"labels","expression":labels}],
+                "variables":variables,
                 "validations":checks.into_iter().map(|expression|json!({"expression":expression,"reason":"Forbidden","message":"Workload differs from approved personal instance policy"})).collect::<Vec<_>>()
             }}),
             json!({"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":{"name":name},"spec":{"policyName":name,"paramRef":{"name":"instance-policy","parameterNotFoundAction":"Deny"},"validationActions":["Deny"]}}),
@@ -83,6 +104,14 @@ pub fn manifests(scope: &InstallationScope, controller_subject: &str) -> Vec<Val
         json!({"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":{"name":name},"spec":{"policyName":name,"validationActions":["Deny"]}}),
     ]);
     result
+}
+
+/// Merge-patch ONLY the worker policy subtree of the owner-bound InstancePolicy.
+/// The trusted driver must preserve native parameters and perform UID/RV CAS.
+pub fn worker_parameters(
+    policy: &hermes_application::execution::ResolvedPolicy,
+) -> Result<Value, Error> {
+    worker::parameters(policy)
 }
 
 fn checks(installation: &str) -> Vec<String> {

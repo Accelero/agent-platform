@@ -432,6 +432,7 @@ pub mod native_stop;
 pub mod resources;
 pub mod resync;
 pub mod routing;
+pub mod terminal;
 
 #[cfg(test)]
 mod tests {

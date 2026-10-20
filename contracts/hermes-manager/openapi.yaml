@@ -15,8 +15,10 @@ info:
     the exact administration Origin and X-CSRF-Token from GET /api/v1/session.
     Do not combine cookie and bearer credentials. UI serving is still pending.
     Every response is no-store. Request bodies and headers are each limited to
-    16 KiB. Mutations commit desired state, optimistic version, actor-scoped
-    idempotency result, audit event and operation before returning 202. Native
+    16 KiB. Unknown or duplicate JSON/query fields are rejected. Mutations commit
+    desired state or immutable approved references, actor-scoped idempotency and
+    audit before returning 202. Assignment lifecycle commands also commit an
+    operation; execution policy changes preserve desired/applied generations. Native
     files, histories, provider credentials and arbitrary Kubernetes specs are
     absent from this contract. Resolver requests use the separate router contract
     and mTLS listener; execution credentials cannot call this API.
@@ -302,6 +304,469 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/InvalidRequest' }
         '503': { $ref: '#/components/responses/Unavailable' }
+  /api/v1/terminal-runtimes:
+    get:
+      operationId: listTerminalRuntimes
+      description: Bounded latest approved definition for each runtime ID, ordered by
+        ID.
+      responses:
+        '200':
+          description: Bounded latest approved definition for each runtime ID, ordered
+            by ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                - nextCursor
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    minItems: 0
+                    items:
+                      $ref: '#/components/schemas/RuntimeDefinition'
+                  nextCursor:
+                    type:
+                    - string
+                    - 'null'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - name: after
+        in: query
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+      - $ref: '#/components/parameters/Limit'
+    post:
+      operationId: registerTerminalRuntime
+      description: Register an immutable approved runtime image and bounded worker policy;
+        no raw Pod specs or credential values.
+      responses:
+        '202':
+          description: Register an immutable approved runtime image and bounded worker
+            policy; no raw Pod specs or credential values.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionAccepted'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuntimeDefinition'
+  /api/v1/terminal-runtimes/{id}/versions:
+    get:
+      operationId: listTerminalRuntimeVersions
+      description: Immutable approved versions ordered by version. after is exclusive.
+      responses:
+        '200':
+          description: Immutable approved versions ordered by version. after is exclusive.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                - nextCursor
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    minItems: 0
+                    items:
+                      $ref: '#/components/schemas/RuntimeDefinition'
+                  nextCursor:
+                    type:
+                    - integer
+                    - 'null'
+                    format: int64
+                    minimum: 1
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+      - name: after
+        in: query
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+        description: Exclusive version cursor, default 0
+      - $ref: '#/components/parameters/Limit'
+    post:
+      operationId: registerTerminalRuntimeVersion
+      description: Register immutable version; runtime.id in the body must equal the
+        path ID.
+      responses:
+        '202':
+          description: Register immutable version; runtime.id in the body must equal
+            the path ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionAccepted'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/RequestId'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuntimeDefinition'
+  /api/v1/storage-bindings:
+    get:
+      operationId: listOwnerStorageBindings
+      description: Latest binding versions for exactly one registered instance namespace
+        and UID. No inline storage or credential material.
+      responses:
+        '200':
+          description: Latest binding versions for exactly one registered instance namespace
+            and UID. No inline storage or credential material.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                - nextCursor
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    minItems: 0
+                    items:
+                      $ref: '#/components/schemas/StorageBinding'
+                  nextCursor:
+                    type:
+                    - string
+                    - 'null'
+                    format: uuid
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - name: instanceId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/After'
+      - $ref: '#/components/parameters/Limit'
+    post:
+      operationId: registerOwnerStorageBinding
+      description: Register version 1 of an owner-bound existing PVC reference. Namespace
+        name and UID must match the immutable instance owner.
+      responses:
+        '202':
+          description: Register version 1 of an owner-bound existing PVC reference.
+            Namespace name and UID must match the immutable instance owner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionAccepted'
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageBinding'
+  /api/v1/storage-bindings/{id}:
+    get:
+      operationId: getOwnerStorageBinding
+      description: Latest registered immutable binding version.
+      responses:
+        '200':
+          description: Latest registered immutable binding version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageBinding'
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      operationId: updateOwnerStorageBinding
+      description: Append the next immutable binding version. The ID and owner cannot
+        change; body.version must equal If-Match plus one. Existing desired policy remains
+        pinned until a separate policy update.
+      responses:
+        '202':
+          description: Append the next immutable binding version. The ID and owner cannot
+            change; body.version must equal If-Match plus one. Existing desired policy
+            remains pinned until a separate policy update.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionAccepted'
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageBinding'
+  /api/v1/assignments/{id}/execution:
+    get:
+      operationId: getAssignmentExecution
+      description: Inspect desired resolved policy and independently applied generation.
+        Returns 404 before any policy exists; appliedGeneration remains zero until trusted
+        activation.
+      responses:
+        '200':
+          description: Inspect desired resolved policy and independently applied generation.
+            Returns 404 before any policy exists; appliedGeneration remains zero until
+            trusted activation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionPolicyView'
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      operationId: setAssignmentExecution
+      description: Commit a new desired policy using approved immutable runtime and
+        owner storage references. If-Match is the current assignment version. This does
+        not activate workers or publish readiness.
+      responses:
+        '202':
+          description: Commit a new desired policy using approved immutable runtime
+            and owner storage references. If-Match is the current assignment version.
+            This does not activate workers or publish readiness.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionAccepted'
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignmentExecution'
+  /api/v1/instances/{id}/pull-secret-bindings:
+    post:
+      operationId: registerOwnerPullSecretBinding
+      description: Register an existing owner-namespace Secret name and UID, never credential
+        values. Body instanceId must equal the path ID.
+      responses:
+        '202':
+          description: Register an existing owner-namespace Secret name and UID, never
+            credential values. Body instanceId must equal the path ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionAccepted'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '412':
+          $ref: '#/components/responses/StaleVersion'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PullSecretBinding'
 components:
   securitySchemes:
     AdministratorSession:
@@ -410,7 +875,7 @@ components:
       required: [actor, permittedActions, csrfToken]
       properties:
         actor: { $ref: '#/components/schemas/Identity' }
-        permittedActions: { type: array, items: { type: string, enum: [assignment.create, assignment.set_access, instance.retry] } }
+        permittedActions: { type: array, items: { type: string, enum: [assignment.create, assignment.set_access, instance.retry, execution.runtime.register, execution.storage.register, execution.storage.update, execution.pull-secret.register, execution.policy.set] } }
         csrfToken: { type: [string, 'null'], description: Null for bearer API-only authentication }
     CreateAssignment:
       type: object
@@ -518,3 +983,461 @@ components:
         error:
           type: string
           enum: [invalid_request, invalid_identity_evidence, access_denied, idempotency_conflict, assignment_exists, not_found, stale_version, template_unavailable, maintenance, registry_unavailable, dependency_unavailable]
+    RuntimeRef:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - version
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+    WorkerResources:
+      type: object
+      additionalProperties: false
+      required:
+      - cpuMillis
+      - memoryMib
+      - ephemeralStorageMib
+      properties:
+        cpuMillis:
+          type: integer
+          format: int64
+          minimum: 10
+          maximum: 64000
+        memoryMib:
+          type: integer
+          format: int64
+          minimum: 64
+          maximum: 262144
+        ephemeralStorageMib:
+          type: integer
+          format: int64
+          minimum: 64
+          maximum: 1048576
+    ServiceEgress:
+      type: object
+      additionalProperties: false
+      required:
+      - namespace
+      - service
+      - port
+      properties:
+        namespace:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+        service:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+        port:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 65535
+    RuntimeDefinition:
+      type: object
+      additionalProperties: false
+      required:
+      - schemaVersion
+      - runtime
+      - image
+      - sshContract
+      - uid
+      - gid
+      - serviceAccount
+      - resources
+      - locale
+      - egress
+      - pullSecretNames
+      properties:
+        schemaVersion:
+          type: integer
+          const: 1
+        runtime:
+          $ref: '#/components/schemas/RuntimeRef'
+        image:
+          type: string
+          pattern: ^.+@sha256:[0-9a-f]{64}$
+        sshContract:
+          type: string
+          const: managed-ssh-v1
+        uid:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 65535
+        gid:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 65535
+        serviceAccount:
+          type: string
+          const: worker
+        resources:
+          $ref: '#/components/schemas/WorkerResources'
+        locale:
+          type: string
+          enum:
+          - C.UTF-8
+          - en_US.UTF-8
+        egress:
+          type: array
+          maxItems: 16
+          minItems: 0
+          items:
+            $ref: '#/components/schemas/ServiceEgress'
+        pullSecretNames:
+          type: array
+          maxItems: 4
+          minItems: 0
+          items:
+            type: string
+            minLength: 1
+            maxLength: 63
+            pattern: ^[a-z][a-z0-9-]{0,62}$
+          uniqueItems: true
+    PermittedMount:
+      type: object
+      additionalProperties: false
+      required:
+      - path
+      - readOnly
+      properties:
+        path:
+          type: string
+          description: Absolute approved container mount path; no reserved platform paths
+            or overlaps.
+        readOnly:
+          type: boolean
+        subPath:
+          type:
+          - string
+          - 'null'
+          description: Optional confined relative subpath; no dot, parent, absolute or
+            backslash components.
+    StorageBinding:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - version
+      - instanceId
+      - namespace
+      - namespaceUid
+      - pvcName
+      - pvcUid
+      - backingStorageId
+      - external
+      - required
+      - backup
+      - mounts
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        instanceId:
+          type: string
+          format: uuid
+        namespace:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+        namespaceUid:
+          type: string
+          minLength: 1
+          maxLength: 128
+        pvcName:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+        pvcUid:
+          type: string
+          minLength: 1
+          maxLength: 128
+        backingStorageId:
+          type: string
+          format: uuid
+          description: Opaque inventory ID; never a filesystem/server path.
+        external:
+          type: boolean
+        required:
+          type: boolean
+        backup:
+          type: string
+          enum:
+          - platform_checkpoint
+          - external
+          - excluded
+        mounts:
+          type: array
+          maxItems: 16
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PermittedMount'
+    PullSecretBinding:
+      type: object
+      additionalProperties: false
+      required:
+      - instanceId
+      - namespace
+      - namespaceUid
+      - name
+      - uid
+      properties:
+        instanceId:
+          type: string
+          format: uuid
+        namespace:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+        namespaceUid:
+          type: string
+          minLength: 1
+          maxLength: 128
+        name:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+        uid:
+          type: string
+          minLength: 1
+          maxLength: 128
+    MountSelection:
+      type: object
+      additionalProperties: false
+      required:
+      - bindingId
+      - bindingVersion
+      - mount
+      properties:
+        bindingId:
+          type: string
+          format: uuid
+        bindingVersion:
+          type: integer
+          format: int64
+          minimum: 1
+        mount:
+          $ref: '#/components/schemas/PermittedMount'
+    AllowedRuntime:
+      type: object
+      additionalProperties: false
+      required:
+      - runtime
+      - resources
+      - mounts
+      properties:
+        limits:
+          $ref: '#/components/schemas/ExecutionLimits'
+        runtime:
+          $ref: '#/components/schemas/RuntimeRef'
+        resources:
+          $ref: '#/components/schemas/WorkerResources'
+        mounts:
+          type: array
+          maxItems: 16
+          minItems: 0
+          items:
+            $ref: '#/components/schemas/MountSelection'
+    AssignmentExecution:
+      type: object
+      additionalProperties: false
+      required:
+      - defaultRuntimeId
+      - allowed
+      properties:
+        defaultRuntimeId:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+        allowed:
+          type: array
+          maxItems: 16
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/AllowedRuntime'
+    ResolvedMount:
+      type: object
+      additionalProperties: false
+      required:
+      - binding
+      - mount
+      properties:
+        binding:
+          $ref: '#/components/schemas/StorageBinding'
+        mount:
+          $ref: '#/components/schemas/PermittedMount'
+    ResolvedRuntime:
+      type: object
+      additionalProperties: false
+      required:
+      - definition
+      - definitionDigest
+      - resources
+      - mounts
+      - pullSecrets
+      properties:
+        limits:
+          $ref: '#/components/schemas/ExecutionLimits'
+        definition:
+          $ref: '#/components/schemas/RuntimeDefinition'
+        definitionDigest:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        resources:
+          $ref: '#/components/schemas/WorkerResources'
+        mounts:
+          type: array
+          maxItems: 16
+          minItems: 0
+          items:
+            $ref: '#/components/schemas/ResolvedMount'
+        pullSecrets:
+          type: array
+          maxItems: 4
+          minItems: 0
+          items:
+            $ref: '#/components/schemas/PullSecretBinding'
+    ResolvedPolicy:
+      type: object
+      additionalProperties: false
+      required:
+      - installationId
+      - instanceId
+      - namespace
+      - namespaceUid
+      - generation
+      - defaultRuntimeId
+      - runtimes
+      properties:
+        installationId:
+          type: string
+          format: uuid
+        instanceId:
+          type: string
+          format: uuid
+        namespace:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+        namespaceUid:
+          type: string
+          minLength: 1
+          maxLength: 128
+        generation:
+          type: integer
+          format: int64
+          minimum: 1
+        defaultRuntimeId:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]{0,62}$
+        runtimes:
+          type: array
+          maxItems: 16
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ResolvedRuntime'
+    ExecutionPolicyView:
+      type: object
+      additionalProperties: false
+      required:
+      - assignmentId
+      - assignmentVersion
+      - desiredGeneration
+      - appliedGeneration
+      - state
+      - desired
+      - digest
+      properties:
+        assignmentId:
+          type: string
+          format: uuid
+        assignmentVersion:
+          type: integer
+          format: int64
+          minimum: 1
+        desiredGeneration:
+          type: integer
+          format: int64
+          minimum: 1
+        appliedGeneration:
+          type: integer
+          format: int64
+          minimum: 0
+        state:
+          type: string
+          enum:
+          - Pending
+          - Reconciling
+          - Waiting
+        desired:
+          $ref: '#/components/schemas/ResolvedPolicy'
+        digest:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+    ExecutionAccepted:
+      type: object
+      additionalProperties: false
+      required:
+      - eventId
+      - assignmentVersion
+      - policyGeneration
+      - policyDigest
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        assignmentVersion:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          minimum: 1
+        policyGeneration:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          minimum: 1
+        policyDigest:
+          type:
+          - string
+          - 'null'
+          pattern: ^[a-f0-9]{64}$
+    ExecutionLimits:
+      type: object
+      additionalProperties: false
+      description: Optional policy limits; omitting the object selects these defaults.
+      required: [ttlSeconds, exclusive, serializeProfile, maxEnvironments, maxLeases, idleSeconds]
+      properties:
+        ttlSeconds: { type: integer, minimum: 30, maximum: 600, default: 120 }
+        exclusive: { type: boolean, default: false }
+        serializeProfile: { type: boolean, default: false }
+        maxEnvironments: { type: integer, minimum: 1, maximum: 64, default: 8 }
+        maxLeases: { type: integer, minimum: 1, maximum: 128, default: 32 }
+        idleSeconds: { type: integer, minimum: 30, maximum: 86400, default: 900 }

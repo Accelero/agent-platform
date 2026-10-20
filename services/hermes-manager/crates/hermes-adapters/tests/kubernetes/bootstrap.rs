@@ -191,7 +191,7 @@ async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_sco
         Err(Error::Forbidden)
     ));
     let controller_namespaces: Api<Namespace> = Api::all(controller.clone());
-    super::controller::verify(&pool, &scope, controller_config, &workload).await;
+    super::controller::verify(&pool, &scope, controller_config.clone(), &workload).await;
     let own = namespace(&scope, Uuid::new_v4());
     let own_name = own.metadata.name.clone().unwrap();
     controller_namespaces
@@ -241,6 +241,7 @@ async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_sco
         &scope,
         &workload,
         &controller_namespaces.get(&own_name).await.unwrap(),
+        controller_config,
     )
     .await;
     let secret:Secret=serde_json::from_value(json!({"metadata":{"name":"fixture"},"type":"Opaque","stringData":{"value":"fixture-only"}})).unwrap();

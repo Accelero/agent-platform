@@ -1,0 +1,288 @@
+openapi: 3.1.0
+info:
+  title: Personal Hermes native execution API
+  version: 0.1.0
+  description: >-
+    Separate internal TLS listener under development, not part of release 0.6.1.
+    A native opaque bearer credential resolves one installation, current epoch,
+    enabled instance and exact profile. It grants no administration or route
+    resolution permission. OIDC JWTs and browser cookies do not authenticate here.
+    Each request rechecks current authorization. Request bodies and headers are
+    each limited to 16 KiB, and every response is no-store. Query parameters,
+    unknown and duplicate JSON fields are rejected. Images, mount definitions,
+    Pod specs, credentials and caller-selected instance/environment identities
+    are absent from request contracts. Invocation paths are bounded metadata,
+    never mount or workload specifications. Acquisitions remain pending while
+    applied policy or trusted worker readiness is absent; desired configuration
+    alone never grants an SSH endpoint or lease. PostgreSQL owns database-time
+    lease expiry and immutable request identity; expired leases cannot revive.
+servers:
+  - url: https://hermes-execution.example.org
+security:
+  - NativeExecutionCredential: []
+paths:
+  /execution/v1/leases/acquire:
+    post:
+      operationId: acquireExecutionLease
+      description: >-
+        Select only an approved runtime_id in this exact instance's policy, or
+        the policy default when omitted. request is the client-scoped idempotency
+        identifier; changing a committed request body conflicts. parent_lease
+        must be a live lease of this same client/environment and generation.
+        Pending acquisition returns 409 with Retry-After and grants no lease.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcquireRequest' }
+      responses:
+        '200':
+          description: Live scoped lease and trusted SSH endpoint
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AcquireReply' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/InvalidRequest' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /execution/v1/leases/heartbeat:
+    post:
+      operationId: heartbeatExecutionLease
+      description: Renew only this client's unexpired, live-generation lease; never revive an expired/released lease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseRequest' }
+      responses:
+        '200':
+          description: Lease renewed using database time and approved TTL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HeartbeatReply' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/InvalidRequest' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /execution/v1/leases/release:
+    post:
+      operationId: releaseExecutionLease
+      description: Release only this client's lease, retaining its terminal tombstone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseRequest' }
+      responses:
+        '200':
+          description: Release result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReleaseReply' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/InvalidRequest' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /execution/v1/sessions/close:
+    post:
+      operationId: closeExecutionSession
+      description: Close this client's exact per-session runtime/context binding and begin bounded drain
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CloseSessionRequest' }
+      responses:
+        '200':
+          description: Session close result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloseReply' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/InvalidRequest' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /execution/v1/environments:
+    get:
+      operationId: listNativeExecutionEnvironments
+      description: >-
+        At most 64 environments for the authenticated instance, in creation/ID
+        order. No caller scope selectors or query parameters. Projection excludes
+        Pod/namespace UIDs, hostnames, keys, invocation paths and command content.
+        provisioned reports a recorded Pod identity and does not grant a lease
+        or assert current worker readiness.
+      responses:
+        '200':
+          description: Redacted owner-scoped native inventory
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 64
+                items: { $ref: '#/components/schemas/EnvironmentSummary' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/InvalidRequest' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+components:
+  securitySchemes:
+    NativeExecutionCredential:
+      type: http
+      scheme: bearer
+      bearerFormat: Opaque
+      description: Exactly one Authorization Bearer value containing the registered opaque 64 lowercase hexadecimal character credential; only its SHA-256 hash is persisted in the execution client registry
+  responses:
+    NotFound:
+      description: No lease with this identifier belongs to the authenticated client
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthenticated:
+      description: Missing, malformed, unknown or currently unauthorized native credential
+      headers:
+        WWW-Authenticate: { schema: { type: string, const: Bearer } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Exact profile/runtime/lease ownership requirement denied
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Environment pending, changed committed request, or lease no longer live
+      headers:
+        Retry-After:
+          description: Present with value 1 for environment_pending only
+          schema: { type: string, const: '1' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InvalidRequest:
+      description: Strict bounded request validation failed; submitted content is never reflected
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: Dependency, maintenance, registry recovery or quota gate unavailable; no fallback authorization
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 256
+      pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'
+    RuntimeId:
+      type: [string, 'null']
+      minLength: 1
+      maxLength: 63
+      pattern: '^[a-z][a-z0-9-]{0,62}$'
+    InvocationContext:
+      type: object
+      additionalProperties: false
+      required: [hermes_home, workdir]
+      properties:
+        hermes_home: { type: string, minLength: 1, maxLength: 4096, pattern: '^/' }
+        workdir: { type: string, minLength: 1, maxLength: 4096, pattern: '^/' }
+      description: Absolute paths without control characters, treated only as invocation metadata
+    LifetimeMode:
+      type: string
+      enum: [per_session, per_profile_on_demand, per_profile_always_running]
+    AcquireRequest:
+      type: object
+      additionalProperties: false
+      required: [profile, session, mode, request]
+      properties:
+        profile: { type: string, const: default }
+        session: { $ref: '#/components/schemas/Identifier' }
+        mode: { $ref: '#/components/schemas/LifetimeMode' }
+        request: { $ref: '#/components/schemas/Identifier' }
+        runtime_id: { $ref: '#/components/schemas/RuntimeId' }
+        parent_lease: { type: [string, 'null'], format: uuid, description: Nonzero live same-client lease UUID }
+        runtime:
+          anyOf:
+            - { $ref: '#/components/schemas/InvocationContext' }
+            - { type: 'null' }
+    LeaseRequest:
+      type: object
+      additionalProperties: false
+      required: [lease]
+      properties:
+        lease: { type: string, format: uuid }
+    CloseSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [profile, session]
+      properties:
+        profile: { type: string, const: default }
+        session: { $ref: '#/components/schemas/Identifier' }
+        runtime_id: { $ref: '#/components/schemas/RuntimeId' }
+        runtime:
+          anyOf:
+            - { $ref: '#/components/schemas/InvocationContext' }
+            - { type: 'null' }
+    AcquireReply:
+      type: object
+      additionalProperties: false
+      required: [environment, generation, lease, ttl, ssh]
+      properties:
+        environment: { type: string, format: uuid }
+        generation: { type: string, pattern: '^[1-9][0-9]*$' }
+        lease: { type: string, format: uuid }
+        ttl: { type: integer, minimum: 1, maximum: 600, description: Remaining database-time lifetime on idempotent replay }
+        ssh:
+          type: object
+          additionalProperties: false
+          required: [host, port, user]
+          properties:
+            host: { type: string }
+            port: { type: integer, const: 2222 }
+            user: { type: string, const: worker }
+    HeartbeatReply:
+      type: object
+      additionalProperties: false
+      required: [ttl]
+      properties:
+        ttl: { type: integer, minimum: 30, maximum: 600 }
+    ReleaseReply:
+      type: object
+      additionalProperties: false
+      required: [released]
+      properties:
+        released: { type: boolean }
+    CloseReply:
+      type: object
+      additionalProperties: false
+      required: [closed]
+      properties:
+        closed: { type: boolean }
+    EnvironmentSummary:
+      type: object
+      additionalProperties: false
+      required: [id, profile, session, mode, generation, stale, provisioned, leases, runtime_id]
+      properties:
+        id: { type: string, format: uuid }
+        profile: { type: string, const: default }
+        session: { type: string, maxLength: 256, description: Empty for profile-scoped lifetime modes }
+        mode: { $ref: '#/components/schemas/LifetimeMode' }
+        generation: { type: string, pattern: '^[1-9][0-9]*$' }
+        stale: { type: boolean }
+        provisioned: { type: boolean }
+        leases: { type: integer, minimum: 0 }
+        runtime_id: { $ref: '#/components/schemas/RuntimeId' }
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [invalid_identity_evidence, access_denied, not_found, environment_pending, idempotency_conflict, lease_not_live, invalid_request, maintenance, registry_unavailable, dependency_unavailable]

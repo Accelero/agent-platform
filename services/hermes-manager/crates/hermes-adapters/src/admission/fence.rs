@@ -86,7 +86,7 @@ pub(super) fn pod_start_checks(subject: &str) -> Vec<String> {
 // CEL does not expose PodSpec.overhead in the pinned API schema. Kubernetes
 // rejects updates to this immutable field; the actual API proof covers it.
 // The native policy also forbids RuntimeClass, which supplies Pod overhead.
-fn unchanged_spec() -> String {
+pub(super) fn unchanged_spec() -> String {
     [
         "activeDeadlineSeconds",
         "affinity",

@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 
 use axum::{
     Extension, Json, Router,
-    body::Bytes,
+    body::{Body, Bytes, to_bytes},
     extract::{DefaultBodyLimit, Path, Query, Request, State, rejection::JsonRejection},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
@@ -30,10 +30,13 @@ use crate::{
     session_crypto::Purpose,
 };
 
+mod execution;
+
 struct AdminState {
     store: PgStore,
     scope: InstallationScope,
     commands: Assignments<PgStore>,
+    execution: hermes_application::execution::ExecutionAdministration<PgStore>,
 }
 #[derive(Clone)]
 struct AdminAuth {
@@ -152,7 +155,12 @@ async fn bounded_resolver(request: Request, next: Next) -> Response {
     bounded(request, next, Duration::from_millis(1800), true).await
 }
 
-async fn bounded(request: Request, next: Next, deadline: Duration, resolver: bool) -> Response {
+pub(crate) async fn bounded(
+    request: Request,
+    next: Next,
+    deadline: Duration,
+    resolver: bool,
+) -> Response {
     let header_size: usize = request
         .headers()
         .iter()
@@ -161,7 +169,20 @@ async fn bounded(request: Request, next: Next, deadline: Duration, resolver: boo
     let mut result = if header_size > 16 * 1024 || request.uri().to_string().len() > 8192 {
         api_error(Error::Invalid)
     } else {
-        match tokio::time::timeout(deadline, next.run(request)).await {
+        match tokio::time::timeout(deadline, async {
+            // DefaultBodyLimit is extractor-local. Read every body here so GET,
+            // health and fallback routes have the same bound, including streams
+            // without Content-Length. Reading is inside the overall deadline.
+            let (parts, body) = request.into_parts();
+            let bytes = match to_bytes(body, 16 * 1024).await {
+                Ok(bytes) => bytes,
+                Err(_) => return api_error(Error::Invalid),
+            };
+            next.run(Request::from_parts(parts, Body::from(bytes)))
+                .await
+        })
+        .await
+        {
             Ok(result) => result,
             Err(_) if resolver => response(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -234,6 +255,11 @@ pub fn admin_router_with_browser(
     }
     let state = Arc::new(AdminState {
         commands: Assignments::new(store.clone(), scope.clone(), policy.clone())?,
+        execution: hermes_application::execution::ExecutionAdministration::new(
+            store.clone(),
+            scope.clone(),
+            policy.clone(),
+        )?,
         store,
         scope,
     });
@@ -253,6 +279,7 @@ pub fn admin_router_with_browser(
         .route("/api/v1/instances/{id}/reconcile", post(reconcile))
         .route("/api/v1/operations/{id}", get(operation))
         .route("/api/v1/audit-events", get(audit))
+        .merge(execution::routes())
         .route_layer(middleware::from_fn_with_state(
             AdminAuth {
                 tokens,
@@ -299,7 +326,7 @@ async fn session(
     Extension(csrf): Extension<BrowserCsrf>,
 ) -> Json<Value> {
     Json(
-        json!({"actor":actor.identity,"permittedActions":["assignment.create","assignment.set_access","instance.retry"],"csrfToken":csrf.0}),
+        json!({"actor":actor.identity,"permittedActions":["assignment.create","assignment.set_access","instance.retry","execution.runtime.register","execution.storage.register","execution.storage.update","execution.pull-secret.register","execution.policy.set"],"csrfToken":csrf.0}),
     )
 }
 

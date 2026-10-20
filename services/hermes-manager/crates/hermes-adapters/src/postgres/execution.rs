@@ -43,6 +43,57 @@ async fn check_owner(
 
 #[async_trait]
 impl ExecutionRepository for PgStore {
+    async fn runtime_catalog(
+        &self,
+        scope: &InstallationScope,
+        after: Option<&str>,
+        limit: u16,
+    ) -> Result<Vec<RuntimeDefinition>, Error> {
+        if let Some(after) = after {
+            hermes_domain::validate_name(after)?;
+        }
+        if !(1..=100).contains(&limit) {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        gate(&mut tx, scope).await?;
+        let rows = sqlx::query("SELECT DISTINCT ON(id) definition,content_digest FROM manager.terminal_runtime_versions WHERE ($1::text IS NULL OR id>$1) ORDER BY id,version DESC LIMIT $2")
+            .bind(after).bind(i64::from(limit)).fetch_all(&mut *tx).await.map_err(db_error)?;
+        let result = rows
+            .iter()
+            .map(|row| {
+                let definition: RuntimeDefinition = serde_json::from_value(row.get("definition"))
+                    .map_err(|_| Error::RecoveryRequired)?;
+                if definition.digest()? != row.get::<String, _>("content_digest") {
+                    return Err(Error::OwnershipConflict);
+                }
+                Ok(definition)
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(result)
+    }
+    async fn storage_binding(
+        &self,
+        scope: &InstallationScope,
+        id: Uuid,
+    ) -> Result<StorageBinding, Error> {
+        if id.is_nil() {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        gate(&mut tx, scope).await?;
+        let row = sqlx::query("SELECT v.definition,v.instance_id FROM manager.storage_binding_versions v JOIN manager.instances i ON i.id=v.instance_id JOIN manager.assignments a ON a.id=i.assignment_id WHERE v.id=$1 AND a.installation_id=$2 AND v.namespace=i.namespace AND v.namespace_uid=i.namespace_uid ORDER BY v.version DESC LIMIT 1")
+            .bind(id).bind(scope.id).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or(Error::NotFound)?;
+        let binding: StorageBinding =
+            serde_json::from_value(row.get("definition")).map_err(|_| Error::RecoveryRequired)?;
+        binding.validate()?;
+        if binding.id != id || binding.instance_id != row.get::<Uuid, _>("instance_id") {
+            return Err(Error::OwnershipConflict);
+        }
+        tx.commit().await.map_err(db_error)?;
+        Ok(binding)
+    }
     async fn runtime_versions(
         &self,
         scope: &InstallationScope,
@@ -146,7 +197,8 @@ impl ExecutionRepository for PgStore {
                     .bind(&definition.runtime.id).bind(definition.runtime.version).bind(i32::from(definition.schema_version)).bind(&digest).bind(serde_json::to_value(definition).map_err(|_|Error::Invalid)?).execute(&mut *tx).await.map_err(db_error)?;
                 json!({"runtime":definition.runtime,"digest":digest})
             }
-            ExecutionCommand::RegisterStorage { binding } => {
+            ExecutionCommand::RegisterStorage { binding }
+            | ExecutionCommand::UpdateStorage { binding, .. } => {
                 check_owner(
                     &mut tx,
                     &mutation.scope,
@@ -157,7 +209,7 @@ impl ExecutionRepository for PgStore {
                 .await?;
                 sqlx::query("INSERT INTO manager.storage_binding_owners(id,instance_id) VALUES($1,$2) ON CONFLICT DO NOTHING").bind(binding.id).bind(binding.instance_id).execute(&mut *tx).await.map_err(db_error)?;
                 let registered: Uuid = sqlx::query_scalar(
-                    "SELECT instance_id FROM manager.storage_binding_owners WHERE id=$1",
+                    "SELECT instance_id FROM manager.storage_binding_owners WHERE id=$1 FOR UPDATE",
                 )
                 .bind(binding.id)
                 .fetch_one(&mut *tx)
@@ -165,6 +217,31 @@ impl ExecutionRepository for PgStore {
                 .map_err(db_error)?;
                 if registered != binding.instance_id {
                     return Err(Error::OwnershipConflict);
+                }
+                let latest: Option<i64> = sqlx::query_scalar(
+                    "SELECT max(version) FROM manager.storage_binding_versions WHERE id=$1",
+                )
+                .bind(binding.id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db_error)?;
+                match &mutation.command {
+                    ExecutionCommand::RegisterStorage { .. } => {
+                        if binding.version != 1 {
+                            return Err(Error::Invalid);
+                        }
+                        if latest.is_some() {
+                            return Err(Error::AlreadyExists);
+                        }
+                    }
+                    ExecutionCommand::UpdateStorage {
+                        expected_version, ..
+                    } => {
+                        if latest != Some(*expected_version) {
+                            return Err(Error::PreconditionFailed);
+                        }
+                    }
+                    _ => unreachable!(),
                 }
                 sqlx::query("INSERT INTO manager.storage_binding_versions(id,version,instance_id,namespace,namespace_uid,pvc_name,pvc_uid,definition) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
                     .bind(binding.id).bind(binding.version).bind(binding.instance_id).bind(&binding.namespace).bind(&binding.namespace_uid).bind(&binding.pvc_name).bind(&binding.pvc_uid).bind(serde_json::to_value(binding).map_err(|_|Error::Invalid)?).execute(&mut *tx).await.map_err(db_error)?;
@@ -428,6 +505,7 @@ async fn resolve(
             definition,
             definition_digest,
             resources: allowed.resources.clone(),
+            limits: allowed.limits.clone(),
             mounts,
             pull_secrets,
         });

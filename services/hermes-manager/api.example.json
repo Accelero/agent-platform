@@ -15,7 +15,9 @@
       "privateKeyFile": "/run/secrets/manager-admin/tls.key"
     },
     "audience": "manager-api",
-    "allowedClients": ["manager-admin"],
+    "allowedClients": [
+      "manager-admin"
+    ],
     "managementClient": "manager-admin",
     "administratorRole": "platform-administrator",
     "browser": {
@@ -24,7 +26,9 @@
       "otherOrigin": "https://hermes.example.org",
       "clientId": "manager-admin",
       "clientSecretFile": "/run/secrets/manager-admin-session/client-secret",
-      "scopes": ["openid"],
+      "scopes": [
+        "openid"
+      ],
       "revocationUrl": "https://sso.example.org/realms/agents/protocol/openid-connect/revoke",
       "encryptionKeyringFile": "/run/secrets/manager-admin-session/keyring.json"
     }
@@ -39,5 +43,12 @@
     "serviceIdentity": "spiffe://agents.example.org/router-plugin",
     "audience": "route-api",
     "authorizedClient": "hermes-router"
+  },
+  "execution": {
+    "listen": "0.0.0.0:8445",
+    "tls": {
+      "certificateFile": "/run/secrets/manager-execution/tls.crt",
+      "privateKeyFile": "/run/secrets/manager-execution/tls.key"
+    }
   }
 }

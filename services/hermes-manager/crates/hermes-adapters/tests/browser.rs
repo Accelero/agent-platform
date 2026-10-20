@@ -37,6 +37,9 @@ use uuid::Uuid;
 mod support;
 use support::{FORWARD, ROUTER, Running, Secrets, start, start_with_peers};
 
+#[path = "browser/execution.rs"]
+mod execution;
+
 struct Grant {
     nonce: String,
     challenge: String,

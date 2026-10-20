@@ -147,14 +147,14 @@ published application. This file tracks evidence against the full
 | Area | Executable evidence | Still required |
 | --- | --- | --- |
 | Identity/domain | Rust domain/application tests; signed-JWT native provider test; real HTTPS OIDC/access-token/session checks | Full native session/middleware coverage, configured Keycloak/public-subject compatibility and external revocation bound |
-| Assignment persistence and resolver | 22 registry tests, ten session/crypto tests, seven token/API HTTPS tests and eight browser/router HTTPS tests, API-only workflow and OpenAPI validation | Remaining runtime/storage/owner/checkpoint endpoints and integrated provider acceptance |
+| Assignment persistence and resolver | Registry/session/crypto, administration/resolver HTTPS and browser tests, API-only workflow and OpenAPI validation | Owner/checkpoint endpoints and integrated provider acceptance |
 | Crash journal and ownership | Registry tests plus ten resource/proof and six commissioning-plan/scheduling tests; real Kubernetes creation recovery, current-version retries, foreign UID/proof rejection and finalizer/absence tests | Full controller integration and forced-process-death tests at every external boundary |
 | Proxy plugin | Go tests with race detector | Full native HTTP/upload/browser/cookie behavior and configured provider revocation |
 | Traefik | `tests/personal_hermes/router_compatibility.py`, pinned official image | End-to-end Rust/Keycloak/native Hermes acceptance |
 | Existing release | Python checks including OpenAPI validation and native initialization, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
-| Runtime policy/execution | Real PostgreSQL owner-isolation, immutable catalog/storage, optimistic/idempotent policy mutation and fenced policy-work tests | API/contracts, effective-policy activation, execution environments/leases, worker renderer/admission, SSH driver and adapter extension |
-| Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; encrypted material, frozen rendering, initialization/native observation and HTTP auth-gate probe tests; actual ServiceAccount bootstrap/workload admission, compiled controller create/kill/reopen proof and built native image startup/restart | Definition registration, integrated native/effective-policy readiness, route publication, worker admission, terminal drain integration and completed lifecycle results |
-| Administration UI | Versioned administration contract, bearer and browser-session API; presentation-separated application ports | Remaining runtime/storage/owner/checkpoint contracts, generated client and React/Vite build |
+| Runtime policy/execution | Real PostgreSQL catalog/storage/policy/client/lease tests, separate native HTTPS contract and authorization tests, worker renderer/admission and authenticated Pod staging/start proofs, native runtime selection tests | Effective-policy activation, authenticated SSH readiness, controller integration, idle/recycle/retirement and full drain |
+| Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; encrypted material, frozen rendering, initialization/native observation and HTTP auth-gate probe tests; actual ServiceAccount bootstrap/workload admission, compiled controller create/kill/reopen proof and built native image startup/restart | Definition registration, integrated native/effective-policy readiness, route publication, effective worker policy, terminal drain integration and completed lifecycle results |
+| Administration UI | Versioned administration contract, bearer and browser-session API; presentation-separated application ports | Owner/checkpoint contracts, generated client and React/Vite build |
 | Recovery | Fresh/existing registry gate and maintenance/epoch fencing | Trusted inventory scanner, checkpoint/receipt/restore lifecycle and coordinated full-data recovery tests |
 | Distribution | New workspace/plugin checks in CI | Dockerfiles, reviewed release inputs, opt-in chart values/schema/RBAC/networking, operator docs and acceptance qualification |
 | Adoption | Existing singleton code/chart untouched | Explicit deployment-specific storage/ownership migration after all platform gates pass |
@@ -212,7 +212,7 @@ policy and an additional binding that grants ClusterRoleBinding creation.
 Admission type checks and dry-run probes use the live API server. This proves the
 namespace/bootstrap boundary. Native workload dry runs also reject foreign
 images, mounts/credentials, identity/generation labels, commands, probes and
-resource limits. Worker effective-policy admission, CNI enforcement and full
+resource limits. Effective worker-policy activation, CNI enforcement and full
 commissioning acceptance remain outstanding.
 
 The same fixture commissions a committed assignment using the constrained
@@ -248,3 +248,32 @@ late creations without writes and drain 257 historical children in bounded
 batches. Recreate transitions wait for older or terminating Pods without giving
 them a new start or readiness proof. These are native lifecycle proofs; terminal
 execution draining and verified suspension completion remain separate gates.
+
+
+The shared execution slice adds a dedicated optional TLS listener with scoped
+hashed native-client credentials registered before bootstrap Secret dispatch.
+Administration has bounded runtime catalog/version, owner storage version and
+pull-Secret reference routes, plus optimistic desired-policy updates. Storage
+PATCH appends immutable versions and cannot transfer ownership; concurrent
+updates have one winner. Approved execution limits are part of the immutable
+resolved policy, with default-only snapshot digests preserved across upgrades.
+The administration and native execution OpenAPI contracts remain separate.
+
+The execution repository persists request body digests, environment identities,
+lease grants, original expiry and terminal expiry/release tombstones in
+PostgreSQL. Retries preserve committed lease identity and do not renew expiry.
+Provisioning commits immutable rendering intent and exact worker UID/start input
+before gate removal. Worker rendering and namespace-local admission pin runtime,
+owner, policy, resources, storage references and security settings together.
+The driver rechecks live selected PVC/Secret UIDs before creation and start;
+readiness candidates require the same Pod UID and observed specification.
+Native settings accept an approved `runtime_id` selector and separate cached
+transports and session-close requests by selected runtime.
+
+These pieces do not complete execution activation. Applied policy remains zero
+in production, and no controller path yet joins admission/storage activation,
+authenticated SSH readiness, worker retirement/recycling, terminal drain and
+native lifecycle completion. Database grant tests use explicitly trusted SQL
+activation/readiness fixtures; HTTP tests preserve the production pending gate.
+Kubernetes-only readiness candidates are not SSH authentication or lease-grant
+proofs. Routes remain unpublished until the complete readiness contract passes.

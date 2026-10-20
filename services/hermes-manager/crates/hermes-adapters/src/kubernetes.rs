@@ -1,4 +1,7 @@
 //! Bounded Kubernetes ownership transport. Never infer a workstation kubeconfig.
+mod execution_workers;
+pub use execution_workers::ExecutionWorkerCandidate;
+
 mod namespace_fence;
 mod native_children;
 mod native_stop;

@@ -3,6 +3,7 @@ import json
 import hashlib
 import logging
 import os
+import re
 import threading
 import weakref
 from pathlib import Path
@@ -80,6 +81,8 @@ class Client:
         # Idempotent retry protects against a lost response after the manager grants a lease.
         payload = {key: self.settings[key] for key in ("profile", "mode")}
         payload.update(session=session, request=uuid.uuid4().hex)
+        if self.settings.get('runtime_id'):
+            payload['runtime_id'] = self.settings['runtime_id']
         if self.runtime:
             payload['runtime'] = self.runtime
         if parent_lease:
@@ -123,6 +126,7 @@ class ManagedSSHEnvironment(SSHEnvironment):
         self._owners = set()
         self._initial_cwd, self._initial_timeout = self.multica_workdir or cwd, timeout
         self.managed_generation = None
+        self.managed_environment = None
         self._sync_manager = None
         with provider._guard:
             self._owners.update(token for token, (key, context, identity) in provider._turns.items()
@@ -195,7 +199,7 @@ class ManagedSSHEnvironment(SSHEnvironment):
         self._renew_worker = threading.Thread(target=self._renew, args=(reply, self._renew_stop),
                                               daemon=True, name='managed-execution-lease')
         self._renew_worker.start()
-        if self.managed_generation != reply['generation']:
+        if (self.managed_environment, self.managed_generation) != (reply['environment'], reply['generation']):
             try:
                 self._connect(reply)
             except BaseException:
@@ -306,9 +310,11 @@ class ManagedSSHEnvironment(SSHEnvironment):
                 self._release_lease()
                 if self.settings['mode'] == 'per_session':
                     try:
-                        self.client.call('/v1/sessions/close', {
-                            'profile': self.settings['profile'],
-                            'session': self.session, 'runtime': self.runtime}, timeout=15)
+                        body = {'profile': self.settings['profile'],
+                                'session': self.session, 'runtime': self.runtime}
+                        if self.settings.get('runtime_id'):
+                            body['runtime_id'] = self.settings['runtime_id']
+                        self.client.call('/v1/sessions/close', body, timeout=15)
                     except Exception:
                         log.warning('Execution session close failed; idle expiry will reclaim it')
                 with self.provider._guard:
@@ -335,7 +341,7 @@ class Provider(TerminalEnvironmentProvider):
     def settings(self):
         defaults = dict(manager_url="https://runtime-manager:8090", token_file="/run/secrets/runtime-manager-token",
                         ca_file='/etc/runtime-manager/tls/ca.crt', profile="", mode="per_session",
-                        ssh_key="/opt/ssh/id_ed25519", acquire_timeout_seconds=180)
+                        ssh_key="/opt/ssh/id_ed25519", acquire_timeout_seconds=180, runtime_id="")
         settings = {key: self.ctx.get_config(key, value) for key, value in defaults.items()}
         # Existing native profiles preserve their config across image updates.
         # Upgrade the former built-in endpoint to the encrypted transport.
@@ -351,6 +357,9 @@ class Provider(TerminalEnvironmentProvider):
                                or settings["profile"] or self.ctx.profile_name)
         if settings["mode"] not in ("per_session", "per_profile_on_demand", "per_profile_always_running"):
             raise ValueError("Invalid managed_execution mode")
+        if not isinstance(settings['runtime_id'], str) or (settings['runtime_id']
+                and re.fullmatch(r'[a-z][a-z0-9-]{0,62}', settings['runtime_id']) is None):
+            raise ValueError("Invalid managed_execution runtime_id")
         return settings
 
     def is_available(self):
@@ -375,7 +384,7 @@ class Provider(TerminalEnvironmentProvider):
         key = task_id.removeprefix('session:')
         if key != 'prompt-backend-probe' and workdir and os.environ.get('MULTICA_TASK_ID'):
             key = 'multica:' + os.environ['MULTICA_TASK_ID']
-        identity = (settings['manager_url'], settings['profile'], settings['mode'], key,
+        identity = (settings['manager_url'], settings['profile'], settings['runtime_id'], settings['mode'], key,
                     json.dumps(runtime, sort_keys=True))
         with self._guard:
             lock = self._creation_locks.setdefault(identity, threading.Lock())

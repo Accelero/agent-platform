@@ -32,6 +32,7 @@ mod native_children;
 mod native_stop;
 mod resources;
 mod resync;
+mod terminal;
 
 #[derive(Clone)]
 pub struct PgStore {

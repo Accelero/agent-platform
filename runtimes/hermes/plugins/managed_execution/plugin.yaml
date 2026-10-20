@@ -7,6 +7,7 @@ config_schema:
   ca_file: {type: str, default: /etc/runtime-manager/tls/ca.crt, description: Trusted manager certificate}
   token_file: {type: str, default: /run/secrets/runtime-manager-token, description: Controller-only API credential file}
   profile: {type: str, default: '', description: Stable profile identity; empty uses the active Hermes profile}
+  runtime_id: {type: str, default: '', description: Approved owner runtime ID; empty uses the manager assignment default}
   mode:
     type: str
     default: per_session

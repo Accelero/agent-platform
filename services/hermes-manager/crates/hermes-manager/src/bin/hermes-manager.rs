@@ -7,6 +7,7 @@ use std::{
 use hermes_adapters::{
     auth::{AccessTokenVerifier, TokenPolicy, http_client},
     auth_config::{SessionConfig, read},
+    execution_http::execution_router,
     http::{admin_router_with_browser, resolver_router},
     postgres::PgStore,
     server::{bind, serve_until, tls_config},
@@ -25,6 +26,7 @@ struct Config {
     oidc: Oidc,
     admin: Admin,
     resolver: Resolver,
+    execution: Option<Execution>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -55,6 +57,12 @@ struct Admin {
     management_client: String,
     administrator_role: String,
     browser: Option<SessionConfig>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Execution {
+    listen: String,
+    tls: Tls,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -99,7 +107,9 @@ async fn run() -> Result<(), Error> {
         return store.check_existing(&scope).await;
     }
     store.check_registry(&scope).await?;
-    if config.admin.listen == config.resolver.listen
+    if config.execution.as_ref().is_some_and(|execution| {
+        execution.listen == config.admin.listen || execution.listen == config.resolver.listen
+    }) || config.admin.listen == config.resolver.listen
         || config.admin.audience == config.resolver.audience
         || config.admin.management_client == config.resolver.authorized_client
         || config
@@ -171,6 +181,19 @@ async fn run() -> Result<(), Error> {
         admin_tokens,
         browser,
     )?;
+    // Execution credentials are accepted only by this independently bound TLS
+    // listener. The public administration and mTLS resolver routers stay scoped.
+    let execution = if let Some(execution) = config.execution {
+        let router = execution_router(store.clone(), scope.clone())?;
+        let tls = tls_config(
+            &read(&execution.tls.certificate_file, 64 * 1024).await?,
+            &read(&execution.tls.private_key_file, 64 * 1024).await?,
+            None,
+        )?;
+        Some((bind(&execution.listen).await?.0, tls, router))
+    } else {
+        None
+    };
     let resolver = resolver_router(
         store,
         scope.clone(),
@@ -198,6 +221,7 @@ async fn run() -> Result<(), Error> {
     if let Some(auth) = cleanup {
         tokio::spawn(auth.cleanup_until(stop_rx.clone()));
     }
+    let mut execution_stop = stop_rx.clone();
     let mut resolver_stop = stop_rx.clone();
     let mut admin_stop = stop_rx;
     tokio::spawn(async move {
@@ -222,7 +246,16 @@ async fn run() -> Result<(), Error> {
             async move {
                 let _ = resolver_stop.changed().await;
             }
-        )
+        ),
+        async move {
+            if let Some((listener, tls, router)) = execution {
+                serve_until(listener, tls, BTreeSet::new(), router, async move {
+                    let _ = execution_stop.changed().await;
+                })
+                .await?;
+            }
+            Ok::<(), Error>(())
+        }
     )?;
     Ok(())
 }

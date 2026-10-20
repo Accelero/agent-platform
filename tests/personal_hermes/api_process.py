@@ -90,11 +90,17 @@ def main():
                 ]
             )
             assert result.returncode == 0
-            with socket.socket() as admin_socket, socket.socket() as route_socket:
+            with (
+                socket.socket() as admin_socket,
+                socket.socket() as route_socket,
+                socket.socket() as execution_socket,
+            ):
                 admin_socket.bind(("127.0.0.1", 0))
                 route_socket.bind(("127.0.0.1", 0))
+                execution_socket.bind(("127.0.0.1", 0))
                 admin_port = admin_socket.getsockname()[1]
                 route_port = route_socket.getsockname()[1]
+                execution_port = execution_socket.getsockname()[1]
             database_file = directory / "database-url"
             database_file.write_text(
                 f"postgres://hermes_test@127.0.0.1:{host_port}/{database}"
@@ -139,6 +145,10 @@ def main():
                     "managementClient": "manager-admin",
                     "administratorRole": "platform-administrator",
                     "browser": session_config,
+                },
+                "execution": {
+                    "listen": f"127.0.0.1:{execution_port}",
+                    "tls": {"certificateFile": str(ca), "privateKeyFile": str(key)},
                 },
                 "resolver": {
                     "listen": f"127.0.0.1:{route_port}",
@@ -219,6 +229,13 @@ def main():
                 assert status == 401 and cache == "no-store"
                 assert json.loads(body) == {"error": "invalid_identity_evidence"}
                 assert get("/internal/v1/routes/resolve")[0] == 404
+                assert get("/execution/v1/environments")[0] == 404
+                assert get("/healthz", execution_port)[0] == 200
+                status, body, cache = get("/execution/v1/environments", execution_port)
+                assert status == 401 and cache == "no-store"
+                assert json.loads(body) == {"error": "invalid_identity_evidence"}
+                assert get("/api/v1/assignments", execution_port)[0] == 404
+                assert get("/internal/v1/routes/resolve", execution_port)[0] == 404
                 connection = http.client.HTTPSConnection(
                     "127.0.0.1", route_port, context=tls, timeout=1
                 )

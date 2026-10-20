@@ -31,6 +31,7 @@ pub(super) async fn verify(
     scope: &InstallationScope,
     config: &WorkloadConfig,
     namespace: &Namespace,
+    driver_config: kube::Config,
 ) {
     let ns = namespace.metadata.name.as_deref().unwrap();
     let uid = namespace.metadata.uid.as_deref().unwrap();
@@ -326,6 +327,19 @@ pub(super) async fn verify(
         )
         .await
         .unwrap();
+    let worker = super::worker_admission::verify(
+        client,
+        administrator,
+        scope,
+        config,
+        ns,
+        uid,
+        instance,
+        &pod,
+        &policies,
+        driver_config,
+    )
+    .await;
     super::fence_admission::stop_without_parameters(
         client,
         administrator,
@@ -333,6 +347,7 @@ pub(super) async fn verify(
         ns,
         &deployment,
         &policies,
+        &worker,
     )
     .await;
 }
