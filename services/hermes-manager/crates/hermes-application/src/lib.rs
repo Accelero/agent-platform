@@ -291,8 +291,12 @@ pub struct OperationClaim {
 #[serde(rename_all = "snake_case")]
 pub enum Action {
     Apply,
+    Observe,
     Delete,
     Initialize,
+    FenceClose,
+    FenceOpen,
+    NativeStop,
 }
 
 /// An immutable, committed external action. Bootstrap material is a reference
@@ -331,8 +335,10 @@ impl StepIntent {
         } else if self.kind != "Namespace" {
             return Err(Error::Invalid);
         }
-        if self.action == Action::Delete
-            && (self.expected_uid.is_none() || self.expected_resource_version.is_none())
+        if matches!(
+            self.action,
+            Action::Delete | Action::FenceClose | Action::FenceOpen | Action::NativeStop
+        ) && (self.expected_uid.is_none() || self.expected_resource_version.is_none())
         {
             return Err(Error::Invalid);
         }
@@ -344,6 +350,9 @@ impl StepIntent {
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepResult {
     Unknown,
+    /// A read-only GET found no object at this point in time. The reservation
+    /// and uncertain creation remain; this is not a delete or a tombstone.
+    ObservedMissing,
     /// A bound UID was re-observed and a new immutable apply intent committed.
     /// This retains uncertainty about the original write rather than claiming
     /// it was never applied. Initializers and deletes cannot use this outcome.
@@ -415,8 +424,13 @@ pub trait OperationQueue: Send + Sync {
 pub mod administration;
 pub mod commissioning;
 pub mod execution;
+pub mod lifecycle;
 pub mod materials;
+pub mod namespace_fence;
+pub mod native_children;
+pub mod native_stop;
 pub mod resources;
+pub mod resync;
 pub mod routing;
 
 #[cfg(test)]

@@ -1,4 +1,8 @@
 //! Bounded Kubernetes ownership transport. Never infer a workstation kubeconfig.
+mod namespace_fence;
+mod native_children;
+mod native_stop;
+mod observation;
 mod quantity;
 mod readiness;
 pub use readiness::NativeReadiness;
@@ -583,6 +587,13 @@ impl hermes_application::resources::ResourceDriver for KubernetesDriver {
     type Manifest = Manifest;
     async fn current_version(&self, owned: &OwnedResource) -> Result<ResourceVersion, Error> {
         KubernetesDriver::current_version(self, owned).await
+    }
+    async fn observe(
+        &self,
+        prepared: &hermes_application::resources::PreparedObservation,
+        manifest: &Manifest,
+    ) -> Result<Option<ResourceObservation>, Error> {
+        self.observe_reserved(prepared, manifest).await
     }
     async fn apply(
         &self,

@@ -284,4 +284,61 @@ pub(super) async fn verify(
         .unwrap();
     assert_eq!(audit, 1);
     super::process::verify(pool, scope, config, workload, &cluster).await;
+    // Use the same constrained controller, not administrator transport, for the
+    // entire disable path. All state is retained while execution drain remains
+    // an explicit unfinished barrier.
+    let disabled = assignments
+        .execute(
+            &actor,
+            Uuid::new_v4(),
+            "revoke-controller",
+            AssignmentCommand::SetAccess {
+                assignment_id: accepted.assignment_id,
+                expected_version: accepted.version,
+                access: Access::Revoked,
+            },
+        )
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        restarted.step().await.unwrap();
+        let condition: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT last_condition FROM manager.operations WHERE id=$1")
+                .bind(disabled.operation_id)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        if condition
+            .as_ref()
+            .is_some_and(|v| v["reason"] == "draining")
+        {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let steps:Vec<(String,String,String)>=sqlx::query_as("SELECT intent->>'action',intent->>'name',result->>'status' FROM manager.operation_steps WHERE operation_id=$1 ORDER BY recorded_at")
+                .bind(disabled.operation_id).fetch_all(pool).await.unwrap();
+            panic!("retained suspension did not reach native stop: {condition:?}, steps={steps:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let stopped = deployments.get("hermes").await.unwrap();
+    assert_eq!(stopped.metadata.uid, original_deployment.metadata.uid);
+    assert_eq!(stopped.spec.as_ref().unwrap().replicas, Some(0));
+    assert_eq!(
+        stopped.spec.as_ref().unwrap().template,
+        original_deployment.spec.as_ref().unwrap().template
+    );
+    let retained = secrets.get("native-bootstrap").await.unwrap();
+    assert_eq!(retained.metadata.uid, original.metadata.uid);
+    assert!(retained.data == original.data);
+    let ns = namespaces.get(&ns).await.unwrap();
+    let labels = ns.metadata.labels.unwrap();
+    assert_eq!(labels["agent-platform.io/access"], "revoked");
+    assert_eq!(labels["agent-platform.io/admission"], "closed");
+    assert_eq!(labels["agent-platform.io/fence-generation"], "2");
+    let (resources,draining):(i64,bool)=sqlx::query_as("SELECT (SELECT count(*) FROM manager.owned_resources WHERE instance_id=$1),drain_completed_at IS NULL FROM manager.instances WHERE id=$1")
+        .bind(accepted.instance_id).fetch_one(pool).await.unwrap();
+    assert_eq!(resources, 14);
+    assert!(draining);
 }

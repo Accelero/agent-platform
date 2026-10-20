@@ -237,6 +237,7 @@ async fn actual_controller_service_account_cannot_escape_namespace_bootstrap_sco
         .unwrap();
     super::workloads::verify(
         &controller,
+        &administrator,
         &scope,
         &workload,
         &controller_namespaces.get(&own_name).await.unwrap(),

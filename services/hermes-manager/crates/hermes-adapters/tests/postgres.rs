@@ -525,7 +525,7 @@ async fn fresh_requires_empty_external_inventory_and_existing_never_self_bootstr
 #[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
 async fn unlogged_manager_tables_block_startup(pool: PgPool) {
     let (store, scope, _) = fixture(&pool).await;
-    sqlx::query("ALTER TABLE manager.resource_steps SET UNLOGGED")
+    sqlx::query("ALTER TABLE manager.native_child_actions SET UNLOGGED")
         .execute(&pool)
         .await
         .unwrap();

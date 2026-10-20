@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+mod observation;
+pub use observation::PreparedObservation;
+
 /// Immutable creation provenance. Keep this separate from later update intents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -45,6 +48,30 @@ pub struct ResourceVersion {
 
 #[async_trait]
 pub trait ResourceRepository: Send + Sync {
+    /// Journal a GET of an existing uncertain creation. Never reserves a name,
+    /// creates a resource, changes its original spec, or grants apply access.
+    async fn prepare_observation(
+        &self,
+        scope: &InstallationScope,
+        claim: &OperationClaim,
+        key: &str,
+        resource_id: Uuid,
+    ) -> Result<PreparedObservation, Error>;
+    async fn bind_observation(
+        &self,
+        scope: &InstallationScope,
+        claim: &OperationClaim,
+        key: &str,
+        observation: ResourceObservation,
+    ) -> Result<(), Error>;
+    /// A point-in-time GET404 leaves the reservation and uncertain CREATE in
+    /// place. A later observation can still recover that exact late creation.
+    async fn observation_missing(
+        &self,
+        scope: &InstallationScope,
+        claim: &OperationClaim,
+        key: &str,
+    ) -> Result<(), Error>;
     async fn find_resource(
         &self,
         scope: &InstallationScope,
@@ -98,6 +125,11 @@ pub trait ResourceRepository: Send + Sync {
 pub trait ResourceDriver: Send + Sync {
     type Manifest: Send + Sync;
     async fn current_version(&self, owned: &OwnedResource) -> Result<ResourceVersion, Error>;
+    async fn observe(
+        &self,
+        prepared: &PreparedObservation,
+        manifest: &Self::Manifest,
+    ) -> Result<Option<ResourceObservation>, Error>;
     /// Observe first, then create/update only with the committed intent's exact
     /// provenance and preconditions. Reconcile uncertain outcomes before writes.
     async fn apply(

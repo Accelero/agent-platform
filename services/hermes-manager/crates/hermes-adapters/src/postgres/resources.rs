@@ -5,7 +5,9 @@ use hermes_application::resources::{
 };
 use hermes_domain::resources::{ResourceKind, ResourceSpec, Retention, valid_uid};
 
-fn resource(row: &sqlx::postgres::PgRow) -> Result<OwnedResource, Error> {
+mod observation;
+
+pub(super) fn resource(row: &sqlx::postgres::PgRow) -> Result<OwnedResource, Error> {
     let creation: Creation =
         serde_json::from_value(row.get("creation")).map_err(|_| Error::RecoveryRequired)?;
     creation.spec.validate()?;
@@ -15,6 +17,8 @@ fn resource(row: &sqlx::postgres::PgRow) -> Result<OwnedResource, Error> {
         || creation.spec.kind.as_str() != row.get::<String, _>("kind")
         || creation.spec.name != row.get::<String, _>("name")
         || creation.spec.namespace.as_deref().unwrap_or("") != row.get::<String, _>("namespace")
+        || creation.spec.encrypted_material_ref
+            != row.get::<Option<Uuid>, _>("encrypted_material_ref")
     {
         return Err(Error::RecoveryRequired);
     }
@@ -112,6 +116,32 @@ async fn locked_resource_step(
 }
 #[async_trait]
 impl ResourceRepository for PgStore {
+    async fn prepare_observation(
+        &self,
+        scope: &InstallationScope,
+        claim: &OperationClaim,
+        key: &str,
+        resource_id: Uuid,
+    ) -> Result<hermes_application::resources::PreparedObservation, Error> {
+        observation::prepare(self, scope, claim, key, resource_id).await
+    }
+    async fn bind_observation(
+        &self,
+        scope: &InstallationScope,
+        claim: &OperationClaim,
+        key: &str,
+        observed: ResourceObservation,
+    ) -> Result<(), Error> {
+        observation::bind(self, scope, claim, key, observed).await
+    }
+    async fn observation_missing(
+        &self,
+        scope: &InstallationScope,
+        claim: &OperationClaim,
+        key: &str,
+    ) -> Result<(), Error> {
+        observation::missing(self, scope, claim, key).await
+    }
     async fn find_resource(
         &self,
         scope: &InstallationScope,

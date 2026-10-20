@@ -48,6 +48,7 @@ impl BootstrapPolicy {
         let binding_policy = format!("{identifier}-binding");
         let pod_policy = format!("{identifier}-pods");
         let deployment_policy = format!("{identifier}-deployments");
+        let scale_policy = format!("{identifier}-scale-stop");
         let subject = format!(
             "system:serviceaccount:{}:{}",
             config.control_namespace, config.controller_service_account
@@ -73,14 +74,11 @@ impl BootstrapPolicy {
             cel(&config.controller_service_account),
             cel(&config.control_namespace)
         );
-        let mut manifests = crate::admission::manifests(scope);
+        let mut manifests = crate::admission::manifests(scope, &subject);
+        let mut namespace_checks = vec![namespace_expression, immutable_labels.into()];
+        namespace_checks.extend(crate::admission::namespace_checks());
         for (name, group, resource, validations) in [
-            (
-                &namespace_policy,
-                "",
-                "namespaces",
-                vec![namespace_expression, immutable_labels.into()],
-            ),
+            (&namespace_policy, "", "namespaces", namespace_checks),
             (
                 &binding_policy,
                 "rbac.authorization.k8s.io",
@@ -115,6 +113,7 @@ impl BootstrapPolicy {
         manifests.push(object("ClusterRole",&config.reconciler_role,json!({"rules":[
             {"apiGroups":[""],"resources":["pods","services","persistentvolumeclaims","secrets","configmaps","serviceaccounts"],"verbs":["get","list","watch","create","patch","update","delete"]},
             {"apiGroups":["apps"],"resources":["deployments"],"verbs":["get","list","watch","create","patch","update","delete"]},
+            {"apiGroups":["apps"],"resources":["deployments/scale"],"resourceNames":["hermes"],"verbs":["get","patch","update"]},
             {"apiGroups":["apps"],"resources":["replicasets"],"verbs":["get","list","watch"]},
             {"apiGroups":["hermes.agent-platform.io"],"resources":["instancepolicies"],"verbs":["get","list","watch","create","patch","update","delete"]},
             {"apiGroups":["networking.k8s.io"],"resources":["networkpolicies"],"verbs":["get","list","watch","create","patch","update","delete"]}
@@ -124,7 +123,7 @@ impl BootstrapPolicy {
             {"apiGroups":["rbac.authorization.k8s.io"],"resources":["rolebindings"],"verbs":["get","list","watch","create","patch","update"]},
             {"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles"],"resourceNames":[config.reconciler_role],"verbs":["get","bind"]},
             {"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles","clusterrolebindings"],"resourceNames":[identifier],"verbs":["get"]},
-            {"apiGroups":["admissionregistration.k8s.io"],"resources":["validatingadmissionpolicies","validatingadmissionpolicybindings"],"resourceNames":[namespace_policy,binding_policy,pod_policy,deployment_policy],"verbs":["get"]},
+            {"apiGroups":["admissionregistration.k8s.io"],"resources":["validatingadmissionpolicies","validatingadmissionpolicybindings"],"resourceNames":[namespace_policy,binding_policy,pod_policy,deployment_policy,scale_policy],"verbs":["get"]},
             {"apiGroups":["apiextensions.k8s.io"],"resources":["customresourcedefinitions"],"resourceNames":[crate::admission::CRD],"verbs":["get"]},
             {"apiGroups":["authentication.k8s.io"],"resources":["selfsubjectreviews"],"verbs":["create"]},
             {"apiGroups":["authorization.k8s.io"],"resources":["selfsubjectaccessreviews"],"verbs":["create"]}
@@ -211,6 +210,7 @@ impl BootstrapPolicy {
             json!({"verb":"watch","resource":"secrets"}),
             json!({"namespace":self.control_namespace,"verb":"create","resource":"pods"}),
             json!({"namespace":self.control_namespace,"verb":"create","resource":"deployments","group":"apps"}),
+            json!({"namespace":self.control_namespace,"verb":"patch","resource":"deployments","subresource":"scale","name":"hermes","group":"apps"}),
             json!({"namespace":self.control_namespace,"verb":"create","resource":"serviceaccounts","subresource":"token"}),
             json!({"namespace":self.control_namespace,"verb":"create","resource":"pods","subresource":"exec"}),
             json!({"verb":"create","resource":"clusterrolebindings","group":"rbac.authorization.k8s.io"}),

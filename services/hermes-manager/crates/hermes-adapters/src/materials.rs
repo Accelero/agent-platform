@@ -20,6 +20,21 @@ impl<R: MaterialRepository> MaterialVault<R> {
     pub fn new(repository: R, cipher: Sealer) -> Self {
         Self { repository, cipher }
     }
+    /// Suspension can observe a committed rendering/credential record without
+    /// gaining permission to generate, reserve or replace any material.
+    pub async fn read_retained(
+        &self,
+        scope: &InstallationScope,
+        claim: &OperationClaim,
+        purpose: &str,
+    ) -> Result<Option<PlainMaterial>, Error> {
+        hermes_domain::validate_name(purpose)?;
+        self.repository
+            .find_retained_material(scope, claim, purpose)
+            .await?
+            .map(|record| self.open(record))
+            .transpose()
+    }
     pub async fn get_or_create<F>(
         &self,
         scope: &InstallationScope,

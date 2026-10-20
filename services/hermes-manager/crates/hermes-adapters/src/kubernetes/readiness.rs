@@ -16,6 +16,7 @@ pub struct NativeReadiness<'a> {
     pub generation: i64,
     pub material: &'a MaterialContext,
     pub bootstrap: &'a NativeBootstrap,
+    pub started_children: &'a [hermes_application::native_children::NativeChildInput],
     pub owner: &'a Identity,
 }
 
@@ -123,6 +124,9 @@ impl KubernetesDriver {
             return Ok(ConditionReason::NativePending);
         }
         let pod = &listed.items[0];
+        if pod.metadata.deletion_timestamp.is_some() {
+            return Ok(ConditionReason::NativePending);
+        }
         let reference = controller_owner(&pod.metadata, "ReplicaSet")?;
         let sets: Api<ReplicaSet> = Api::namespaced(self.client.clone(), namespace);
         self.namespace(&input.deployment.0.creation).await?;
@@ -214,7 +218,7 @@ fn deployment_ready(deployment: &DynamicObject) -> bool {
         .all(|key| deployment.data["status"][key].as_i64() == Some(1))
 }
 
-fn controller_owner<'a>(
+pub(super) fn controller_owner<'a>(
     meta: &'a kube::core::ObjectMeta,
     kind: &str,
 ) -> Result<&'a k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference, Error> {
@@ -266,16 +270,74 @@ fn pod_ready(
     {
         return Err(Error::OwnershipConflict);
     }
+    // Recreate is asynchronous. A correctly identified older writer can
+    // remain briefly after the desired template advances; it supplies no
+    // readiness and must disappear before the current generation is ready.
+    let pod_generation = pod
+        .metadata
+        .labels
+        .as_ref()
+        .and_then(|l| l.get("agent-platform.io/policy-generation"))
+        .ok_or(Error::OwnershipConflict)?;
+    let parsed = pod_generation
+        .parse::<i64>()
+        .map_err(|_| Error::OwnershipConflict)?;
+    if parsed < 1 || parsed.to_string() != *pod_generation || parsed > input.generation {
+        return Err(Error::OwnershipConflict);
+    }
+    if parsed < input.generation {
+        return Ok(false);
+    }
     let set = serde_json::to_value(set).map_err(|_| Error::Invalid)?;
     let pod_value = serde_json::to_value(pod).map_err(|_| Error::Invalid)?;
-    for actual in [&set["spec"]["template"], &pod_value] {
-        if !contains_fields(
-            &actual["metadata"]["labels"],
-            &template["metadata"]["labels"],
-        ) || !contains_pod_spec_fields(&actual["spec"], &template["spec"])
-        {
-            return Err(Error::OwnershipConflict);
-        }
+    if !contains_fields(
+        &set["spec"]["template"]["metadata"]["labels"],
+        &template["metadata"]["labels"],
+    ) || !contains_pod_spec_fields(&set["spec"]["template"]["spec"], &template["spec"])
+    {
+        return Err(Error::OwnershipConflict);
+    }
+    let mut approved = template["spec"].clone();
+    approved
+        .as_object_mut()
+        .ok_or(Error::Invalid)?
+        .remove("schedulingGates");
+    if !contains_fields(
+        &pod_value["metadata"]["labels"],
+        &template["metadata"]["labels"],
+    ) || !contains_pod_spec_fields(&pod_value["spec"], &approved)
+        || pod
+            .spec
+            .as_ref()
+            .and_then(|s| s.scheduling_gates.as_ref())
+            .is_some_and(|g| !g.is_empty())
+    {
+        return Err(Error::OwnershipConflict);
+    }
+    // Only a start whose result committed under this generation can justify an
+    // ungated Pod. A healthy foreign/unregistered child is never readiness.
+    let digest = super::native_children::pod_digest(pod)?;
+    if !input.started_children.iter().any(|proof| {
+        proof.action == hermes_application::native_children::NativeChildAction::Start
+            && proof.installation_id == input.material.installation_id
+            && proof.instance_id == input.material.instance_id
+            && proof.epoch == input.epoch
+            && proof.generation == input.generation
+            && Some(&proof.pod_uid) == pod.metadata.uid.as_ref()
+            && proof.replica_set_uid == owner.uid
+            && Some(&proof.deployment_uid) == deployment.metadata.uid.as_ref()
+            && proof.namespace_uid
+                == input
+                    .deployment
+                    .0
+                    .creation
+                    .spec
+                    .namespace_uid
+                    .as_deref()
+                    .unwrap_or("")
+            && proof.spec_digest == digest
+    }) {
+        return Err(Error::OwnershipConflict);
     }
     if pod.metadata.deletion_timestamp.is_some()
         || set["metadata"]

@@ -27,12 +27,14 @@ fn rejected<T>(result: Result<T, kube::Error>) {
 }
 pub(super) async fn verify(
     client: &Client,
+    administrator: &Client,
     scope: &InstallationScope,
     config: &WorkloadConfig,
     namespace: &Namespace,
 ) {
     let ns = namespace.metadata.name.as_deref().unwrap();
     let uid = namespace.metadata.uid.as_deref().unwrap();
+    super::fence_admission::close_initial(client, scope, ns).await;
     let instance =
         Uuid::parse_str(&namespace.metadata.labels.as_ref().unwrap()["agent-platform.io/instance"])
             .unwrap();
@@ -150,9 +152,48 @@ pub(super) async fn verify(
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    pods.create(&dry, &serde_json::from_value(pod.clone()).unwrap())
-        .await
-        .unwrap();
+    // Deployment staging is allowed while closed, but no Pod can start there.
+    rejected(
+        pods.create(&dry, &serde_json::from_value(pod.clone()).unwrap())
+            .await,
+    );
+    super::fence_admission::open(client, scope, ns).await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if pods
+            .create(&dry, &serde_json::from_value(pod.clone()).unwrap())
+            .await
+            .is_ok()
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "open owned Namespace did not admit gated native Pod"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    for gates in [
+        Value::Null,
+        json!([]),
+        json!([{"name":"foreign.example.org/start"}]),
+        json!([
+            {"name":"agent-platform.io/native-start"},
+            {"name":"agent-platform.io/native-start"}
+        ]),
+        json!([
+            {"name":"agent-platform.io/native-start"},
+            {"name":"foreign.example.org/start"}
+        ]),
+    ] {
+        let mut bad = pod.clone();
+        bad["spec"]["schedulingGates"] = gates;
+        rejected(
+            pods.create(&dry, &serde_json::from_value(bad).unwrap())
+                .await,
+        );
+    }
+    super::fence_admission::pod_updates(client, administrator, ns, &pod).await;
     let mut duplicated_environment = pod["spec"]["containers"][0]["env"].clone();
     duplicated_environment[1] = duplicated_environment[0].clone();
     let mutations = [
@@ -192,6 +233,14 @@ pub(super) async fn verify(
         (
             "/initContainers/0/terminationMessagePath",
             json!("/opt/data/forged-receipt"),
+        ),
+        (
+            "/containers/0/terminationMessagePath",
+            json!("/run/hermes/credentials/execution-client-token"),
+        ),
+        (
+            "/containers/0/terminationMessagePolicy",
+            json!("FallbackToLogsOnError"),
         ),
         ("/securityContext/supplementalGroups", json!([0])),
         ("/priorityClassName", json!("system-cluster-critical")),
@@ -269,6 +318,23 @@ pub(super) async fn verify(
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    policies
+        .patch(
+            "instance-policy",
+            &PatchParams::default(),
+            &Patch::Merge(json!({"spec":{"namespaceUID":uid}})),
+        )
+        .await
+        .unwrap();
+    super::fence_admission::stop_without_parameters(
+        client,
+        administrator,
+        scope,
+        ns,
+        &deployment,
+        &policies,
+    )
+    .await;
 }
 
 fn set(value: &mut Value, path: &str, replacement: Value) {

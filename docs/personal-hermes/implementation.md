@@ -118,6 +118,29 @@ published application. This file tracks evidence against the full
   same transaction. Independent database leases fence policy work. Applied policy
   generation remains zero until real drain/admission/worker checks are integrated;
   no terminal lease is granted by this foundation.
+- Periodic resync enqueues bounded PostgreSQL work for completed enabled and
+  retained instances without advancing desired generation or resetting failed
+  work. Disabled instances without a bound Namespace remain observable for late
+  creation. Current access, epoch and operation leases still fence every step.
+- A disable acknowledgement records its original five-minute drain deadline in
+  the same transaction. Retry, controller restart, rapid re-enable and revoke do
+  not reset an active deadline. Read-only lifecycle plans preserve original
+  encrypted rendering references, and uncertain creation recovery can only GET
+  and bind the original authenticated object; absence leaves the reservation.
+- Namespace admission is closed by default. Typed immutable fence inputs commit
+  before UID/resource-version patches; native creation opens only after the
+  reviewed workload and policy exist. Suspension closes admission first, then
+  uses an independently constrained scale subresource to stop the retained
+  Deployment, including when native policy parameters are missing. Namespace,
+  claims, credentials, immutable creation provenance and Pod template survive.
+- Native Pods carry a required scheduling gate. The controller verifies the
+  Pod/ReplicaSet/registered Deployment UID chain and commits exact child identity
+  and start input before removing that gate. Readiness requires the recorded
+  start and exact Pod UID. Stops commit exact UID/RV inputs and require observed
+  absence; a replacement sharing a name is never deleted. Delayed ungated starts
+  are therefore known children of the original drain. Native stop observations
+  alone do not complete the drain barrier or authorize re-enabling: terminal
+  execution draining and complete lifecycle-result integration remain pending.
 
 ## Evidence and remaining gates
 
@@ -130,7 +153,7 @@ published application. This file tracks evidence against the full
 | Traefik | `tests/personal_hermes/router_compatibility.py`, pinned official image | End-to-end Rust/Keycloak/native Hermes acceptance |
 | Existing release | Python checks including OpenAPI validation and native initialization, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
 | Runtime policy/execution | Real PostgreSQL owner-isolation, immutable catalog/storage, optimistic/idempotent policy mutation and fenced policy-work tests | API/contracts, effective-policy activation, execution environments/leases, worker renderer/admission, SSH driver and adapter extension |
-| Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; encrypted material, frozen rendering, initialization/native observation and HTTP auth-gate probe tests; actual ServiceAccount bootstrap/workload admission, compiled controller create/kill/reopen proof and built native image startup/restart | Definition registration, integrated native/effective-policy readiness, route publication, worker admission, retained suspension and completed-instance resync |
+| Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; encrypted material, frozen rendering, initialization/native observation and HTTP auth-gate probe tests; actual ServiceAccount bootstrap/workload admission, compiled controller create/kill/reopen proof and built native image startup/restart | Definition registration, integrated native/effective-policy readiness, route publication, worker admission, terminal drain integration and completed lifecycle results |
 | Administration UI | Versioned administration contract, bearer and browser-session API; presentation-separated application ports | Remaining runtime/storage/owner/checkpoint contracts, generated client and React/Vite build |
 | Recovery | Fresh/existing registry gate and maintenance/epoch fencing | Trusted inventory scanner, checkpoint/receipt/restore lifecycle and coordinated full-data recovery tests |
 | Distribution | New workspace/plugin checks in CI | Dockerfiles, reviewed release inputs, opt-in chart values/schema/RBAC/networking, operator docs and acceptance qualification |
@@ -213,3 +236,15 @@ private CA is tested alongside retained public roots. Run
 `uv run python -m tests.personal_hermes.native_runtime --build`. This offline
 fixture proves native startup/authentication gating and process recovery, not a
 completed provider login, cron side-effect delivery or Kubernetes commissioning.
+
+The retained-lifecycle fixtures additionally exercise the actual controller
+ServiceAccount closing admission and scaling the same Deployment UID to zero,
+while preserving its template, all 14 owned records and native credentials.
+Actual API tests deny unauthorized or altered gate removal, credential-file
+termination paths and scale-up; a closed instance can stop with missing native
+policy parameters. PostgreSQL/TLS tests recover lost gate/scale replies, retain
+original write preconditions, reject historical authorization fences, observe
+late creations without writes and drain 257 historical children in bounded
+batches. Recreate transitions wait for older or terminating Pods without giving
+them a new start or readiness proof. These are native lifecycle proofs; terminal
+execution draining and verified suspension completion remain separate gates.

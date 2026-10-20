@@ -51,6 +51,15 @@ pub trait MaterialRepository: Send + Sync {
         claim: &OperationClaim,
         purpose: &str,
     ) -> Result<Option<MaterialRecord>, Error>;
+    /// Read existing material only for current fenced suspend/revoke work or a
+    /// fully pinned disabled-instance resync. Input and assignment must agree.
+    /// Returns the original creation context; never reserves or replaces bytes.
+    async fn find_retained_material(
+        &self,
+        scope: &InstallationScope,
+        claim: &OperationClaim,
+        purpose: &str,
+    ) -> Result<Option<MaterialRecord>, Error>;
     /// One winner per instance/purpose. Concurrent proposals return the original
     /// committed record, and never replace its ciphertext or creation identity.
     async fn reserve_material(

@@ -307,3 +307,24 @@ idempotent optimistic mutations and independent fenced policy work. Applied
 generation remains zero until actual drain/admission/worker observations can
 authorize activation. It does not yet implement the execution HTTP API or grant
 terminal leases.
+
+## Retained lifecycle work
+
+Access changes commit the original drain deadline before acknowledgement and
+fence older controller claims. The controller closes Namespace admission before
+scaling the retained native Deployment to zero. The scale subresource has its own
+stop-only policy, so missing native admission parameters cannot prevent stopping.
+Uncertain original creations are observed using the encrypted frozen rendering;
+GET absence keeps their reservations for later recovery. These paths do not
+create replacements or remove retained claims and credentials.
+
+Every native Pod starts behind a scheduling gate. The controller verifies its
+ReplicaSet and bound Deployment UID, persists the exact child identity and
+external-action input, then removes the gate with UID/RV preconditions. Native
+readiness requires that committed start. Stops target registered UIDs, and delete
+acceptance does not prove absence. An old name cannot authorize deleting a new
+Pod. Completed-instance resync uses a durable database cadence.
+
+Terminal execution draining and verified lifecycle completion are still being
+integrated. Native shutdown alone does not mark an assignment Suspended/Retained,
+finish its original drain barrier, re-enable native work or publish a route.

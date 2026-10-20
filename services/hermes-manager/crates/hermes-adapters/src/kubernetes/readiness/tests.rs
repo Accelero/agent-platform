@@ -17,6 +17,7 @@ struct Fixture {
     live: DynamicObject,
     pod: Pod,
     set: ReplicaSet,
+    starts: Vec<hermes_application::native_children::NativeChildInput>,
 }
 
 impl Fixture {
@@ -111,7 +112,28 @@ impl Fixture {
         pod["metadata"]["ownerReferences"] =
             json!([reference("ReplicaSet", "hermes-template", "replicaset-uid")]);
         pod["status"] = json!({"phase":"Running","conditions":[{"type":"Ready","status":"True"}],"containerStatuses":[{"name":"hermes","ready":true,"restartCount":0,"image":"native","imageID":"native","state":{"running":{}}}],"initContainerStatuses":[{"name":"native-home","ready":true,"restartCount":0,"image":"native","imageID":"native","state":{"terminated":{"exitCode":0,"message":receipt}}}]});
+        let pod: Pod = serde_json::from_value(pod).unwrap();
+        let starts = vec![hermes_application::native_children::NativeChildInput {
+            installation_id: installation,
+            instance_id: instance,
+            operation_id: Uuid::new_v4(),
+            deployment_id: deployment.creation.id,
+            fence_key: "open".into(),
+            namespace: "personal-fixture".into(),
+            namespace_uid: "namespace-uid".into(),
+            deployment_uid: "deployment-uid".into(),
+            replica_set_name: "hermes-template".into(),
+            replica_set_uid: "replicaset-uid".into(),
+            pod_name: "hermes-template-pod".into(),
+            pod_uid: "pod-uid".into(),
+            resource_version: "1".into(),
+            spec_digest: super::super::native_children::pod_digest(&pod).unwrap(),
+            generation: 2,
+            epoch: 1,
+            action: hermes_application::native_children::NativeChildAction::Start,
+        }];
         Self {
+            starts,
             namespace,
             home,
             workspace,
@@ -121,7 +143,7 @@ impl Fixture {
             bootstrap,
             owner,
             live,
-            pod: serde_json::from_value(pod).unwrap(),
+            pod,
             set,
         }
     }
@@ -138,6 +160,7 @@ impl Fixture {
             material: &self.material,
             bootstrap: &self.bootstrap,
             owner: &self.owner,
+            started_children: &self.starts,
         }
     }
 }
@@ -199,7 +222,7 @@ fn healthy_pod_needs_exact_owner_chain_template_and_signed_initialization() {
         mutate("/metadata/ownerReferences/0/controller", json!(false)),
         mutate(
             "/metadata/labels/agent-platform.io~1policy-generation",
-            json!("1"),
+            json!("3"),
         ),
         mutate("/spec/containers/0/image", json!("foreign-image")),
         mutate(
@@ -241,5 +264,58 @@ fn healthy_pod_needs_exact_owner_chain_template_and_signed_initialization() {
         mutate("/status/containerStatuses/0/ready", json!(false)),
     ] {
         assert!(!pod_ready(&pod, &fixture.set, &fixture.live, &fixture.input()).unwrap());
+    }
+}
+
+#[test]
+fn readiness_needs_committed_start_for_exact_pod_uid_and_removed_gate() {
+    let fixture = Fixture::new();
+    let mut input = fixture.input();
+    input.started_children = &[];
+    assert!(matches!(
+        pod_ready(&fixture.pod, &fixture.set, &fixture.live, &input),
+        Err(Error::OwnershipConflict)
+    ));
+    let mut foreign = fixture.starts.clone();
+    foreign[0].pod_uid = "old-pod-uid".into();
+    input.started_children = &foreign;
+    assert!(matches!(
+        pod_ready(&fixture.pod, &fixture.set, &fixture.live, &input),
+        Err(Error::OwnershipConflict)
+    ));
+    let mut pod = fixture.pod.clone();
+    pod.spec.as_mut().unwrap().scheduling_gates =
+        Some(vec![k8s_openapi::api::core::v1::PodSchedulingGate {
+            name: hermes_application::native_children::START_GATE.into(),
+        }]);
+    assert!(matches!(
+        pod_ready(&pod, &fixture.set, &fixture.live, &fixture.input()),
+        Err(Error::OwnershipConflict)
+    ));
+    // The scheduler's binding must not invalidate an already committed start.
+    pod.spec.as_mut().unwrap().scheduling_gates = None;
+    pod.spec.as_mut().unwrap().node_name = Some("fixture-node".into());
+    assert!(pod_ready(&pod, &fixture.set, &fixture.live, &fixture.input()).unwrap());
+}
+
+#[test]
+fn recreate_waits_for_verified_old_generation_without_accepting_future_or_malformed_labels() {
+    let fixture = Fixture::new();
+    let mut pod = fixture.pod.clone();
+    pod.metadata
+        .labels
+        .as_mut()
+        .unwrap()
+        .insert("agent-platform.io/policy-generation".into(), "1".into());
+    assert!(!pod_ready(&pod, &fixture.set, &fixture.live, &fixture.input()).unwrap());
+    for generation in ["3", "01", "0", "unknown"] {
+        pod.metadata.labels.as_mut().unwrap().insert(
+            "agent-platform.io/policy-generation".into(),
+            generation.into(),
+        );
+        assert!(matches!(
+            pod_ready(&pod, &fixture.set, &fixture.live, &fixture.input()),
+            Err(Error::OwnershipConflict)
+        ));
     }
 }

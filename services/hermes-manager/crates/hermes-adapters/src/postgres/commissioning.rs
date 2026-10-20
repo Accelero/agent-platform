@@ -73,8 +73,9 @@ impl CommissioningRepository for PgStore {
         }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_claim(&mut tx, scope, claim).await?;
-        let row=sqlx::query("SELECT kind IN ('commission','retry') AND created_at + interval '15 minutes'<=clock_timestamp() AS expired,attempt>=max_attempts AS exhausted FROM manager.operations WHERE id=$1")
+        let row=sqlx::query("SELECT a.access='enabled' AS enabled,o.kind IN ('commission','retry') AND o.created_at + interval '15 minutes'<=clock_timestamp() AS expired,o.attempt>=o.max_attempts AS exhausted FROM manager.operations o JOIN manager.instances i ON i.id=o.instance_id JOIN manager.assignments a ON a.id=i.assignment_id WHERE o.id=$1")
             .bind(claim.id).fetch_one(&mut *tx).await.map_err(db_error)?;
+        let enabled = row.get::<bool, _>("enabled");
         let expired = row.get::<bool, _>("expired");
         let blocked =
             state == "Blocked" || expired || (!waiting && row.get::<bool, _>("exhausted"));
@@ -88,7 +89,7 @@ impl CommissioningRepository for PgStore {
         sqlx::query("UPDATE manager.operations SET state=$2,lease_owner=NULL,lease_until=NULL,attempt=attempt-CASE WHEN $3 THEN 1 ELSE 0 END,next_attempt_at=clock_timestamp()+make_interval(secs=>$4),last_condition=$5 WHERE id=$1")
             .bind(claim.id).bind(if blocked {"Blocked"}else{state}).bind(waiting).bind(f64::from(seconds)).bind(&condition).execute(&mut *tx).await.map_err(db_error)?;
         sqlx::query("UPDATE manager.instances SET state=$2,conditions=jsonb_set(conditions,'{commissioning}',$3) WHERE id=$1")
-            .bind(claim.instance_id).bind(if blocked {"Blocked"}else if claim.kind=="commission" || claim.kind=="retry" {"Provisioning"}else{"Suspending"}).bind(condition).execute(&mut *tx).await.map_err(db_error)?;
+            .bind(claim.instance_id).bind(if blocked {"Blocked"}else if enabled {"Provisioning"}else{"Suspending"}).bind(condition).execute(&mut *tx).await.map_err(db_error)?;
         tx.commit().await.map_err(db_error)
     }
 }

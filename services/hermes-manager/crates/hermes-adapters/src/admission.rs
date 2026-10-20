@@ -1,5 +1,7 @@
 //! Namespace-local, typed admission parameters rendered from approved policy.
 //! Shared policy/CRD installation is a trusted release action, never a worker API.
+mod fence;
+pub(crate) use fence::namespace_checks;
 use hermes_application::{Error, InstallationScope};
 use serde_json::{Value, json};
 
@@ -27,7 +29,7 @@ pub fn definition() -> Value {
     }})
 }
 
-pub fn manifests(scope: &InstallationScope) -> Vec<Value> {
+pub fn manifests(scope: &InstallationScope, controller_subject: &str) -> Vec<Value> {
     let mut result = vec![definition()];
     for (resource, group, pod, labels) in [
         ("pods", "", "object.spec", "object.metadata.labels"),
@@ -40,8 +42,11 @@ pub fn manifests(scope: &InstallationScope) -> Vec<Value> {
     ] {
         let name = format!("hb-{}-{resource}", scope.id.simple());
         let mut checks = checks(&scope.id.to_string());
+        checks.push(fence::namespace_enabled());
         if resource == "deployments" {
             checks.push("object.metadata.name == 'hermes' && object.spec.replicas == 1 && object.spec.strategy.type == 'Recreate'".into());
+        } else {
+            checks.extend(fence::pod_start_checks(controller_subject));
         }
         result.extend([
             json!({"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicy","metadata":{"name":name},"spec":{
@@ -55,6 +60,28 @@ pub fn manifests(scope: &InstallationScope) -> Vec<Value> {
             json!({"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":{"name":name},"spec":{"policyName":name,"paramRef":{"name":"instance-policy","parameterNotFoundAction":"Deny"},"validationActions":["Deny"]}}),
         ]);
     }
+    let name = format!("hb-{}-scale-stop", scope.id.simple());
+    let labels = "namespaceObject.metadata.labels";
+    let owned = format!(
+        "namespaceObject != null && has(namespaceObject.metadata.labels) && {labels}['agent-platform.io/installation'] == {} && request.namespace == {} + {labels}['agent-platform.io/instance'].replace('-','')",
+        serde_json::to_string(&scope.id.to_string()).unwrap(),
+        serde_json::to_string(&format!("hi-{}-", &scope.id.simple().to_string()[..24])).unwrap()
+    );
+    let closed = format!(
+        "({owned}) && ({}) && {labels}['agent-platform.io/admission'] == 'closed'",
+        fence::valid(labels)
+    );
+    // ScaleSpec.replicas is an optional non-pointer integer with default zero.
+    // Kubernetes omits its zero value from CEL's object; an absent field here
+    // is the typed Scale API's zero, not the unmerged caller's patch payload.
+    let zero = "!has(object.spec) || !has(object.spec.replicas) || object.spec.replicas == 0";
+    result.extend([
+        json!({"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicy","metadata":{"name":name},"spec":{
+            "failurePolicy":"Fail","matchConstraints":{"matchPolicy":"Equivalent","namespaceSelector":{"matchLabels":{"agent-platform.io/installation":scope.id.to_string()}},"objectSelector":{},"resourceRules":[{"apiGroups":["apps"],"apiVersions":["v1"],"operations":["UPDATE"],"resources":["deployments/scale"],"scope":"Namespaced"}]},
+            "validations":[{"expression":format!("request.userInfo.username == {} && object.metadata.name == 'hermes' && request.name == 'hermes' && ({zero}) && ({closed})",serde_json::to_string(controller_subject).unwrap()),"reason":"Forbidden","message":"Only closed owned Hermes instances may be scaled to zero"}]
+        }}),
+        json!({"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":{"name":name},"spec":{"policyName":name,"validationActions":["Deny"]}}),
+    ]);
     result
 }
 
@@ -84,6 +111,7 @@ fn checks(installation: &str) -> Vec<String> {
         "variables.pod.containers[0].ports.size() == 1 && variables.pod.containers[0].ports[0].name == 'dashboard' && variables.pod.containers[0].ports[0].containerPort == 9119 && variables.pod.containers[0].ports[0].protocol == 'TCP'".into(),
         "!has(variables.pod.containers[0].livenessProbe) && !has(variables.pod.containers[0].restartPolicy) && !has(variables.pod.initContainers[0].restartPolicy) && !has(variables.pod.initContainers[0].startupProbe) && !has(variables.pod.initContainers[0].readinessProbe) && !has(variables.pod.initContainers[0].livenessProbe)".into(),
         "variables.pod.initContainers[0].terminationMessagePath == '/tmp/native-init-result.json' && variables.pod.initContainers[0].terminationMessagePolicy == 'File'".into(),
+        "variables.pod.containers[0].terminationMessagePath == '/dev/termination-log' && variables.pod.containers[0].terminationMessagePolicy == 'File'".into(),
         "variables.pod.volumes.size() == 7".into(),
     ];
     for (probe, failures) in [("startupProbe", 60), ("readinessProbe", 3)] {

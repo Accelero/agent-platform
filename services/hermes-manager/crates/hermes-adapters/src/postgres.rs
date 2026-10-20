@@ -25,8 +25,13 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 mod administration;
 mod commissioning;
 mod execution;
+mod lifecycle;
 mod materials;
+mod namespace_fence;
+mod native_children;
+mod native_stop;
 mod resources;
+mod resync;
 
 #[derive(Clone)]
 pub struct PgStore {
@@ -283,7 +288,7 @@ impl AssignmentStore for PgStore {
         } else {
             mutation.command.clone()
         };
-        let accepted = match &command {
+        let (accepted, was_enabled) = match &command {
             AssignmentCommand::CreateDefaultTemplate { .. } => return Err(Error::Invalid),
             AssignmentCommand::Create {
                 identity,
@@ -317,14 +322,14 @@ impl AssignmentStore for PgStore {
                 sqlx::query("INSERT INTO manager.instances (id,assignment_id,namespace,desired_generation) VALUES ($1,$2,$3,1)")
                     .bind(accepted.instance_id).bind(accepted.assignment_id).bind(instance_namespace(mutation.installation.id, accepted.instance_id))
                     .execute(&mut *tx).await.map_err(db_error)?;
-                accepted
+                (accepted, false)
             }
             AssignmentCommand::SetAccess {
                 assignment_id,
                 expected_version,
                 access,
             } => {
-                let row = sqlx::query("SELECT a.version,i.id FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE a.id=$1 AND a.installation_id=$2 FOR UPDATE OF a,i")
+                let row = sqlx::query("SELECT a.version,a.access,i.id FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE a.id=$1 AND a.installation_id=$2 FOR UPDATE OF a,i")
                     .bind(assignment_id).bind(mutation.installation.id).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or(Error::NotFound)?;
                 if row.get::<i64, _>("version") != *expected_version {
                     return Err(Error::PreconditionFailed);
@@ -333,12 +338,15 @@ impl AssignmentStore for PgStore {
                     .bind(assignment_id).bind(access.as_str()).fetch_one(&mut *tx).await.map_err(db_error)?;
                 let instance_id = row.get::<Uuid, _>("id");
                 advance_instance(&mut tx, instance_id).await?;
-                Accepted {
-                    assignment_id: *assignment_id,
-                    instance_id,
-                    operation_id: Uuid::new_v4(),
-                    version,
-                }
+                (
+                    Accepted {
+                        assignment_id: *assignment_id,
+                        instance_id,
+                        operation_id: Uuid::new_v4(),
+                        version,
+                    },
+                    row.get::<String, _>("access") == "enabled",
+                )
             }
             AssignmentCommand::Retry {
                 instance_id,
@@ -353,12 +361,15 @@ impl AssignmentStore for PgStore {
                 let version = sqlx::query_scalar("UPDATE manager.assignments SET version=version+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING version")
                     .bind(assignment_id).fetch_one(&mut *tx).await.map_err(db_error)?;
                 advance_instance(&mut tx, *instance_id).await?;
-                Accepted {
-                    assignment_id,
-                    instance_id: *instance_id,
-                    operation_id: Uuid::new_v4(),
-                    version,
-                }
+                (
+                    Accepted {
+                        assignment_id,
+                        instance_id: *instance_id,
+                        operation_id: Uuid::new_v4(),
+                        version,
+                    },
+                    false,
+                )
             }
         };
         let row = sqlx::query("SELECT a.access,a.template_id,a.template_version,i.desired_generation FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE a.id=$1")
@@ -369,6 +380,15 @@ impl AssignmentStore for PgStore {
             "suspended" => "suspend",
             _ => "revoke",
         };
+        if access != "enabled" {
+            // Use one database tick for exact duration/provenance. Retrying or
+            // toggling access while a drain is active preserves its deadline.
+            // A new enabled -> disabled cycle may start only after the prior
+            // barrier was actually completed by verified lifecycle work.
+            sqlx::query("WITH tick AS MATERIALIZED (SELECT clock_timestamp() AS now) UPDATE manager.instances i SET drain_generation=CASE WHEN i.drain_started_at IS NULL OR ($2 AND i.drain_completed_at IS NOT NULL) THEN i.desired_generation ELSE i.drain_generation END,drain_epoch=CASE WHEN i.drain_started_at IS NULL OR ($2 AND i.drain_completed_at IS NOT NULL) THEN $3 ELSE i.drain_epoch END,drain_started_at=CASE WHEN i.drain_started_at IS NULL OR ($2 AND i.drain_completed_at IS NOT NULL) THEN tick.now ELSE i.drain_started_at END,drain_deadline_at=CASE WHEN i.drain_started_at IS NULL OR ($2 AND i.drain_completed_at IS NOT NULL) THEN tick.now+interval '5 minutes' ELSE i.drain_deadline_at END,drain_completed_at=CASE WHEN i.drain_started_at IS NULL OR ($2 AND i.drain_completed_at IS NOT NULL) THEN NULL ELSE i.drain_completed_at END FROM tick WHERE i.id=$1")
+                .bind(accepted.instance_id).bind(was_enabled).bind(mutation.installation.epoch)
+                .execute(&mut *tx).await.map_err(db_error)?;
+        }
         let input = json!({"access": access, "templateId": row.get::<String, _>("template_id"), "templateVersion": row.get::<i64, _>("template_version")});
         sqlx::query("INSERT INTO manager.operations (id,installation_id,instance_id,kind,generation,epoch,input) VALUES ($1,$2,$3,$4,$5,$6,$7)")
             .bind(accepted.operation_id).bind(mutation.installation.id).bind(accepted.instance_id).bind(kind)
@@ -654,7 +674,10 @@ impl OperationQueue for PgStore {
         key: &str,
         result: StepResult,
     ) -> Result<(), Error> {
-        if matches!(result, StepResult::Reconciled { .. }) {
+        if matches!(
+            result,
+            StepResult::Reconciled { .. } | StepResult::ObservedMissing
+        ) {
             return Err(Error::OwnershipConflict);
         }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
@@ -676,6 +699,12 @@ impl OperationQueue for PgStore {
         }
         let intent: StepIntent =
             serde_json::from_value(row.get("intent")).map_err(|_| Error::RecoveryRequired)?;
+        if matches!(
+            intent.action,
+            Action::Observe | Action::NativeStop | Action::FenceClose | Action::FenceOpen
+        ) {
+            return Err(Error::OwnershipConflict);
+        }
         let previous: StepResult =
             serde_json::from_value(row.get("result")).map_err(|_| Error::RecoveryRequired)?;
         if previous != StepResult::Unknown && previous != result {
@@ -723,7 +752,7 @@ impl OperationQueue for PgStore {
     async fn finish(&self, scope: &InstallationScope, claim: &OperationClaim) -> Result<(), Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_claim(&mut tx, scope, claim).await?;
-        let complete: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM manager.operation_steps WHERE operation_id=$1) AND NOT EXISTS(SELECT 1 FROM manager.operation_steps WHERE operation_id=$1 AND verified_at IS NULL)")
+        let complete: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM manager.operation_steps WHERE operation_id=$1) AND NOT EXISTS(SELECT 1 FROM manager.operation_steps WHERE operation_id=$1 AND verified_at IS NULL) AND NOT EXISTS(SELECT 1 FROM manager.native_child_actions WHERE operation_id=$1 AND completed_at IS NULL)")
             .bind(claim.id).fetch_one(&mut *tx).await.map_err(db_error)?;
         if !complete {
             return Err(Error::OwnershipConflict);

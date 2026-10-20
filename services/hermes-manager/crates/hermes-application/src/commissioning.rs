@@ -49,6 +49,7 @@ pub struct CommissionPlan {
 #[serde(rename_all = "snake_case")]
 pub enum ConditionReason {
     Provisioning,
+    Draining,
     StoragePending,
     NativePending,
     NativeAuthInvalid,
