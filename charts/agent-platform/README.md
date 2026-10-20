@@ -201,7 +201,12 @@ keys at `/etc/ssh/authorized_keys/worker`, and a writable `/workspace`. Retain t
 entrypoint when extending the generic image. Images needing other software can
 be built independently and selected from native Hermes settings. The SSH server
 accepts explicit environment forwarding; use profile `.env` values and
-`terminal.env_passthrough` names for terminal credentials.
+`terminal.env_passthrough` names for terminal credentials. Hermes reads a
+profile's `env_passthrough` names once per gateway process, so a newly added
+name takes effect after a gateway restart (available in the dashboard); changed
+`.env` values apply immediately. Multica task variables (`MULTICA_TOKEN`,
+`MULTICA_TASK_*` and related) are forwarded to task workers by the plugin for
+every profile and need no `env_passthrough` entry.
 
 ### Persistent storage and namespace permissions
 

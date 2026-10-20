@@ -26,6 +26,15 @@ def session_key():
     return get_session_env("HERMES_SESSION_KEY", "")
 
 
+# Platform-owned Multica task context. Every profile forwards it to task workers
+# over SSH SendEnv, so a profile created later needs no env_passthrough entry.
+MULTICA_TASK_VARIABLES = (
+    'MULTICA_TOKEN', 'MULTICA_TASK_CONFIG_ROOT', 'MULTICA_TASK_WORKSPACES_ROOT',
+    'MULTICA_SERVER_URL', 'MULTICA_WORKSPACE_ID', 'MULTICA_AGENT_ID', 'MULTICA_AGENT_NAME',
+    'MULTICA_TASK_ID', 'MULTICA_TASK_SLOT', 'MULTICA_DAEMON_PORT', 'MULTICA_REPO_CHECKOUT_MODE',
+)
+
+
 def multica_workdir(home=None):
     """The daemon's overlay identifies the task; cwd may change during a run."""
     from hermes_cli.config import get_hermes_home
@@ -383,6 +392,10 @@ class Provider(TerminalEnvironmentProvider):
         home = str(get_hermes_home())
         workdir = multica_workdir(home)
         runtime = {'hermes_home': home, 'workdir': workdir or cwd}
+        if workdir:
+            # Registered in the task's own session context before its SSH session starts.
+            from tools.env_passthrough import register_env_passthrough
+            register_env_passthrough(MULTICA_TASK_VARIABLES)
         if workdir or cwd not in ('/workspace', '/opt/data/workspaces/' + settings['profile']):
             # A profile-wide container cannot carry different task mounts safely.
             settings['mode'] = 'per_session'

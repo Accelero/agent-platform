@@ -126,7 +126,37 @@ def main() -> None:
             runtime.initialize(root=home)
             assert (home / "config.yaml").read_bytes() == saved
     managed_policy_binds_new_profiles()
+    multica_task_context_reaches_every_profile(plugin, provider)
     print("Native Hermes plugin image selection, caching and initialization passed.")
+
+
+def multica_task_context_reaches_every_profile(plugin, provider) -> None:
+    """A Multica task forwards its task variables without profile configuration."""
+    from tools.env_passthrough import get_all_passthrough
+
+    def call(client, endpoint: str, payload=None, **kwargs) -> dict:
+        if endpoint.endswith("/acquire"):
+            return {
+                "lease": "lease",
+                "generation": "generation",
+                "environment": "environment",
+                "ttl": 120,
+                "ssh": {"host": "127.0.0.1", "port": 2222, "user": "worker"},
+            }
+        return {}
+
+    with (
+        patch.object(plugin.Client, "call", call),
+        patch.object(plugin.ManagedSSHEnvironment, "_connect"),
+        patch.object(plugin, "multica_workdir", return_value="/tmp/task/workdir"),
+    ):
+        environment = provider.create_environment(
+            cwd="/workspace", timeout=10, task_id="multica-task"
+        )
+        try:
+            assert set(plugin.MULTICA_TASK_VARIABLES) <= get_all_passthrough()
+        finally:
+            environment.cleanup()
 
 
 def managed_policy_binds_new_profiles() -> None:
