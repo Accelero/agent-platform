@@ -23,6 +23,7 @@ use uuid::Uuid;
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
 mod administration;
+mod commissioning;
 mod materials;
 mod resources;
 

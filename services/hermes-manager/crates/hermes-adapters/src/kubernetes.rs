@@ -147,6 +147,12 @@ impl KubernetesDriver {
             cluster_identity,
         )
     }
+    pub async fn verify_bootstrap(
+        &self,
+        policy: &crate::bootstrap::BootstrapPolicy,
+    ) -> Result<(), Error> {
+        policy.verify(&self.client).await
+    }
     fn api(&self, spec: &ResourceSpec) -> Api<DynamicObject> {
         let (group, version) = spec
             .kind

@@ -70,7 +70,9 @@ published application. This file tracks evidence against the full
   default-deny networking, non-root restricted Pods, disabled service-account
   token mounting and one desired gateway/dashboard replica. Selected Secret files
   keep the initialization key out of the running application. This renderer is
-  not yet connected to a controller or approved template-definition registry.
+  not yet connected to a controller. Approved definitions now have immutable
+  PostgreSQL storage and a typed, digest-checked commissioning-plan reader;
+  release-owned definition registration remains to be integrated.
 - Native home initializer with durable signed intent/completion receipts,
   no-follow home I/O, atomic file creation and missing-only seeding. Rust verifies
   the Python completion receipt for the exact owner and material. Abrupt death
@@ -81,6 +83,19 @@ published application. This file tracks evidence against the full
   OIDC trust augments public roots for independent model-provider onboarding.
   Runtime Python tooling targets the pinned image's Python 3.13 separately from
   the repository's Python 3.14 operational code.
+- Fenced controller scheduling persists waiting/retry/block conditions and due
+  times, releases the claim atomically and reconstructs work after reopening the
+  database. Ordinary readiness waiting preserves the failure budget; API failures
+  remain bounded and provisioning has an absolute 15-minute database-time
+  deadline. Operation input, target, epoch/generation and creation time are now
+  immutable database provenance, separate from mutable claim/scheduling fields.
+- Release-owned bootstrap RBAC and fail-closed namespace/RoleBinding admission
+  renderers, with a bounded preflight using the actual controller credential.
+  The fixed ServiceAccount can bind only its installation-specific reconciler
+  role in an owned instance namespace. Preflight verifies exact policies/RBAC,
+  type-check progress, positive/negative dry-run admission and critical denied
+  privileges. The controller cannot install or relax these shared policies.
+  Workload/worker admission and chart/controller integration remain outstanding.
 
 ## Evidence and remaining gates
 
@@ -88,12 +103,12 @@ published application. This file tracks evidence against the full
 | --- | --- | --- |
 | Identity/domain | Rust domain/application tests; signed-JWT native provider test; real HTTPS OIDC/access-token/session checks | Full native session/middleware coverage, configured Keycloak/public-subject compatibility and external revocation bound |
 | Assignment persistence and resolver | 22 registry tests, ten session/crypto tests, seven token/API HTTPS tests and eight browser/router HTTPS tests, API-only workflow and OpenAPI validation | Remaining runtime/storage/owner/checkpoint endpoints and integrated provider acceptance |
-| Crash journal and ownership | Registry tests plus ten resource/proof tests; real Kubernetes create-before-UID-save recovery, current-version update/retry, foreign UID/proof rejection and finalizer/absence tests | Full controller integration and forced-process-death tests at every external boundary |
+| Crash journal and ownership | Registry tests plus ten resource/proof and six commissioning-plan/scheduling tests; real Kubernetes creation recovery, current-version retries, foreign UID/proof rejection and finalizer/absence tests | Full controller integration and forced-process-death tests at every external boundary |
 | Proxy plugin | Go tests with race detector | Full native HTTP/upload/browser/cookie behavior and configured provider revocation |
 | Traefik | `tests/personal_hermes/router_compatibility.py`, pinned official image | End-to-end Rust/Keycloak/native Hermes acceptance |
 | Existing release | Python checks including OpenAPI validation and native initialization, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
 | Runtime policy/execution | Domain mount-path validation | Catalog/storage/effective-policy database model, execution API, environment/lease transactions, SSH driver and adapter extension |
-| Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; six encrypted-material tests, renderer isolation tests, cross-language receipt verification and 15 initialization tests; built native image startup/restart proof | Controller process, bootstrap RBAC/admission, persisted template definitions, readiness, execution policy and retained suspension integration |
+| Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; encrypted-material and renderer tests, receipt/initialization tests, typed persisted plans/scheduling, real ServiceAccount bootstrap/admission and built native image startup/restart proof | Controller process, workload/worker admission, definition registration, readiness, execution policy and retained suspension integration |
 | Administration UI | Versioned administration contract, bearer and browser-session API; presentation-separated application ports | Remaining runtime/storage/owner/checkpoint contracts, generated client and React/Vite build |
 | Recovery | Fresh/existing registry gate and maintenance/epoch fencing | Trusted inventory scanner, checkpoint/receipt/restore lifecycle and coordinated full-data recovery tests |
 | Distribution | New workspace/plugin checks in CI | Dockerfiles, reviewed release inputs, opt-in chart values/schema/RBAC/networking, operator docs and acceptance qualification |
@@ -140,6 +155,17 @@ replacement and a changed unbound manifest, rejects stale destructive resource
 versions, and holds retirement until finalizers are removed and absence is
 observed. This is a transport/ownership proof with fixture administrator access,
 not admission, non-root Pod, storage, cron or full commissioning acceptance.
+
+The same disposable Kubernetes runner now also tests the actual bootstrap
+ServiceAccount with a short-lived fixture token. It creates an owned namespace
+and the fixed namespace-local RoleBinding, then reads a fixture Secret only there.
+Foreign installation namespaces, changed ownership labels, a different binding
+subject, control-namespace binding and cluster-wide Secret reads are rejected.
+Preflight rejects administrator transport, missing policy, a relaxed failure
+policy and an additional binding that grants ClusterRoleBinding creation.
+Admission type checks and dry-run probes use the live API server. This proves the
+namespace/bootstrap boundary; it does not prove workload/worker image, mount or
+effective-policy admission, CNI enforcement or a functioning controller process.
 
 The personal native runtime test builds the actual Hermes Dockerfile using only
 `release-policy.json` inputs. It runs both gateway and dashboard as UID/GID 1000,

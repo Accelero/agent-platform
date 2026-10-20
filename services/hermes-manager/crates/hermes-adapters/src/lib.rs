@@ -1,6 +1,7 @@
 //! Infrastructure implementations. No adapter is imported by domain/application.
 pub mod auth;
 pub mod auth_config;
+pub mod bootstrap;
 pub mod browser_auth;
 pub mod browser_http;
 pub mod http;

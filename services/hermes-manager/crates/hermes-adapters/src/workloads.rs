@@ -1,43 +1,18 @@
 //! Reviewed personal workload renderer. No caller-supplied Pod/volume manifests.
 use crate::{kubernetes::Manifest, native_bootstrap::NativeBootstrap, native_receipt};
 use base64::{Engine, engine::general_purpose::STANDARD};
+pub use hermes_application::commissioning::TemplateDefinition;
 use hermes_application::{AssignmentView, Error, InstallationScope, materials::MaterialContext};
 use hermes_domain::{
     Access,
     resources::{ResourceKind, ResourceSpec, Retention},
-    validate_image, validate_name,
+    validate_name,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use url::Url;
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct TemplateDefinition {
-    pub schema_version: u32,
-    pub image: String,
-    pub storage_class: String,
-    pub home_gib: u32,
-    pub workspace_gib: u32,
-    pub cpu_millis: u32,
-    pub memory_mib: u32,
-}
-impl TemplateDefinition {
-    pub fn validate(&self) -> Result<(), Error> {
-        validate_image(&self.image)?;
-        validate_name(&self.storage_class)?;
-        if self.schema_version != 1
-            || !(1..=1048576).contains(&self.home_gib)
-            || !(1..=1048576).contains(&self.workspace_gib)
-            || !(10..=64000).contains(&self.cpu_millis)
-            || !(128..=262144).contains(&self.memory_mib)
-        {
-            return Err(Error::Invalid);
-        }
-        Ok(())
-    }
-}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServiceEgress {

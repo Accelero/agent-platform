@@ -1,4 +1,4 @@
-"""Run the Rust ownership tests against a fresh disposable Kubernetes API server.
+"""Run resource ownership and bootstrap tests on a disposable Kubernetes server.
 
 Uses a separate digest-pinned k3s Docker container and a temporary kubeconfig.
 No existing Kubernetes context or deployment credentials are read or modified.
@@ -142,7 +142,7 @@ def main():
             assert result.returncode == 0, "Real Kubernetes ownership test failed"
         print(
             "PASS: isolated Kubernetes creation recovery, namespace/UID ownership "
-            "and preconditioned retirement"
+            "and preconditioned retirement; ServiceAccount bootstrap/admission"
         )
     finally:
         if identifier:
