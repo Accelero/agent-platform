@@ -14,3 +14,20 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- printf "%s-%s-execution" (trimSuffix "-" (trunc 44 .Release.Namespace)) (trunc 8 (sha256sum .Release.Namespace)) -}}
 {{- end -}}
 {{- end -}}
+
+{{/* Registry logins are consumed by kubelet, never by execution processes. */}}
+{{- define "agent-platform.registrySecretName" -}}
+{{- printf "%s-terminal-registry" (trimSuffix "-" (trunc 45 .Release.Name)) -}}
+{{- end -}}
+
+{{- define "agent-platform.workerPullSecrets" -}}
+{{- $references := deepCopy .Values.sandbox.imagePullSecrets -}}
+{{- if .Values.sandbox.registryCredentials -}}
+  {{- $name := include "agent-platform.registrySecretName" . -}}
+  {{- range $references -}}
+    {{- if eq .name $name -}}{{- fail "Generated registry Secret conflicts with an existing imagePullSecrets reference" -}}{{- end -}}
+  {{- end -}}
+  {{- $references = append $references (dict "name" $name) -}}
+{{- end -}}
+{{- $references | toJson -}}
+{{- end -}}

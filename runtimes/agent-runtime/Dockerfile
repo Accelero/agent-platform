@@ -20,5 +20,9 @@ RUN git config --system user.name 'Hermes Agent' \
 RUN chmod 755 /entrypoint.sh
 WORKDIR /workspace
 RUN mkdir -p /home/worker/hostkeys && chown worker:worker /home/worker/hostkeys
+ENV MULTICA_CHECKOUT_UPSTREAM=http://hermes:19515 \
+    MULTICA_CHECKOUT_BIND=127.0.0.1 \
+    MULTICA_CHECKOUT_PORT=19514
+EXPOSE 2222
 USER worker
 ENTRYPOINT ["/entrypoint.sh"]

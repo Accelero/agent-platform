@@ -1,6 +1,7 @@
 {{- if .Values.sandbox.enabled }}
+{{- $references := include "agent-platform.workerPullSecrets" . | fromJsonArray -}}
 {{- $pullSecrets := list -}}
-{{- range .Values.sandbox.imagePullSecrets -}}{{- $pullSecrets = append $pullSecrets .name -}}{{- end -}}
+{{- range $references -}}{{- $pullSecrets = append $pullSecrets .name -}}{{- end -}}
 {{- $roles := (include "agent-platform.runtime" . | fromJson).roles }}
 {{- $policy := printf "%s-%s-workers" (include "agent-platform.executionNamespace" .) .Values.sandbox.policyIdentity }}
 apiVersion: admissionregistration.k8s.io/v1
@@ -33,9 +34,9 @@ spec:
         has(object.spec.automountServiceAccountToken) && !object.spec.automountServiceAccountToken
       message: Workers must use the unprivileged sandbox service account without API tokens.
     - expression: >-
-        {{- if .Values.sandbox.imagePullSecrets }}
+        {{- if $references }}
         has(object.spec.imagePullSecrets) &&
-        size(object.spec.imagePullSecrets) == {{ len .Values.sandbox.imagePullSecrets }} &&
+        size(object.spec.imagePullSecrets) == {{ len $references }} &&
         object.spec.imagePullSecrets.all(s,
           s.name in {{ toJson $pullSecrets }} &&
           size(object.spec.imagePullSecrets.filter(other, other.name == s.name)) == 1)
@@ -77,7 +78,6 @@ spec:
         {{- range $index, $role := keys $roles | sortAlpha }}
         {{- if $index }} || {{ end }}
         (variables.role == {{ toJson $role }} &&
-          object.spec.containers.all(c, c.image in {{ toJson (index $roles $role).images }}) &&
           object.spec.containers.all(c,
             (!has(c.env) || c.env.all(e,
               e.name in {{ toJson (default dict (index $roles $role).environment) }} &&
@@ -130,7 +130,7 @@ spec:
                 false))))
         )
         {{- end }}
-      message: The worker role, image or credential/storage mount is outside its administrator allowlist.
+      message: The worker role or credential/storage mount is outside its configured template.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

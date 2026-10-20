@@ -8,11 +8,14 @@
   {{- fail "The runtime manager requires sandbox admission and network policies" -}}
 {{- end -}}
 {{- $config := deepCopy $settings.config -}}
+{{- if not (hasKey $config.templates (default "hermes" $config.default_template)) -}}
+  {{- fail "runtimeManager.config.default_template must name a configured template" -}}
+{{- end -}}
 {{- if or (hasKey $config "docker") (and (hasKey $config "backend") (ne $config.backend "kubernetes")) -}}
   {{- fail "runtimeManager.config supports only the Kubernetes backend" -}}
 {{- end -}}
 {{- $_ := set $config "backend" "kubernetes" -}}
-{{- $_ := set $config "kubernetes" (dict "namespace" (include "agent-platform.executionNamespace" .) "image_pull_secrets" .Values.sandbox.imagePullSecrets) -}}
+{{- $_ := set $config "kubernetes" (dict "namespace" (include "agent-platform.executionNamespace" .) "image_pull_secrets" (include "agent-platform.workerPullSecrets" . | fromJsonArray)) -}}
 {{- $clients := dict -}}
 {{- range $name, $client := $settings.clients -}}
   {{- $_ := set $clients $name (dict "deployment" $client.deployment "token_file" (printf "/run/runtime-manager-auth/%s" $name)) -}}
@@ -30,9 +33,6 @@
   {{- if hasKey $roles $role -}}{{- fail "Each runtime role must have exactly one template" -}}{{- end -}}
   {{- $image := default (index $.Values.images "agent-runtime") $template.image -}}
   {{- $_ := set $template "image" $image -}}
-  {{- $images := default (list $image) $template.allowed_images -}}
-  {{- if not (has $image $images) -}}{{- fail "Runtime allowed_images must include the default image" -}}{{- end -}}
-  {{- $_ := set $template "allowed_images" $images -}}
   {{- $_ := set $spec "uid" $settings.uid -}}
   {{- $_ := set $spec "gid" $settings.gid -}}
   {{- $_ := set $spec "service_account" $.Values.sandbox.workerServiceAccount -}}
@@ -134,7 +134,7 @@
     {{- end -}}
     {{- if ne (len $paths) 3 -}}{{- fail "Runtime task, home and history storage require three separate selected claims" -}}{{- end -}}
   {{- end -}}
-  {{- $_ := set $roles $role (dict "images" $images "mounts" $mounts "environment" (default dict $spec.environment)) -}}
+  {{- $_ := set $roles $role (dict "mounts" $mounts "environment" (default dict $spec.environment)) -}}
 {{- end -}}
 {{- dict "config" $config "roles" $roles | toJson -}}
 {{- end -}}

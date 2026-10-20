@@ -64,19 +64,14 @@ class Manager:
                 self.db.execute("UPDATE environments SET idle_since=? WHERE id=?", (now, row[0]))
 
     def _template(self, deployment, profile, name, mode, image=None):
-        policy = self.config.get("deployments", {}).get(deployment)
-        if not policy:
+        if deployment not in self.config.get('deployments', {}):
             raise ValueError("Unknown deployment")
-        profiles = policy.get("profiles", {})
-        allowed = profiles.get(profile, profiles.get("*"))
-        if not allowed or name not in allowed.get("templates", []) or mode not in allowed.get("modes", list(MODES)):
-            raise ValueError("Profile, template or lifetime mode is not permitted")
+        if name not in self.config.get('templates', {}) or mode not in MODES:
+            raise ValueError("Unknown terminal template or lifetime mode")
         template = dict(self.config["templates"][name])
         if image is not None:
-            if not isinstance(image, str) or not image or len(image) > 512 or any(c.isspace() for c in image):
+            if not isinstance(image, str) or not image or len(image) > 512 or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in image):
                 raise ValueError("Invalid terminal image")
-            if image not in template.get('allowed_images', [template.get('image')]):
-                raise Forbidden("Terminal image is not approved for this template")
             template['image'] = image
         fingerprint = hashlib.sha256(json.dumps(template, sort_keys=True).encode()).hexdigest()
         return template, fingerprint
@@ -174,6 +169,11 @@ class Manager:
                         self._delete(other)
                 if row and template.get('exclusive') and self._count(row['id']) and not existing:
                     raise Conflict('Codex environment is already executing a run')
+                if row and row['template'] != name:
+                    if existing or joined or self._count(row['id']):
+                        raise Conflict('Terminal template changed while a run is active')
+                    self._delete(row)
+                    row = None
                 if row and row['image'] != payload.get('image'):
                     if existing or joined or self._count(row['id']):
                         raise Conflict('Terminal image changed while a run is active')

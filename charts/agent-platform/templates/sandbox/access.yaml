@@ -20,7 +20,7 @@ metadata:
   name: {{ .Values.sandbox.workerServiceAccount }}
   namespace: {{ (include "agent-platform.executionNamespace" .) }}
 automountServiceAccountToken: false
-{{- with .Values.sandbox.imagePullSecrets }}
+{{- with (include "agent-platform.workerPullSecrets" . | fromJsonArray) }}
 imagePullSecrets: {{ toYaml . | nindent 2 }}
 {{- end }}
 ---

@@ -8,30 +8,23 @@ hermes:
         entries:
           managed_execution:
             settings:
+              template: research
               image: &researchImage registry.example.org/research-terminal:1
     coding:
       plugins:
         entries:
           managed_execution:
             settings:
+              template: coding
               image: &codingImage registry.example.org/coding-terminal:1
 sandbox:
   imagePullSecrets:
   - name: private-registry
 runtimeManager:
   config:
-    deployments:
-      hermes-stack:
-        profiles:
-          research:
-            templates: [research]
-            modes: [per_session, per_profile_on_demand]
-          coding:
-            templates: [coding]
-            modes: [per_session, per_profile_on_demand]
+
     templates:
       research:
-        allowed_images: [*defaultImage, *researchImage]
         workdir_scope: &taskScope
           validation_root: /opt/hermes-workspaces
           controller_root: /opt/data/.multica/workspaces
@@ -64,7 +57,6 @@ runtimeManager:
             subPath: published
             readOnly: true
       coding:
-        allowed_images: [*defaultImage, *codingImage]
         workdir_scope: *taskScope
         kubernetes:
           role: coding

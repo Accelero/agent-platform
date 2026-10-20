@@ -54,13 +54,22 @@ def main() -> None:
         try:
             # Same provider/session, changing native profile settings. A cached
             # environment must never conceal the new image selection.
-            for image in ("example.org/research:1", "example.org/coding:2", ""):
+            for template, image in (
+                ("research", "example.org/research:1"),
+                ("coding", "example.org/coding:2"),
+                ("research", ""),
+                ("coding", ""),
+            ):
                 config = {
                     "terminal": {"backend": "managed_execution", "cwd": "/workspace"},
                     "plugins": {
                         "entries": {
                             "managed_execution": {
-                                "settings": {"image": image, "profile": "default"}
+                                "settings": {
+                                    "image": image,
+                                    "template": template,
+                                    "profile": "default",
+                                }
                             }
                         }
                     },
@@ -77,6 +86,7 @@ def main() -> None:
                 )
                 assert payload.get("image", "") == image
                 assert payload["profile"] == "default"
+                assert payload["template"] == template
                 assert (
                     not image
                     or payload["image"] != "nikolaik/python-nodejs:python3.11-nodejs20"
@@ -87,7 +97,7 @@ def main() -> None:
                     )
                     is environment
                 )
-            assert len({id(environment) for environment in environments}) == 3
+            assert len({id(environment) for environment in environments}) == 4
         finally:
             for environment in environments:
                 environment.cleanup()

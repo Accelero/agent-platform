@@ -20,7 +20,8 @@
     "values.schema.json",
     "values.yaml",
     "templates/bootstrap.yaml",
-    "templates/_bootstrap.tpl"
+    "templates/_bootstrap.tpl",
+    "templates/sandbox/registry.yaml"
   ],
   "contexts": {
     "hermes": {

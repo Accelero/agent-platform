@@ -87,7 +87,7 @@ def test_complete_application_uses_chart_defaults_and_named_credentials(
     template = config["templates"]["hermes"]
     assert template["image"] == values["images"]["agent-runtime"]
     assert template["kubernetes"]["uid"] == 1000
-    assert values["images"]["agent-runtime"] in policy(objects)
+    assert "c.image in" not in policy(objects)
     manager = objects["Deployment", "runtime-manager"]["spec"]["template"]["spec"]
     auth = next(
         volume for volume in manager["volumes"] if volume["name"] == "manager-token"
@@ -284,7 +284,8 @@ def test_image_identity_and_mount_changes_reach_manager_and_admission_together(
     spec = native(objects)["templates"]["hermes"]["kubernetes"]
     assert spec["uid"] == 1200 and spec["gid"] == 1300
     expression = policy(objects)
-    assert IMAGE in expression and 'claimName == "custom-tasks"' in expression
+    assert 'claimName == "custom-tasks"' in expression
+    assert native(objects)["templates"]["hermes"]["image"] == IMAGE
     assert "runAsUser == 1200" in expression and "runAsGroup == 1300" in expression
     assert values["images"]["agent-runtime"] not in expression
     # A task-only mount cannot authorize its parent PVC directory or another path.

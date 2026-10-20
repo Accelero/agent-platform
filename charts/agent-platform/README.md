@@ -15,12 +15,12 @@ by Helm. Browser/search/memory and further agents remain optional and disabled.
 Administrators supply ordinary Helm values. `templates/_runtime.tpl` derives both:
 
 1. `runtime-manager-config`, a ConfigMap whose `config.yaml` is the native manager
-   configuration: clients and token-file references, allowed deployment/profile
+   configuration: clients and token-file references, named terminal
    templates, lease/idle/recycle settings, runtime images, UID/GID, volumes and
    task/profile workspace mappings.
 2. The admission allowlist used by `ValidatingAdmissionPolicy`: matching runtime
-   roles, exact image references, literal environment values, selected PVC/Secret
-   mounts and bounded per-task path patterns. The policy rejects different images,
+   roles, literal environment values, selected PVC/Secret
+   mounts and bounded per-task path patterns. The policy rejects
    extra containers, host volumes, API tokens and unapproved credential mounts.
 
 There is one source of settings. For example:
@@ -49,9 +49,9 @@ Helm merges this with defaults, writes the client credential path into native YA
 mounts that selected Secret key into the manager, and admits only the same task
 claim and non-root identity. The default runtime image comes from the chart's
 `images.agent-runtime` digest. An explicit template `image` overrides that fallback.
-`allowed_images` defines the image references Hermes may select for that template;
-it defaults to the fallback image alone and must include that fallback. Both the
-manager and admission policy enforce the same list. Templates reject duplicated roles/volumes, unsupported volume
+Hermes may override the image and select any configured template by name.
+There are no image allowlists or per-profile template permissions. Templates
+reject duplicated roles/volumes, unsupported volume
 sources, writable/unselected Secret mounts and unsafe subpaths. The values schema
 rejects manually supplied `sandbox.roles`, preventing a second competing policy.
 Changes to generated configuration update Pod checksums and roll the affected
@@ -136,8 +136,8 @@ point. Native Hermes and runtime-manager settings govern task concurrency.
 
 ## Native profiles and terminal workers
 
-These interfaces describe the next chart revision; published 0.6.2 retains the
-older personal-assistant execution preset.
+Release 0.6.3 provides these interfaces. Earlier releases retain the older
+personal-assistant execution preset.
 
 The default chart has one native root Hermes configuration, no named profiles and
 no personal-assistant preset. `hermes.config` supplies its initial native YAML.
@@ -149,7 +149,7 @@ Change an existing native config through native Hermes administration. A termina
 image change takes effect when Hermes creates a new execution environment; active
 leases finish before the manager replaces their worker generation.
 
-A profile selects its terminal image through the managed-execution plugin:
+A profile selects a named terminal template and optional image through the managed-execution plugin:
 
 ```yaml
 terminal:
@@ -159,6 +159,7 @@ plugins:
   entries:
     managed_execution:
       settings:
+        template: hermes
         image: registry.example.org/team/terminal:1
         mode: per_profile_on_demand
 ```
@@ -172,19 +173,26 @@ these settings from the active profile, including task overlays. An explicit
 image is persisted with the execution environment so manager restarts and worker
 recycling keep that selection.
 
-Authorize each profile in
-`runtimeManager.config.deployments.<deployment>.profiles`, selecting one execution
-template and permitted lifetime modes. That template's `allowed_images` must
-include its chosen image and its default. The mapping supplies storage/resources
-policy; it does not duplicate which image the profile selects.
+Authenticated clients can use any configured template from any profile, including
+new profiles created at runtime. `runtimeManager.config.default_template` defaults
+to `hermes`; an omitted plugin template selects it. The chosen template supplies
+its default image unless Hermes sends an explicit image override. There are no
+profile-to-template permissions, image catalogs or image admission restrictions.
+Templates continue to own mounts, resource limits and lifecycle defaults. Each
+client token still binds its deployment identity and cannot access another
+client's leases. Changed template/image selections wait for active leases to
+finish before replacing an existing worker.
 
-The generic `agent-runtime` is retained as the default worker. Specialized personal,
+The release packages the Ubuntu-based `agent-runtime` with Multica CLI and the
+restricted task checkout proxy, and pins it as the default template image. Specialized personal,
 developer, browser and operator images are deployment responsibilities. Custom
 images must implement the worker contract: non-root UID/GID matching
 `runtimeManager.uid`/`gid` (default 1000), SSH on TCP 2222, user `worker`, authorized
 keys at `/etc/ssh/authorized_keys/worker`, and a writable `/workspace`. Retain the
 entrypoint when extending the generic image. Images needing other software can
-be built independently and selected by their exact reference in deployment values.
+be built independently and selected from native Hermes settings. The SSH server
+accepts explicit environment forwarding; use profile `.env` values and
+`terminal.env_passthrough` names for terminal credentials.
 
 ### Persistent storage and namespace permissions
 
@@ -213,11 +221,30 @@ namespace, with a RoleBinding granting only Pod `get`, `create` and `delete` in
 that one execution namespace. It has no cluster-wide admin, PVC management or
 Secret-reading permission. Worker PVC references resolve only in their own
 namespace. Admission further restricts them to the Helm-approved claims, mount
-paths and subpaths. Hermes requests cannot supply a namespace, PVC name, template
-or container mount specification. Infrastructure administrators choose storage
-policy through Helm; native Hermes config can only select an approved image.
+paths and subpaths. Hermes requests cannot supply a namespace, PVC name or
+container mount specification. Infrastructure administrators define templates
+through Helm; trusted native Hermes config selects their names and worker images.
 
 ### Private registry credentials
+
+Registry credentials are objects keyed by registry address, because each login
+belongs to one registry. Passwords may be registry access tokens:
+
+```yaml
+sandbox:
+  registryCredentials:
+    ghcr.io:
+      username: robot-account
+      password: <read-packages-token>
+    registry.example.org:5000:
+      username: another-account
+      password: <registry-token>
+```
+
+The chart creates `<release>-terminal-registry` in the execution namespace, with
+all configured logins in a standard Docker config Secret. Values are sensitive;
+use protected Helm inputs or reference externally managed Secrets instead. Both
+sources combine into the pull-Secret list on every manager-created worker.
 
 Reference existing Kubernetes registry Secrets in the execution namespace:
 

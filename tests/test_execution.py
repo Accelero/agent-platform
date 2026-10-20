@@ -1,5 +1,7 @@
 """Verify native image selection, lease transitions and persisted reconciliation."""
 
+import base64
+import json
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,13 +24,13 @@ def execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     config = {
         "clients": {"hermes": {"deployment": "fixture"}},
+        "default_template": "terminal",
         "deployments": {
             "fixture": {"profiles": {"default": {"templates": ["terminal"]}}}
         },
         "templates": {
             "terminal": {
                 "image": DEFAULT_IMAGE,
-                "allowed_images": [DEFAULT_IMAGE, CUSTOM_IMAGE],
                 "kubernetes": {"role": "hermes"},
             }
         },
@@ -91,13 +93,9 @@ def test_absent_profile_image_uses_deployment_default(execution):
     assert execution.backend.ensure.call_args.args[2]["image"] == DEFAULT_IMAGE
 
 
-@pytest.mark.parametrize(
-    "image", ["unapproved:latest", "", "bad image", [CUSTOM_IMAGE]]
-)
-def test_invalid_or_unapproved_images_never_reach_backend(execution, image):
-    from manager import Forbidden
-
-    with pytest.raises((Forbidden, ValueError)):
+@pytest.mark.parametrize("image", ["", "bad image", "image\x00", [CUSTOM_IMAGE]])
+def test_invalid_images_never_reach_backend(execution, image):
+    with pytest.raises(ValueError):
         acquire(execution, image=image)
     execution.backend.ensure.assert_not_called()
 
@@ -117,43 +115,63 @@ def test_image_change_drains_live_worker_and_replaces_idle_generation(execution)
     assert execution.backend.ensure.call_args.args[2]["image"] == CUSTOM_IMAGE
 
 
-def test_revoked_image_is_retired_without_restarting(execution):
-    lease = acquire(execution, image=CUSTOM_IMAGE, mode="per_profile_always_running")
-    execution.config["templates"]["terminal"]["allowed_images"] = [DEFAULT_IMAGE]
-    execution.manager.maintain()
-    execution.backend.remove.assert_not_called()
-    execution.manager.release(lease["lease"], reconcile=False)
-    execution.backend.ensure.reset_mock()
-    execution.manager.maintain()
-    execution.backend.remove.assert_called_once()
-    execution.backend.ensure.assert_not_called()
-    assert not execution.manager.status()
-
-
-def test_helm_image_catalog_matches_manager_and_admission(tmp_path: Path):
-    values = {
-        "workloads": {"runtime-manager": {"enabled": True}},
-        "runtimeManager": {
-            "config": {
-                "templates": {
-                    "hermes": {
-                        "image": DEFAULT_IMAGE,
-                        "allowed_images": [DEFAULT_IMAGE, CUSTOM_IMAGE],
-                    }
-                }
-            }
-        },
+def test_any_profile_can_select_any_template_and_image(execution):
+    execution.config["templates"]["other"] = {
+        "image": "elsewhere.example/default:1",
+        "kubernetes": {"role": "other"},
     }
-    objects = render(tmp_path, values)
-    template = native(objects)["templates"]["hermes"]
-    assert template["allowed_images"] == [DEFAULT_IMAGE, CUSTOM_IMAGE]
+    lease = acquire(
+        execution,
+        profile="new-profile",
+        template="other",
+        image="another-registry.example/image:2",
+    )
+    assert (
+        execution.backend.ensure.call_args.args[2]["image"]
+        == "another-registry.example/image:2"
+    )
+    execution.manager.release(lease["lease"], reconcile=False)
+    acquire(execution, profile="second-profile", template="other", request="second")
+    assert (
+        execution.backend.ensure.call_args.args[2]["image"]
+        == "elsewhere.example/default:1"
+    )
+
+
+def test_template_change_waits_for_active_work(execution):
+    from manager import Conflict
+
+    execution.config["templates"]["other"] = deepcopy(
+        execution.config["templates"]["terminal"]
+    )
+    first = acquire(execution)
+    with pytest.raises(Conflict, match="template changed"):
+        acquire(execution, template="other", request="next")
+    execution.manager.release(first["lease"], reconcile=False)
+    second = acquire(execution, template="other", request="next")
+    assert first["generation"] != second["generation"]
+    assert (
+        execution.manager.db.execute("SELECT template FROM environments").fetchone()[0]
+        == "other"
+    )
+
+
+def test_helm_defaults_image_without_restricting_admission(tmp_path: Path):
+    objects = render(
+        tmp_path,
+        {
+            "workloads": {"runtime-manager": {"enabled": True}},
+            "runtimeManager": {
+                "config": {"templates": {"hermes": {"image": DEFAULT_IMAGE}}}
+            },
+        },
+    )
+    assert native(objects)["templates"]["hermes"]["image"] == DEFAULT_IMAGE
+    assert "allowed_images" not in native(objects)["templates"]["hermes"]
     expression = policy(objects)
-    assert DEFAULT_IMAGE in expression and CUSTOM_IMAGE in expression
-    invalid = deepcopy(values)
-    invalid["runtimeManager"]["config"]["templates"]["hermes"]["allowed_images"] = [
-        CUSTOM_IMAGE
-    ]
-    assert "include the default image" in render(tmp_path, invalid, valid=False)
+    assert "c.image in" not in expression
+    assert DEFAULT_IMAGE not in expression
+    assert "claimName" in expression
 
 
 def test_registry_secrets_reach_worker_pods_without_becoming_mounted_credentials(
@@ -216,7 +234,7 @@ def test_profile_images_registry_credentials_and_distinct_pvc_layouts_work_toget
     monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
     from api import ExecutionAPI
     from backends import KubernetesBackend
-    from manager import Forbidden, Manager
+    from manager import Manager
 
     values = yaml.safe_load(
         (ROOT / "examples/terminal-backends/values.yaml").read_text()
@@ -255,6 +273,7 @@ def test_profile_images_registry_credentials_and_distinct_pvc_layouts_work_toget
                 "request": profile,
                 "mode": "per_session",
                 "image": settings["image"],
+                "template": settings["template"],
                 "runtime": {"hermes_home": "/opt/data", "workdir": "/workspace"},
             }
             api.dispatch("hermes", "/v1/leases/acquire", payload)
@@ -280,14 +299,18 @@ def test_profile_images_registry_credentials_and_distinct_pvc_layouts_work_toget
             assert mount["mountPath"] == path
             assert mount["readOnly"] is readonly
             assert mount["subPath"] == ("published" if readonly else "projects")
-            assert settings["image"] in policy(objects)
+            assert "c.image in" not in policy(objects)
             assert f'claimName == "{claim}"' in policy(objects)
-            with pytest.raises(Forbidden):
-                api.dispatch(
-                    "hermes",
-                    "/v1/leases/acquire",
-                    {**payload, "image": "registry.example.org/unapproved:latest"},
-                )
+            api.dispatch(
+                "hermes",
+                "/v1/leases/acquire",
+                {
+                    **payload,
+                    "session": "other",
+                    "request": profile + "-other",
+                    "image": "registry.example.org/another:latest",
+                },
+            )
     finally:
         manager.db.close()
 
@@ -347,3 +370,66 @@ def test_execution_namespace_defaults_to_the_application_and_cannot_share_it(
     assert "dedicated execution namespace" in render(
         tmp_path, {"sandbox": {"namespace": "agents"}}, valid=False
     )
+
+
+def test_helm_registry_objects_generate_one_secret_for_all_worker_images(
+    tmp_path: Path,
+):
+    objects = render(
+        tmp_path,
+        {
+            "workloads": {"runtime-manager": {"enabled": True}},
+            "sandbox": {
+                "imagePullSecrets": [{"name": "external-registry"}],
+                "registryCredentials": {
+                    "ghcr.io": {"username": "robot", "password": "fixture-ghcr-token"},
+                    "registry.example.org:5000": {
+                        "username": "other",
+                        "password": "fixture-other-token",
+                    },
+                },
+            },
+        },
+    )
+    secret = objects["Secret", "agents-terminal-registry"]
+    assert secret["metadata"]["namespace"] == "agents-execution"
+    assert secret["type"] == "kubernetes.io/dockerconfigjson"
+    auths = json.loads(base64.b64decode(secret["data"][".dockerconfigjson"]))["auths"]
+    assert base64.b64decode(auths["ghcr.io"]["auth"]) == b"robot:fixture-ghcr-token"
+    assert (
+        base64.b64decode(auths["registry.example.org:5000"]["auth"])
+        == b"other:fixture-other-token"
+    )
+    references = [{"name": "external-registry"}, {"name": "agents-terminal-registry"}]
+    assert native(objects)["kubernetes"]["image_pull_secrets"] == references
+    assert objects["ServiceAccount", "sandbox-worker"]["imagePullSecrets"] == references
+    assert "size(object.spec.imagePullSecrets) == 2" in policy(objects)
+    assert "fixture-ghcr-token" not in json.dumps(native(objects))
+    assert "fixture-other-token" not in policy(objects)
+    manager = objects["Deployment", "runtime-manager"]
+    assert "agents-terminal-registry" not in json.dumps(manager)
+
+
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        ["one-token"],
+        {"ghcr.io": {"password": "token"}},
+        {"ghcr.io": {"username": "robot", "password": ""}},
+        {"ghcr.io": {"username": "robot:bad", "password": "token"}},
+        {"ghcr.io": {"username": "robot", "password": "token", "extra": "invalid"}},
+    ],
+)
+def test_registry_object_requires_registry_specific_complete_logins(
+    tmp_path: Path, credentials
+):
+    render(tmp_path, {"sandbox": {"registryCredentials": credentials}}, valid=False)
+
+
+def test_default_template_must_exist(tmp_path: Path):
+    error = render(
+        tmp_path,
+        {"runtimeManager": {"config": {"default_template": "missing"}}},
+        valid=False,
+    )
+    assert "must name a configured template" in error
