@@ -1,8 +1,24 @@
-# Personal Hermes manager development
+# Personal Hermes manager
 
-This workspace implements the shared manager described in the
-[specification](../../docs/personal-hermes/specification.md). It is under
-development and is not installed by the 0.6.1 chart.
+For infrastructure-owned per-user deployments, see
+[database-driven native commissioning](../../docs/personal-hermes/native-commissioning.md).
+That path consumes desired user/template rows and manages native workloads and
+retained state independently of terminal readiness, routing or a browser panel.
+
+The infrastructure path has been tested with two real Hermes instances on
+Kubernetes, including image/admin-config updates, Pod restart and mapping
+removal/re-add with retained PVC data and credentials. The manager does not
+discover upstream image releases; infrastructure must update the template's
+image digest. Updates use bounded process termination and can interrupt active
+agent runs.
+
+There is no automated backup or manager admin frontend. Terminal worker
+orchestration and combined routing/lifecycle integration remain incomplete.
+The manager is not installed by the 0.6.1 chart. The
+[implementation status](../../docs/personal-hermes/implementation.md) is the
+current capability/evidence index; the
+[specification](../../docs/personal-hermes/specification.md) describes the wider
+target product.
 
 `hermes-domain` contains exact identity, lifecycle, naming and mount invariants.
 `hermes-application` authorizes assignment commands and defines transactional
@@ -22,9 +38,10 @@ The PostgreSQL adapter uses bounded connection/statement/lock deadlines and
 requires durable server settings. Migrations and installation initialization are
 explicit operator operations. Existing-mode checks reject missing/mismatched
 installation identity, epoch, migration history, unsupported schema, restore
-mode and unlogged control tables. Fresh initialization requires evidence from
-the trusted external inventory adapter; the real Kubernetes/storage scanner
-must still be implemented. Database failures never select a fresh/local store.
+mode and unlogged control tables. Explicit fresh initialization uses a bounded
+live namespace/PV inventory and rejects retained or unexplained installation
+resources. It does not restore a lost database or payload. Database failures
+never select a fresh/local store.
 
 Operations use database-time leases, monotonically increasing fencing tokens,
 immutable step intents and verified outcomes. An uncertain initializer blocks
@@ -52,13 +69,16 @@ DATABASE_URL=postgres://hermes_test@127.0.0.1:5432/hermes_test \
 ```
 
 The Checks workflow supplies the pinned PostgreSQL fixture and runs formatting,
-Clippy and all tests. The [implementation evidence](../../docs/personal-hermes/implementation.md)
-tracks the broader service, router, UI, execution and recovery work.
+Clippy and all tests. The [verification commands](../../docs/personal-hermes/implementation.md#verification-commands)
+also describe the disposable database and explicit process/Kubernetes/native
+acceptance fixtures.
 
 ## API process and authentication
 
-The `hermes-manager` executable implements `api`, `migrate`, `check` and
-`controller` roles. The controller has a separate configuration described below.
+The `hermes-manager` executable implements `api`, `migrate`, `check`, `controller`,
+`initialize` and `render-bootstrap` roles. The controller has a separate
+configuration described below; the two installation commands use that same
+configuration, as described in the native commissioning guide.
 Use the [configuration reference](api.example.json) with deployment-owned Secret
 files. Configuration accepts file references, never inline database credentials
 or TLS keys. The manager does not print underlying configuration/database/TLS
@@ -80,8 +100,9 @@ optional `execution` configuration binds a third TLS listener using an independe
 certificate/key file pair; omitting it leaves the native execution API unbound. It can remain available for
 authentication/lifecycle coordination during maintenance/restore, while all
 assignment mutation and routing transactions retain their fail-closed gates.
-The trusted fresh inventory and checkpoint/restore adapters are still required
-before a deployment can initialize or recover a real installation.
+Fresh installation uses the explicit `initialize` command and live inventory
+scanner described in the native commissioning guide. Coordinated checkpoint and
+full-data restore adapters remain unimplemented.
 
 The administration listener implements the
 [administration contract](../../contracts/hermes-manager/openapi.yaml), including
@@ -144,7 +165,7 @@ no administration/execution endpoints. Every resolution rechecks current
 assignment authorization and registered destination ownership/generation, with
 an overall deadline below two seconds and no-store responses.
 
-Seven HTTPS integration tests use real certificates, real RSA signatures, a
+HTTPS integration tests use real certificates, real RSA signatures, a
 bounded TLS JWKS fixture and PostgreSQL. They cover role/audience/client/issuer
 separation, invalid/expired/stale signatures/evidence, wrong mTLS identities,
 missing/forged authentication, API-only mutations, races, unknown/oversized input,
@@ -281,9 +302,13 @@ UID/proof rejection, safe manifest updates, stale delete preconditions, pending
 finalizers and absence-before-completion. A second test uses the actual
 constrained controller ServiceAccount, verifies bootstrap/admission, commissions
 an assignment from the PostgreSQL outbox and kills/reopens the compiled
-controller between Secret creation and UID persistence. The fixture uses an
+controller between Secret creation and UID persistence. The base fixture uses an
 unavailable application image; creating resources does not prove a running
-native instance or publish a route.
+native instance or publish a route. Add `--native` after building the reviewed
+runtime with `uv run python -m tests.personal_hermes.native_runtime --build` to
+also run the two-user real-native commissioning acceptance test. That test
+verifies image/admin updates, Pod restart, removal/re-add and persistent state;
+it does not test real Keycloak login or terminal SSH.
 
 ## Commissioning controller
 
@@ -312,9 +337,12 @@ It cannot install or relax those shared policies itself.
 control namespace/ServiceAccount/reconciler role, public HTTPS origin, native OIDC
 client, execution port/public CA, optional private OIDC CA, exact service-egress
 selectors and optional public HTTPS egress. Public certificate material is
-validated. Instance templates must already have immutable approved definitions
-whose typed digest matches the registered image and schema. Template registration
-and chart configuration generation remain separate integration work.
+validated. Infrastructure supplies typed definitions in
+`manager.infrastructure_templates` and per-user selection in
+`manager.desired_users`; the controller validates and snapshots them into the
+immutable catalog. The existing API-managed path still requires registered
+approved catalog definitions. Personal-mode chart configuration remains separate
+integration work.
 
 The worker claims committed operations using PostgreSQL leases. It persists
 encrypted create-once native credentials, then freezes the complete initial
@@ -330,12 +358,15 @@ OIDC provider, login redirect and unauthenticated API denial through the owned
 Service, with no redirects, proxy environment or cookies. Probe ingress permits
 only controller/router components in the configured control namespace on the
 native dashboard port. It persists specific waiting conditions and retains the
-commissioning deadline. Passing these checks still waits for effective execution
-policy; the combined path also needs full native/cluster acceptance. No route is
-published by this implementation. Suspension/re-enable, periodic resync of
-completed instances and the terminal lifecycle need combined acceptance; coordinated
-recovery remains unfinished;
-do not enable this development controller against an existing deployment.
+commissioning deadline. For infrastructure-managed native assignments, passing
+these observations completes the operation as `Ready`, without terminal readiness
+or route publication. Image/template changes update the Recreate Deployment;
+the shutdown and persistence limits are described in the native commissioning
+guide. Periodic resync and transient infrastructure retry use durable SQL work.
+The API-managed combined path still waits for effective execution policy, and
+full terminal/native/routing lifecycle acceptance remains open. Coordinated
+recovery and adoption are unfinished; this source branch does not provide an
+upgrade/adoption procedure for an existing singleton deployment.
 
 The execution-policy foundation stores immutable runtime versions, owner-local
 storage/pull references and resolved desired policy generations with audited,
@@ -362,12 +393,15 @@ readiness requires that committed start. Stops target registered UIDs, and delet
 acceptance does not prove absence. An old name cannot authorize deleting a new
 Pod. Completed-instance resync uses a durable database cadence.
 
-Terminal execution draining and verified lifecycle completion are still being
-integrated. Native shutdown alone does not mark an assignment Suspended/Retained,
-finish its original drain barrier, re-enable native work or publish a route.
+Infrastructure-managed native removal completes as `Retained` only after the
+exact Deployment and registered children are absent. The namespace, PVCs and
+credentials remain; re-adding its desired mapping can start a new Deployment
+incarnation using the retained state. This native-only path does not wait for
+terminal readiness and refuses completion while non-retired execution
+environments remain.
 
-
-Development is paused at the user's request. See the
-[paused handoff](../../docs/personal-hermes/implementation.md#paused-handoff--2026-10-20)
-for the exact implemented boundary, known gaps, verification commands and resume
-sequence. The full specification remains open; this branch is not ready to deploy.
+The API-managed combined lifecycle still needs terminal drain and completion
+integration. Native shutdown alone cannot complete that barrier or publish a
+route. Neither retained PVCs nor the fresh-install inventory implement backups
+or full-data restore. See the implementation status for the consolidated
+remaining work.

@@ -15,11 +15,29 @@ pub struct TemplateDefinition {
     pub workspace_gib: u32,
     pub cpu_millis: u32,
     pub memory_mib: u32,
+    /// Read-only native managed scope. User config stays on the home PVC.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub admin_config: serde_json::Map<String, serde_json::Value>,
 }
 impl TemplateDefinition {
     pub fn validate(&self) -> Result<(), Error> {
         validate_image(&self.image)?;
         validate_name(&self.storage_class)?;
+        if let Some(terminal) = self.admin_config.get("terminal")
+            && (!terminal.is_object()
+                || terminal
+                    .get("backend")
+                    .is_some_and(|v| v != "managed_execution"))
+        {
+            return Err(Error::Invalid);
+        }
+        if serde_json::to_vec(&self.admin_config)
+            .map_err(|_| Error::Invalid)?
+            .len()
+            > 8192
+        {
+            return Err(Error::Invalid);
+        }
         if self.schema_version != 1
             || !(1..=1048576).contains(&self.home_gib)
             || !(1..=1048576).contains(&self.workspace_gib)
@@ -54,6 +72,8 @@ pub enum ConditionReason {
     NativePending,
     NativeAuthInvalid,
     ExecutionPolicyPending,
+    NativeReady,
+    NativeRemoved,
     AdmissionUnavailable,
     TemplateUnavailable,
     OwnershipConflict,

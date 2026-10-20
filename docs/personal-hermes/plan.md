@@ -1,9 +1,13 @@
 # Personal Hermes implementation plan
 
 Status: implementation in progress on `feat/personal-hermes-commissioning`. The
-services described here are not implemented in release 0.6.1. See the
-[implementation evidence](implementation.md) for implemented portions and
-remaining acceptance gates; an unchecked phase is not release-qualified.
+services described here are not installed by the 0.6.1 chart. See the
+[implementation status](implementation.md) for implemented portions and
+remaining acceptance gates. Infrastructure-driven native commissioning is now
+implemented and tested; the manager frontend, complete terminal lifecycle,
+routing and coordinated recovery still need work. The
+[native commissioning guide](native-commissioning.md) documents the current
+database/template contract.
 
 Read the [specification](specification.md) for required behavior and the
 [architecture](architecture.md) for component boundaries and deployment decisions.
@@ -25,7 +29,7 @@ Read the [specification](specification.md) for required behavior and the
 - An explicit assignment in the manager's PostgreSQL database decides whether a
   person gets a personal Hermes instance. A Keycloak user or group membership
   alone does not create that assignment.
-- Build the assignment administration interface into `hermes-manager` first.
+- Build the assignment administration interface into `hermes-manager`.
   Its browser UI uses a versioned administration API. Domain logic, persistence,
   identity-directory access and Kubernetes reconciliation stay behind separate
   interfaces. A future admin-panel service must need only that API.
@@ -58,9 +62,12 @@ Read the [specification](specification.md) for required behavior and the
 
 ## Delivery sequence
 
-Every phase below is proposed work. Complete its exit criteria before taking the
-next phase into a release. Keep the existing singleton installation available
-until the explicit adoption phase succeeds.
+The checklists below are target release-acceptance gates. An unchecked item can
+have implemented source or component tests without meeting its full integrated
+exit criteria. Current implementation details live in the status page rather
+than a second feature checklist here. No full delivery phase is release-qualified.
+Keep the existing singleton installation available until the explicit adoption
+phase succeeds.
 
 ### 0. Prove identity and isolation assumptions
 

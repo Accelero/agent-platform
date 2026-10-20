@@ -5,6 +5,7 @@ container does not. Live owner files are never overwritten by reconciliation.
 """
 
 import argparse
+import errno
 import fcntl
 import hashlib
 import hmac
@@ -322,6 +323,45 @@ def initialize(root, context_path, config_path, key_path, *, interrupt=None):
                 os.close(descriptor)
 
 
+def write_result(result, receipt):
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=result.parent, delete=False) as output:
+            temporary = output.name
+            output.write(receipt)
+            output.flush()
+            os.fsync(output.fileno())
+        try:
+            os.replace(temporary, result)
+            temporary = None
+        except OSError as error:
+            if error.errno not in {errno.EBUSY, errno.EPERM, errno.EACCES}:
+                raise
+            # Kubelet bind-mounts the termination-message file. Renaming over
+            # that mount is EBUSY (or EPERM under sticky /tmp). Only this
+            # verified mountpoint may use a
+            # no-follow descriptor write; ordinary results stay atomic.
+            with open("/proc/self/mountinfo", encoding="utf-8") as source:
+                mounted = any(
+                    len(fields := line.split()) > 5 and fields[4] == str(result)
+                    for line in source
+                )
+            if not mounted:
+                raise ValueError("invalid_initialization_result") from None
+            fd = os.open(result, os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd, "wb") as output:
+                info = os.fstat(output.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    raise ValueError("invalid_initialization_result")
+                os.ftruncate(output.fileno(), 0)
+                output.write(receipt)
+                output.flush()
+                os.fsync(output.fileno())
+    finally:
+        if temporary is not None:
+            os.unlink(temporary)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default="/opt/data")
@@ -335,18 +375,7 @@ def main():
         # /tmp survives application-container restarts. Never follow an old
         # owner-created result symlink or truncate an aliased home file.
         result = Path(args.result)
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(dir=result.parent, delete=False) as output:
-                temporary = output.name
-                output.write(receipt)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, result)
-            temporary = None
-        finally:
-            if temporary is not None:
-                os.unlink(temporary)
+        write_result(result, receipt)
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         raise SystemExit(
             "Native initialization unavailable; private details suppressed."

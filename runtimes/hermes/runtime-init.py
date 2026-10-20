@@ -25,6 +25,19 @@ def initialize(root=Path('/opt/data'), plugin_home=Path('/opt/hermes-stack/plugi
         config = yaml.safe_load((home / 'config.yaml').read_text()) or {}
         if not isinstance(config, dict):
             raise RuntimeError('Native Hermes configuration must be a YAML mapping')
+        managed_dir = os.environ.get('HERMES_MANAGED_DIR')
+        if managed_dir:
+            managed = yaml.safe_load((Path(managed_dir) / 'config.yaml').read_text())
+            if not isinstance(managed, dict):
+                raise RuntimeError('Managed Hermes configuration must be a mapping')
+            # Validate the effective native config without writing managed leaves
+            # into the owner's retained file. Match Hermes' recursive overlay.
+            def overlay(user, admin):
+                result = dict(user)
+                for key, value in admin.items():
+                    result[key] = overlay(result.get(key, {}), value) if isinstance(value, dict) and isinstance(result.get(key, {}), dict) else value
+                return result
+            config = overlay(config, managed)
         disabled = config.get('agent', {}).get('disabled_toolsets', [])
         if 'terminal' not in disabled and config.get('terminal', {}).get('backend') != 'managed_execution':
             raise RuntimeError(f'Unsafe native terminal backend in {home / "config.yaml"}; configure managed_execution before startup')

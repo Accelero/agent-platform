@@ -20,6 +20,7 @@ fn definition() -> TemplateDefinition {
         workspace_gib: 10,
         cpu_millis: 500,
         memory_mib: 1024,
+        admin_config: Default::default(),
     }
 }
 fn actor(scope: &InstallationScope) -> VerifiedPrincipal {

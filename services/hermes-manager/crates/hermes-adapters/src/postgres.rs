@@ -25,6 +25,7 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 mod administration;
 mod commissioning;
 mod execution;
+mod infrastructure;
 mod lifecycle;
 mod materials;
 mod namespace_fence;
@@ -51,6 +52,29 @@ pub struct FreshInventory {
 }
 
 impl PgStore {
+    /// Explicit fresh-install command only. Existing installations use migrate
+    /// with maintenance and epoch checks instead of this entry point.
+    pub async fn prepare_fresh_schema(&self) -> Result<(), Error> {
+        let exists: bool =
+            sqlx::query_scalar("SELECT to_regclass('manager.installations') IS NOT NULL")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(db_error)?;
+        if exists {
+            let populated: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM manager.installations)")
+                    .fetch_one(&self.pool)
+                    .await
+                    .map_err(db_error)?;
+            if populated {
+                return Err(Error::RecoveryRequired);
+            }
+        }
+        MIGRATOR
+            .run(&self.pool)
+            .await
+            .map_err(|_| Error::RecoveryRequired)
+    }
     pub async fn connect(database_url: &str) -> Result<Self, Error> {
         // Do not format options or SQLx errors: they can contain credentials.
         let options = PgConnectOptions::from_str(database_url).map_err(|_| Error::Unavailable)?;

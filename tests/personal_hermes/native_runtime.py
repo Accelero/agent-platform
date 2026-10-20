@@ -82,6 +82,13 @@ def main():
             },
         }
         (fixture / "init/native-config.json").write_text(json.dumps(config))
+        managed = {"terminal": config["terminal"], "agent": {"max_turns": 12}}
+        (fixture / "trust/config.yaml").write_text(json.dumps(managed))
+        # Kubelet projects a writable file at terminationMessagePath. Exercise
+        # the actual bind-mount EBUSY behavior, not an ordinary temporary file.
+        result_file = fixture / "init-result.json"
+        result_file.touch(mode=0o600)
+        os.chown(result_file, 1000, 1000)
         common = [
             "--network",
             "none",
@@ -96,6 +103,8 @@ def main():
             "/tmp:mode=1777",
             "--env",
             "PYTHONDONTWRITEBYTECODE=1",
+            "--env",
+            "HERMES_MANAGED_DIR=/run/hermes/execution-ca",
         ]
         for part, target in [
             ("home", "/opt/data"),
@@ -116,6 +125,8 @@ def main():
                 *common,
                 "--mount",
                 f"type=bind,src={fixture / 'init'},dst=/run/hermes/init,readonly",
+                "--mount",
+                f"type=bind,src={result_file},dst=/tmp/native-init-result.json",
                 "--entrypoint",
                 "/opt/hermes/.venv/bin/python",
                 IMAGE,
@@ -125,6 +136,7 @@ def main():
             ],
             timeout=60,
         )
+        assert json.loads(result_file.read_text())["record"]["complete"] is True
         try:
             run(
                 [
@@ -154,6 +166,14 @@ def main():
             check = """
 import json, os, pathlib, urllib.request, urllib.error
 os.environ['HERMES_HOME']='/opt/data'
+from hermes_cli.config import load_config
+managed=json.loads(pathlib.Path('/run/hermes/execution-ca/config.yaml').read_text())
+effective=load_config()
+assert effective['agent']['max_turns']==managed['agent']['max_turns']
+raw=json.loads(pathlib.Path('/opt/data/config.yaml').read_text())
+if 'fixture_preference' in raw.get('agent',{}):
+    assert effective['agent']['fixture_preference']=='owner choice'
+    assert raw['agent']['max_turns']==77
 from hermes_cli.plugins import PluginContext, PluginManifest
 context=PluginContext(PluginManifest(name='managed_execution',key='managed_execution'),None)
 assert context.get_config('manager_url')=='https://manager.example.org/execution'
@@ -235,6 +255,17 @@ assert all(p.read_bytes().count(b'BEGIN CERTIFICATE')>1 for p in bundles)
                     timeout=10,
                 )
                 if attempt == 0:
+                    # Dashboard writes belong to the retained user layer. An
+                    # infrastructure update must override only managed leaves.
+                    settings_path = fixture / "home/config.yaml"
+                    settings = json.loads(settings_path.read_text())
+                    settings["agent"] = {
+                        "max_turns": 77,
+                        "fixture_preference": "owner choice",
+                    }
+                    settings_path.write_text(json.dumps(settings))
+                    managed["agent"]["max_turns"] = 24
+                    (fixture / "trust/config.yaml").write_text(json.dumps(managed))
                     (fixture / "home/owner-memory.txt").write_text(
                         "owner fixture memory"
                     )

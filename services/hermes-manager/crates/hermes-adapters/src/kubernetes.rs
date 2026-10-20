@@ -1,5 +1,6 @@
 //! Bounded Kubernetes ownership transport. Never infer a workstation kubeconfig.
 mod execution_workers;
+mod inventory;
 mod policy_activation;
 pub use execution_workers::ExecutionWorkerCandidate;
 
@@ -488,6 +489,11 @@ impl KubernetesDriver {
         let mut existing = object.clone();
         existing.metadata.deletion_timestamp = None;
         self.verify(&prepared.resource, &existing)?;
+        // An exact authenticated UID already terminating needs observation,
+        // not another write using the pre-delete resource version.
+        if object.metadata.deletion_timestamp.is_some() {
+            return Ok(());
+        }
         if object.metadata.uid != prepared.step.intent.expected_uid
             || object.metadata.resource_version != prepared.step.intent.expected_resource_version
         {

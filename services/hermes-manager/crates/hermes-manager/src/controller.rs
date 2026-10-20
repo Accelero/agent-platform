@@ -169,6 +169,54 @@ fn validate_kubeconfig(config: &Kubeconfig, context: &str) -> Result<(), Error> 
 
 /// Opens only an existing installation. Migration/fresh inventory initialization
 /// are explicit operator actions; controller startup never creates a registry.
+pub async fn initialize(path: &Path) -> Result<(), Error> {
+    let config: Configuration =
+        serde_json::from_slice(&read(path, 64 * 1024).await?).map_err(|_| Error::Invalid)?;
+    config.workload.validate()?;
+    let scope = InstallationScope {
+        id: config.installation.id,
+        epoch: config.installation.epoch,
+        issuer: config.installation.issuer,
+    };
+    hermes_domain::validate_issuer(&scope.issuer)?;
+    if scope.id.is_nil() || scope.epoch != 1 {
+        return Err(Error::Invalid);
+    }
+    let (id, keys) = Keyring::load(&config.ownership_keyring_file).await?;
+    let driver = config
+        .kubernetes
+        .driver(OwnershipSigner::new(id, keys)?, config.cluster_identity)
+        .await?;
+    let evidence = driver.fresh_inventory(&scope).await?;
+    let bytes = read(&config.database_url_file, 16 * 1024).await?;
+    let store = PgStore::connect(
+        std::str::from_utf8(&bytes)
+            .map_err(|_| Error::Invalid)?
+            .trim(),
+    )
+    .await?;
+    store.prepare_fresh_schema().await?;
+    store.initialize_fresh(&scope, evidence).await
+}
+
+/// Public, reviewable RBAC/admission manifests for the trusted infra stack.
+pub async fn render_bootstrap(path: &Path) -> Result<(), Error> {
+    let config: Configuration =
+        serde_json::from_slice(&read(path, 64 * 1024).await?).map_err(|_| Error::Invalid)?;
+    let scope = InstallationScope {
+        id: config.installation.id,
+        epoch: config.installation.epoch,
+        issuer: config.installation.issuer,
+    };
+    let policy = hermes_adapters::bootstrap::BootstrapPolicy::new(&scope, &config.workload)?;
+    let output = serde_json::json!({"apiVersion":"v1","kind":"List","items":policy.manifests()});
+    println!(
+        "{}",
+        serde_json::to_string(&output).map_err(|_| Error::Invalid)?
+    );
+    Ok(())
+}
+
 pub async fn run(path: &Path) -> Result<(), Error> {
     let config: Configuration =
         serde_json::from_slice(&read(path, 64 * 1024).await?).map_err(|_| Error::Invalid)?;

@@ -76,28 +76,31 @@ project their own reviewed backup/seed/restore scripts and mount persistent data
 An alternative tools image can provide these dependencies; publishing them once
 keeps backup and recovery independent of package installation at runtime.
 
-## Personal Hermes design
+## Personal Hermes manager development
 
-The proposed next step is a personal Hermes manager with a built-in assignment
-administration interface and OIDC-based routing to the authenticated owner's
-instance. New manager/authentication services use Rust. A thin Traefik plugin
-queries the manager's route API before selecting a backend; routing and active
-connection revocation remain subject to the documented compatibility tests.
-The built-in React/TypeScript dashboard uses Vite and calls the Rust API, which
-serves the production UI assets. The browser has no direct database access.
-One shared Rust manager and PostgreSQL control model handle assignments, Hermes
-provisioning, terminal image/mount policy, execution Pods and leases. Personal
-mode has no separate per-Hermes execution-manager service.
-Enabled Hermes gateways stay running for native cron/background work; terminal
-workers have independent, configurable lifetimes.
-The manager resumes interrupted lifecycle operations from durable PostgreSQL
-step records and verified Kubernetes state after a crash.
-Read the [implementation plan](docs/personal-hermes/plan.md),
-[specification](docs/personal-hermes/specification.md) and
-[architecture](docs/personal-hermes/architecture.md). These describe future work;
-release 0.6.1 does not implement the manager, router or their proposed APIs.
-Source implementation and its remaining acceptance gates are tracked in the
-[implementation evidence](docs/personal-hermes/implementation.md).
+The new [Rust manager](services/hermes-manager/README.md) commissions per-user
+Hermes instances from infrastructure-owned database templates and user mappings.
+The native path has been tested with two real instances on Kubernetes: image and
+administrator-config updates, restart recovery and mapping removal/re-add retain
+each owner's PVC data and user settings. PostgreSQL journals and verified
+Kubernetes resource identities support recovery after manager crashes. This is
+separate from the legacy Python runtime-manager shipped by the existing chart.
+
+The administration API, browser authentication, terminal policy/lease primitives
+and router components exist in source. The manager admin frontend, complete
+terminal worker lifecycle, route publication and combined Keycloak/native/browser
+acceptance remain unfinished. There are no automated backups or implemented
+full-data restore workflows. Image updates require infrastructure to change the
+template digest; Recreate updates can interrupt active agent work.
+
+Release/chart 0.6.1 does not install the new manager or router-auth services.
+Read the [implementation status](docs/personal-hermes/implementation.md) for the
+current capability and evidence index, and the
+[native commissioning guide](docs/personal-hermes/native-commissioning.md) for
+the implemented database/configuration lifecycle. The
+[specification](docs/personal-hermes/specification.md),
+[architecture](docs/personal-hermes/architecture.md) and
+[delivery plan](docs/personal-hermes/plan.md) describe the wider target product.
 
 ## Development
 

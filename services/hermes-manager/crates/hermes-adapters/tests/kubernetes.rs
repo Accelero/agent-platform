@@ -9,6 +9,8 @@ mod bootstrap;
 mod controller;
 #[path = "kubernetes/fence_admission.rs"]
 mod fence_admission;
+#[path = "kubernetes/infrastructure.rs"]
+mod infrastructure;
 #[path = "kubernetes/process.rs"]
 mod process;
 #[path = "kubernetes/worker_admission.rs"]

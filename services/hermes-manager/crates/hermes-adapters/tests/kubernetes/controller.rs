@@ -24,7 +24,7 @@ use std::{
 };
 use uuid::Uuid;
 
-fn controller(
+pub(super) fn controller(
     store: PgStore,
     scope: &InstallationScope,
     config: Config,
@@ -143,6 +143,7 @@ pub(super) async fn verify(
         workspace_gib: 1,
         cpu_millis: 1000,
         memory_mib: 1024,
+        admin_config: Default::default(),
     };
     sqlx::query("INSERT INTO manager.instance_templates(id,version,schema_version,image,content_digest,approved) VALUES('personal-default',1,1,$1,$2,true)").bind(&definition.image).bind(definition.digest().unwrap()).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO manager.template_definitions(template_id,template_version,definition) VALUES('personal-default',1,$1)").bind(serde_json::to_value(&definition).unwrap()).execute(pool).await.unwrap();
@@ -352,4 +353,5 @@ pub(super) async fn verify(
         .bind(accepted.instance_id).fetch_one(pool).await.unwrap();
     assert_eq!(resources, 15);
     assert!(draining);
+    super::infrastructure::verify(pool, scope, config, &cluster, workload).await;
 }

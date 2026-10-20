@@ -102,7 +102,7 @@ async fn deployment(
     scope: &InstallationScope,
     claim: &OperationClaim,
 ) -> Result<hermes_application::resources::OwnedResource, Error> {
-    let row=sqlx::query("SELECT r.* FROM manager.owned_resources r JOIN manager.instances i ON i.id=r.instance_id WHERE r.installation_id=$1 AND r.instance_id=$2 AND r.kind='Deployment' AND r.name='hermes' AND r.namespace=i.namespace AND r.creation->'spec'->>'namespaceUid'=i.namespace_uid FOR UPDATE OF r")
+    let row=sqlx::query("SELECT r.* FROM manager.owned_resources r JOIN manager.instances i ON i.id=r.instance_id WHERE r.installation_id=$1 AND r.instance_id=$2 AND r.kind='Deployment' AND r.name='hermes' AND r.state<>'Deleted' AND r.namespace=i.namespace AND r.creation->'spec'->>'namespaceUid'=i.namespace_uid FOR UPDATE OF r")
         .bind(scope.id).bind(claim.instance_id).fetch_optional(&mut **tx).await.map_err(db_error)?.ok_or(Error::OwnershipConflict)?;
     let owned = resources::resource(&row)?;
     if owned.state != "Bound"

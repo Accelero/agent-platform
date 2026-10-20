@@ -1,382 +1,103 @@
-# Personal Hermes implementation evidence
+# Personal Hermes implementation status
 
-Branch: `feat/personal-hermes-commissioning`. Release 0.6.1 remains the current
-published application. This file tracks evidence against the full
-[plan](plan.md), not a replacement scope or a claim of release readiness.
+Status as of 2026-10-21 on `feat/personal-hermes-commissioning`. This is the
+current source implementation and evidence index. The chart in this checkout
+remains version 0.6.1 and does not install the new Rust manager or router-auth
+services. No deployment or release qualification is implied by these tests.
 
-## Implemented foundation
+The [specification](specification.md), [architecture](architecture.md) and
+[delivery plan](plan.md) describe the full target product. Use this page for what
+exists now, the [manager README](../../services/hermes-manager/README.md) for
+process configuration and authentication, and the
+[native commissioning guide](native-commissioning.md) for the infrastructure
+input contract and per-user deployment behavior.
 
-- Rust workspace with domain, application and PostgreSQL adapters, pinned
-  toolchain and locked dependencies.
-- Exact case-sensitive issuer/subject keys, immutable database ownership,
-  approved versioned instance-template references and stable private namespace
-  names. Display/email matching cannot grant ownership.
-- Explicit administrator audience/client-role checks on application commands,
-  with a TLS API-only HTTP transport and verified Keycloak access-token adapter.
-  Optional browser OIDC login, encrypted session persistence and CSRF use the
-  same versioned API; presentation serving remains outstanding.
-- Transactional create/access/retry commands: optimistic versions, stable
-  instance reservation, actor-scoped body-checked idempotency, immutable audit
-  and proactive durable commissioning work. Revoke retains records and retry
-  cannot enable an assignment.
-- Versioned logged PostgreSQL registry, bounded database calls, explicit
-  installation initialization and existing-mode schema/identity/epoch checks.
-- Leased/fenced operation claims and immutable action-step journal. Lost-response
-  replay, expired-claim recovery, uncertain initialization blocking and
-  exact-UID deletion-result validation have database tests.
-- Go middleware with fixed mTLS endpoints, bounded manager lookups, strict
-  response validation, no positive cache, instance/generation selection and
-  periodic authorization of open WebSockets.
-- Rust resolver application policy requires both the configured verified mTLS
-  caller and fresh, exact, audience/client-bound user evidence. Its PostgreSQL
-  reader checks current access, instance readiness/generations, template port
-  and namespace UID bindings on every request, without commissioning side effects.
-- Native OIDC owner hook applied to the exact pinned upstream source with a
-  build-time SHA-256 guard. The hook checks verified issuer/subject on login,
-  session verification and refresh; incomplete pin configuration fails closed.
-  Both values absent preserve the explicit legacy singleton behavior.
-- Compiled `hermes-manager api/migrate/check` process roles, reference-based
-  secret/configuration inputs, separate administrator TLS and resolver mTLS
-  listeners, bounded request/connection/header/body handling and redacted errors.
-- Administration OpenAPI contract and HTTP workflow for identities, templates,
-  assignment create/access/retry, instance/operation metadata and immutable audit.
-  An omitted template version is pinned once without changing replay semantics.
-- Cryptographic access-token checks pin signature algorithm, issuer, audience,
-  authorized client, user-session identity and lifetime; route evidence is also
-  age-bounded. JWKS calls are fixed-origin HTTPS, bounded and size-limited with
-  no redirects/proxy environment fallback. A service certificate alone cannot
-  assert a user or administration permission.
-- OIDC code flow through the maintained protocol library with S256 PKCE,
-  single-use browser-bound state, nonce/signature/issuer/audience/subject checks
-  and encrypted server-side tokens. Separate administrator/router session
-  schemas and SQL roles, absolute expiry, generation-fenced login/logout and
-  installation epoch mirrors. Refresh claims commit before provider calls;
-  uncertain refresh outcomes require a fresh login. Bounded credential cleanup.
-- Compiled `hermes-router-auth` process with separate public and internal mTLS
-  listeners. Distinct service identities protect ForwardAuth and established
-  connection session checks. Public session metadata contains no provider token;
-  authentication cannot create assignments or access assignment SQL.
-- Owned-resource reservations and atomic action journals, authenticated creation
-  provenance, first UID/namespace binding and immutable ownership/tombstones.
-  The application resource reconciler uses a bounded kube-rs adapter, checks the
-  live cluster/namespace UID, preserves resource versions in write/delete intents
-  and verifies absence before completing retirement. Retained data has no
-  ordinary delete path.
-- Create-once bootstrap vault with authenticated encryption bound to installation,
-  instance, operation, epoch, generation and purpose. Concurrent candidates reuse
-  the committed winner; missing keys block instead of regenerating credentials.
-  Original native/SSH/execution keys and seed survive template changes.
-- Typed personal workload renderer with separate retained home/workspace claims,
-  default-deny networking, non-root restricted Pods, disabled service-account
-  token mounting and one desired gateway/dashboard replica. Selected Secret files
-  keep the initialization key out of the running application. Approved definitions
-  have immutable PostgreSQL storage and a typed, digest-checked commissioning-plan reader;
-  release-owned definition registration remains to be integrated.
-- Native home initializer with durable signed intent/completion receipts,
-  no-follow home I/O, atomic file creation and missing-only seeding. Rust verifies
-  the Python completion receipt for the exact owner and material. Abrupt death
-  before/after config creation resumes without reseeding; completed initialization
-  preserves live settings, profiles, agents, memory and enrollment.
-- Direct non-root native supervisor for the gateway and dashboard, using a mounted
-  owner policy that wins over mutable native environment settings. Optional private
-  OIDC trust augments public roots for independent model-provider onboarding.
-  Runtime Python tooling targets the pinned image's Python 3.13 separately from
-  the repository's Python 3.14 operational code.
-- Fenced controller scheduling persists waiting/retry/block conditions and due
-  times, releases the claim atomically and reconstructs work after reopening the
-  database. Ordinary readiness waiting preserves the failure budget; API failures
-  remain bounded and provisioning has an absolute 15-minute database-time
-  deadline. Operation input, target, epoch/generation and creation time are now
-  immutable database provenance, separate from mutable claim/scheduling fields.
-- Release-owned bootstrap RBAC and fail-closed namespace/RoleBinding admission
-  renderers, with a bounded preflight using the actual controller credential.
-  The fixed ServiceAccount can bind only its installation-specific reconciler
-  role in an owned instance namespace. Preflight verifies exact policies/RBAC,
-  type-check progress, positive/negative dry-run admission and critical denied
-  privileges. The controller cannot install or relax these shared policies.
-  Worker admission and chart integration remain outstanding.
-- Compiled controller role with separate reference-based configuration, explicit
-  Kubernetes transport and registered/live cluster verification. It claims the
-  PostgreSQL outbox, persists encrypted complete renderings before child actions,
-  binds all 14 resources and resumes committed inputs after abrupt death. Native
-  observation checks PVC binding, Deployment availability, Pod/ReplicaSet UID
-  ownership, template generation and signed initialization. It records pending
-  conditions. A bounded, credential-free HTTP probe checks native provider/login
-  behavior and private API denial through the exact bound Service. Seven transport
-  tests cover auth bypass, redirects, bodies and aggregate deadline. Effective
-  policy checks, route publication and combined native/cluster acceptance remain
-  unfinished.
-- Namespace-local typed admission parameters derived from the same native
-  rendering. Fail-closed Pod/Deployment policies constrain images, identity,
-  commands, public environment, resource limits, mounts and credential projection.
-  Live dry-run tests exercise altered workloads through the actual ServiceAccount.
-  The authenticated driver checks live namespace UID; admission preserves that
-  binding between the parameter and Pod labels.
-- Execution configuration foundation: immutable digest-pinned terminal versions,
-  owner-specific storage/pull references and resolved desired policy generations.
-  Mutations commit idempotency, optimistic versions, audit and policy work in the
-  same transaction. Independent database leases fence policy work. Desired policy remains separate from applied policy. Migration 0016 adds
-  trusted admission/storage activation and prior-generation drain checks;
-  authenticated worker readiness and terminal lifecycle integration remain open.
-- Periodic resync enqueues bounded PostgreSQL work for completed enabled and
-  retained instances without advancing desired generation or resetting failed
-  work. Disabled instances without a bound Namespace remain observable for late
-  creation. Current access, epoch and operation leases still fence every step.
-- A disable acknowledgement records its original five-minute drain deadline in
-  the same transaction. Retry, controller restart, rapid re-enable and revoke do
-  not reset an active deadline. Read-only lifecycle plans preserve original
-  encrypted rendering references, and uncertain creation recovery can only GET
-  and bind the original authenticated object; absence leaves the reservation.
-- Namespace admission is closed by default. Typed immutable fence inputs commit
-  before UID/resource-version patches; native creation opens only after the
-  reviewed workload and policy exist. Suspension closes admission first, then
-  uses an independently constrained scale subresource to stop the retained
-  Deployment, including when native policy parameters are missing. Namespace,
-  claims, credentials, immutable creation provenance and Pod template survive.
-- Native Pods carry a required scheduling gate. The controller verifies the
-  Pod/ReplicaSet/registered Deployment UID chain and commits exact child identity
-  and start input before removing that gate. Readiness requires the recorded
-  start and exact Pod UID. Stops commit exact UID/RV inputs and require observed
-  absence; a replacement sharing a name is never deleted. Delayed ungated starts
-  are therefore known children of the original drain. Native stop observations
-  alone do not complete the drain barrier or authorize re-enabling: terminal
-  execution draining and complete lifecycle-result integration remain pending.
+## Current capability boundary
 
-## Evidence and remaining gates
-
-| Area | Executable evidence | Still required |
+| Area | Implemented and verified | Remaining work or limitation |
 | --- | --- | --- |
-| Identity/domain | Rust domain/application tests; signed-JWT native provider test; real HTTPS OIDC/access-token/session checks | Full native session/middleware coverage, configured Keycloak/public-subject compatibility and external revocation bound |
-| Assignment persistence and resolver | Registry/session/crypto, administration/resolver HTTPS and browser tests, API-only workflow and OpenAPI validation | Owner/checkpoint endpoints and integrated provider acceptance |
-| Crash journal and ownership | Registry tests plus ten resource/proof and six commissioning-plan/scheduling tests; real Kubernetes creation recovery, current-version retries, foreign UID/proof rejection and finalizer/absence tests | Full controller integration and forced-process-death tests at every external boundary |
-| Proxy plugin | Go tests with race detector | Full native HTTP/upload/browser/cookie behavior and configured provider revocation |
-| Traefik | `tests/personal_hermes/router_compatibility.py`, pinned official image | End-to-end Rust/Keycloak/native Hermes acceptance |
-| Existing release | Python checks including OpenAPI validation and native initialization, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
-| Runtime policy/execution | Real PostgreSQL catalog/storage/policy/client/lease tests, separate native HTTPS contract and authorization tests, worker renderer/admission and authenticated Pod staging/start proofs, native runtime selection tests | Authenticated SSH readiness, complete worker/controller integration, approved service egress, idle/recycle/retirement and full drain |
-| Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; encrypted material, frozen rendering, initialization/native observation and HTTP auth-gate probe tests; actual ServiceAccount bootstrap/workload admission, compiled controller create/kill/reopen proof and built native image startup/restart | Definition registration, integrated native/effective-policy readiness, route publication, effective worker policy, terminal drain integration and completed lifecycle results |
-| Administration UI | Versioned administration contract, bearer and browser-session API; presentation-separated application ports | Owner/checkpoint contracts, generated client and React/Vite build |
-| Recovery | Fresh/existing registry gate and maintenance/epoch fencing | Trusted inventory scanner, checkpoint/receipt/restore lifecycle and coordinated full-data recovery tests |
-| Distribution | New workspace/plugin checks in CI | Dockerfiles, reviewed release inputs, opt-in chart values/schema/RBAC/networking, operator docs and acceptance qualification |
-| Adoption | Existing singleton code/chart untouched | Explicit deployment-specific storage/ownership migration after all platform gates pass |
+| Native commissioning | Infrastructure-owned template/user rows create one instance per exact installation issuer and Keycloak subject; image/config changes advance desired generations; removal retires the workload and re-add restores retained state | Infrastructure must deploy the manager and write its input rows; this is not Keycloak user synchronization or self-enrollment |
+| Templates and image updates | Typed, digest-pinned deployment definitions, immutable catalog snapshots, per-user template selection and polling of database changes | No arbitrary Pod manifests, registry/tag watcher, automatic upstream release discovery or automatic image rollback |
+| Native configuration and state | Separate home/workspace PVCs; missing-only initialization; create-once credentials; Hermes managed config overrides selected leaves while user config remains on the home PVC | No automatic storage-class migration, volume shrinking or permanent data purge |
+| Shutdown during updates | Kubernetes Recreate rollout; runtime forwards SIGTERM to gateway/dashboard, waits up to 20 seconds and then kills remaining children; Pod grace period is 45 seconds | No update handshake that waits for agent runs to finish or acknowledges a completed application checkpoint; active work can be interrupted |
+| Manager crash recovery | PostgreSQL action journal, leased/fenced claims, frozen renderings, authenticated resource provenance, exact UID/RV checks, uncertain-create recovery and periodic resync | Ownership/admission/manual-recovery faults remain blocked; a deleted or foreign resource is not blindly adopted or replaced; exhaustive crash testing at every external boundary remains open |
+| Administration | Versioned API, Keycloak access-token validation, browser OIDC sessions, CSRF, audit, optimistic mutations and execution configuration endpoints | No manager admin frontend, generated React client, owner-status/checkpoint UI or completed directory integration |
+| Terminal execution | Immutable runtime catalog, per-owner storage/pull references, desired/applied policy, scoped execution API and durable leases; worker rendering/admission/UID/start primitives | No complete automatic worker lifecycle: authenticated SSH readiness, networking, creation orchestration, idle/recycle/retirement and terminal drain still need integration |
+| Routing | Rust resolver/auth processes, Go/Yaegi plugin and isolated Traefik/WebSocket compatibility proofs | Native commissioning does not publish routes; full Keycloak/native/browser/proxy integration remains open |
+| Backup and recovery | Explicit fresh-install namespace/PV scan, schema/installation/epoch gates and retained ownership history | No scheduled backups, snapshot/copy jobs, backup retention, checkpoint coordinator or full data restore implementation; PVC retention is not a backup |
+| Distribution and adoption | Locked source builds and CI checks; reviewed native runtime test image | No released manager/router-auth images or personal-mode chart installation; existing-owner adoption and release acceptance remain open |
 
-The real Traefik 3.7.15/Yaegi compatibility test passed on 2026-10-19. Two fixture
-owners reached distinct backends through the same hostname/path; forged headers,
-an unassigned session and a foreign hostname could not select a backend. Existing
-WebSockets closed in 5.00–5.05 seconds after assignment/session revocation,
-identity switching or manager failure. Directory-mounted atomic snapshots and
-stale generation denial also passed. These fixtures do not prove the remaining
-Keycloak or native Hermes authentication requirements.
+The per-user native Hermes dashboard is supplied by Hermes and runs in each
+instance. It is distinct from the unimplemented manager administration frontend.
+Native `Ready` means the manager observed storage, the exact current workload,
+signed initialization and the native HTTP/auth gate. It does not mean a terminal
+backend is ready, a route was published or a real Keycloak browser login passed.
 
-The native owner test runs the real self-hosted provider in
-`nousresearch/hermes-agent@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db`,
-upstream revision `749220ef0007f8d87bd1531f1c24b0fe93816385`. Real RSA signatures
-are verified; token endpoint responses are fixtures. The expected owner succeeds
-through login, session verification and refresh. A different/case-changed subject
-with the same email is rejected, changing the email preserves ownership, invalid
-signature/issuer is rejected, malformed pin configuration fails, and unpinned
-singleton compatibility passes. Run `uv run python tests/personal_hermes/native_owner.py`.
+## Manager implementation
 
-The compiled API/router-auth process test passes migration/startup/TLS boundary
-checks, abrupt termination, registry reopening and mismatched installation/epoch rejection.
-The seven real HTTPS tests exercise the Rust API and resolver with generated
-certificates and signed tokens, including live access revocation, wrong mTLS
-identity, token claim/signature failures, input bounds, JWKS outage and a database
-lock that must deny within the two-second route-resolution bound. These prove
-transport/token behavior; they do not replace a real Keycloak/browser acceptance
-run or forced-death tests around Kubernetes/execution actions.
+The workspace separates domain rules, application ports, PostgreSQL/Kubernetes
+adapters and process entry points. Exact issuer/subject identity, immutable
+ownership and stable instance IDs are shared by the administration and
+infrastructure paths. The infrastructure path owns only assignments it created;
+it does not silently take over an existing API-managed assignment.
 
-All P01–P18 remain subject to integrated verification. The implementation creates
-registered Kubernetes resources, but does not yet produce a fully usable and
-routed personal instance and is not feature-complete for release.
-No phase is complete merely because its unit tests pass. The source proofs must
-be combined with real database, Kubernetes, provider, native application and
-browser evidence before the feature is enabled or released.
+Migration `0017_infrastructure_desired.sql` adds
+`manager.infrastructure_templates` and `manager.desired_users`. The infra stack
+writes those tables; the controller polls bounded batches. Template validation,
+immutable snapshots, generation fencing, audit and queued operations commit
+transactionally. Invalid definitions are recorded on their source template and
+cannot dispatch resources. Uncertain original CREATE operations are recovered
+before changing their generation or processing removal.
 
-The explicit Kubernetes test uses a new isolated
-`rancher/k3s@sha256:ca7f37d993d82ef0dcdcfecb2e0e2618ea541dbaffc620c8cedebe01a82acd0d`
-API server and temporary fixture credentials. It passed on 2026-10-20. It recovers
-a Namespace created before its UID was committed, rejects the expired worker,
-updates an owned ConfigMap without changing its UID, rejects a copied-proof
-replacement and a changed unbound manifest, rejects stale destructive resource
-versions, and holds retirement until finalizers are removed and absence is
-observed. This is a transport/ownership proof with fixture administrator access,
-not admission, non-root Pod, storage, cron or full commissioning acceptance.
+The controller persists encrypted create-once material and frozen resource
+renderings before Kubernetes calls. The native renderer creates 14 owned
+resources, including a private namespace, home/workspace PVCs, selected Secret
+projections, ServiceAccount, Service, policies and a non-root Recreate Deployment.
+The constrained controller cannot install or relax its bootstrap RBAC/admission
+policies. Native Pods start behind a scheduling gate; exact child ownership and
+start intent commit before gate removal. Kubernetes acceptance tests use the
+actual constrained ServiceAccount.
 
-The same disposable Kubernetes runner now also tests the actual bootstrap
-ServiceAccount with a short-lived fixture token. It creates an owned namespace
-and the fixed namespace-local RoleBinding, then reads a fixture Secret only there.
-Foreign installation namespaces, changed ownership labels, a different binding
-subject, control-namespace binding and cluster-wide Secret reads are rejected.
-Preflight rejects administrator transport, missing policy, a relaxed failure
-policy and an additional binding that grants ClusterRoleBinding creation.
-Admission type checks and dry-run probes use the live API server. This proves the
-namespace/bootstrap boundary. Native workload dry runs also reject foreign
-images, mounts/credentials, identity/generation labels, commands, probes and
-resource limits. Approved worker service egress, CNI enforcement and full
-commissioning acceptance remain outstanding.
+Removal closes native admission, stops registered children, foreground-deletes
+the exact Deployment UID and waits for observed absence before marking the
+instance `Retained`. PVCs, namespace, credential material and ownership history
+survive. Re-adding the mapping creates a new Deployment incarnation over the
+same retained storage and credentials. This native-only completion path is
+separate from the unfinished combined terminal/native drain path.
 
-The same fixture commissions a committed assignment using the constrained
-ServiceAccount and reopens the registry with unchanged credential bytes and
-resource UIDs. It also runs the compiled controller, blocks the Secret UID commit
-after actual creation, sends SIGKILL and restarts with changed public
-configuration. Recovery binds the original Secret UID/bytes and completes the
-original frozen resource set; no route is published. SIGTERM exits cleanly. The
-fixture deliberately uses an unavailable native image, so this proves process
-recovery and resource commissioning, not native startup, PVC payload behavior or
-an authenticated end-to-end route.
+Transient infrastructure commissioning failures can enqueue delayed resync work
+without changing the desired generation. Ownership, admission and explicit
+recovery blocks are preserved. Database loss or a connection failure never
+selects a fresh/local store. Fresh initialization is an explicit operator
+command and rejects evidence of retained installation resources; it does not
+restore a lost registry or payload.
 
-The personal native runtime test builds the actual Hermes Dockerfile using only
-`release-policy.json` inputs. It runs both gateway and dashboard as UID/GID 1000,
-with no capabilities, a read-only root filesystem and no network. Without a model
-account, both native processes stay running during HTTP inactivity. The dashboard
-advertises only self-hosted OIDC, private APIs return 401 and HTML redirects to
-native login. A forced container kill/restart preserves the initialized home and
-owner memory, and the application cannot read the init-only key. The optional
-private CA is tested alongside retained public roots. Run
-`uv run python -m tests.personal_hermes.native_runtime --build`. This offline
-fixture proves native startup/authentication gating and process recovery, not a
-completed provider login, cron side-effect delivery or Kubernetes commissioning.
+## Evidence and practical limits
 
-The retained-lifecycle fixtures additionally exercise the actual controller
-ServiceAccount closing admission and scaling the same Deployment UID to zero,
-while preserving its template, all 14 owned records and native credentials.
-Actual API tests deny unauthorized or altered gate removal, credential-file
-termination paths and scale-up; a closed instance can stop with missing native
-policy parameters. PostgreSQL/TLS tests recover lost gate/scale replies, retain
-original write preconditions, reject historical authorization fences, observe
-late creations without writes and drain 257 historical children in bounded
-batches. Recreate transitions wait for older or terminating Pods without giving
-them a new start or readiness proof. These are native lifecycle proofs; terminal
-execution draining and verified suspension completion remain separate gates.
+| Fixture or suite | What it proves | What it does not prove |
+| --- | --- | --- |
+| Rust workspace with disposable PostgreSQL | Concurrent ingestion, exact owner isolation, immutable snapshots, stale-claim fencing, invalid definitions, pending-create barriers, transient retry, API/session/policy/lease/journal invariants | Complete application functionality through all external services |
+| `tests.personal_hermes.kubernetes` | Real Kubernetes create-before-UID-save recovery, copied-proof/foreign UID rejection, bounded preconditioned updates/deletes, finalizer cleanup, actual bootstrap/admission, compiled controller SIGKILL/reopen and policy activation | Running native application by itself; the base fixture uses an unavailable application image |
+| `tests.personal_hermes.kubernetes --native` | Two real Hermes instances commissioned from SQL input using the constrained controller; image/admin updates, Pod restart, owner separation, mapping removal/re-add, retained PVC/credential identities and user payload/config | Real Keycloak browser login, routed chat, live model calls, cron side effects, terminal SSH or backup/restore |
+| `tests.personal_hermes.native_runtime --build` | Reviewed runtime image; non-root gateway/dashboard, private API denial, private/public CA handling, init-only key isolation, managed config precedence and state after forced restart; bind-mounted initialization result handling | Full cluster/provider acceptance |
+| `tests.personal_hermes.native_owner` | Pinned real Hermes self-hosted provider with signed token fixtures; exact subject/issuer on login/session/refresh and legacy unpinned compatibility | An actual Keycloak token exchange or full browser session |
+| `tests.personal_hermes.api_process` | Compiled API/router-auth listener/configuration gates, abrupt process termination and registry reopening | Full Kubernetes/execution lifecycle |
+| `tests.personal_hermes.router_compatibility` | Real pinned Traefik/Yaegi, two fixture backends on the same hostname/path, forged-header rejection and open-WebSocket revocation | Combined Rust/Keycloak/native login, uploads, cookie handling or production route publication |
 
+Latest verification snapshot: **164 standard Rust tests and 114 Python tests
+passed**, alongside workspace formatting/Clippy, Helm lint, privacy preflight,
+two explicit live Kubernetes tests and the integrated real-native commissioning
+fixture. The three live Kubernetes/native Rust tests are ignored in the standard
+Cargo invocation and are run by the explicit Python fixture. The native runtime
+fixture also passed. These results cover native commissioning; they do not
+complete every P01–P18 acceptance requirement in the specification.
 
-The shared execution slice adds a dedicated optional TLS listener with scoped
-hashed native-client credentials registered before bootstrap Secret dispatch.
-Administration has bounded runtime catalog/version, owner storage version and
-pull-Secret reference routes, plus optimistic desired-policy updates. Storage
-PATCH appends immutable versions and cannot transfer ownership; concurrent
-updates have one winner. Approved execution limits are part of the immutable
-resolved policy, with default-only snapshot digests preserved across upgrades.
-The administration and native execution OpenAPI contracts remain separate.
+## Verification commands
 
-The execution repository persists request body digests, environment identities,
-lease grants, original expiry and terminal expiry/release tombstones in
-PostgreSQL. Retries preserve committed lease identity and do not renew expiry.
-Provisioning commits immutable rendering intent and exact worker UID/start input
-before gate removal. Worker rendering and namespace-local admission pin runtime,
-owner, policy, resources, storage references and security settings together.
-The driver rechecks live selected PVC/Secret UIDs before creation and start;
-readiness candidates require the same Pod UID and observed specification.
-Native settings accept an approved `runtime_id` selector and separate cached
-transports and session-close requests by selected runtime.
-
-Migration 0016 adds controller-driven admission/storage activation. It can mark
-a matching generation applied only after exact owner/resource checks, readback
-and prior-generation drain. It does not yet join authenticated SSH readiness,
-worker retirement/recycling, terminal drain and native lifecycle completion. Lease tests use explicitly trusted SQL readiness
-fixtures; separate activation tests exercise the production guard and actual constrained Kubernetes controller.
-HTTP tests preserve the pending gate when activation or readiness is absent.
-Kubernetes-only readiness candidates are not SSH authentication or lease-grant
-proofs. Routes remain unpublished until the complete readiness contract passes.
-
-## Paused handoff — 2026-10-20
-
-Implementation is paused at the user's request on
-`feat/personal-hermes-commissioning`. The full specification is **not complete**
-and this branch is not deployment-qualified. Release 0.6.1, release tags and the
-existing chart defaults remain unchanged. No deployment was performed.
-All subagents are stopped. Resume the existing branch and preserve the scope of
-[specification.md](specification.md), [architecture.md](architecture.md) and
-[plan.md](plan.md); do not treat this checkpoint as completion of those documents.
-
-The final current slice is migration `0016_policy_activation.sql` and
-`terminal::activation`: independent policy claims, first-winner public admission
-renderings, immutable UID/RV action inputs and verified outcomes, and an atomic
-applied-policy receipt/status transition. The controller preserves the original
-native admission subtree and creation proof while changing only worker
-parameters. It rechecks the owned Namespace, worker ServiceAccount, immutable
-public SSH authorization Secret and selected PVC/pull-Secret identities. Every
-unknown original action must be observed before activation can complete. A
-restart can recover a successful patch whose SQL acknowledgement was lost.
-Policy edits commit old-environment drain deadlines in their acknowledgement
-transaction. A last applied generation alone does not authorize execution when
-current policy observation is reconciling or failed.
-
-Production worker readiness is deliberately not fabricated. Activation can make
-an empty-service-egress policy effective, while acquires remain pending until a
-trusted worker readiness receipt exists. Nonempty runtime `egress` is blocked
-until Service/Endpoint identities and matching NetworkPolicies are resolved.
-The real Kubernetes activation fixture creates only fixture resources; it does
-not start an actual SSH worker or assert native/browser end-to-end readiness.
-
-Continue in this order:
-
-1. Complete the shared worker controller. Use the existing environment claim,
-   immutable worker rendering/creation, UID binding and start-input ports in
-   `terminal::leases` and `kubernetes/execution_workers.rs`. Add bounded,
-   authenticated SSH readiness with trusted host identity; Kubernetes TCP/Pod
-   readiness alone must not call `record_execution_worker_ready`.
-2. Complete and verify worker networking before granting real terminal access.
-   Native egress currently selects component `hermes-worker`, while the renderer
-   labels workers `worker`; align that selector and install owner-scoped worker
-   SSH ingress. Resolve approved Service egress to verified identities and
-   ports, journal/apply its policies and prove CNI isolation. Do not broaden
-   access or guess a Service's Pod selector.
-3. Implement terminal retirement, idle/recycle and subsequent generations. Stop
-   exact registered UIDs with committed inputs, observe absence, retain
-   tombstones and never reuse expired/released request IDs. Preserve live child
-   leases when another lease expires. Keep the original drain deadlines.
-4. Join terminal absence with native stop and complete the original drain
-   barrier. Only then mark Suspended/Retained or re-enable native work. Implement
-   native generation updates and combined readiness/route publication. Native
-   shutdown, policy application or a journal result alone is insufficient.
-5. Finish policy retry/deadline/manual-recovery status and environment status
-   administration endpoints. Policy conflicts currently remain waiting and need
-   the planned bounded blocked/retry behavior; do not leave persistent faults in
-   an endless retry loop as a finished product.
-6. Finish owner/checkpoint contracts, the generated administration client and
-   React/TypeScript/Vite UI, served by Rust with the existing OIDC/CSRF boundary.
-7. Implement trusted inventory, encrypted full-data checkpoint/readback receipts,
-   restore/epoch fencing and explicit adoption. Finish Dockerfiles/reviewed build
-   inputs, opt-in chart configuration/RBAC/networking and operator documentation.
-8. Complete real Keycloak/native/router browser, HTTP mutation, upload, cookie
-   and WebSocket acceptance, crash tests at the remaining external boundaries,
-   and the full release qualification checklist. Publication/deployment requires
-   separate authorization; the authorized push is only this source branch.
-
-Closeout verification passed: 161 standard Rust tests, both isolated live
-Kubernetes tests, 112 Python tests, five OpenAPI contract checks, workspace
-formatting and Clippy, Helm lint and release privacy preflight. The compiled
-manager/router-auth process fixture is also part of closeout verification.
-The Kubernetes proof covers the new controller activation and lost-reply path;
-it does not claim complete worker SSH, native/browser or recovery acceptance.
-
-Local verification uses Python 3.14 with `uv sync --locked`, Rust 1.99.1 from
-`services/hermes-manager/rust-toolchain.toml`, a disposable PostgreSQL 17 fixture
-and Helm 3. Run Cargo from `services/hermes-manager` so its pinned toolchain is
-selected. Standard checks:
-
-```bash
-uv run ruff check agent_platform tests services/tools/platform_bootstrap
-uv run ruff format --check agent_platform tests services/tools/platform_bootstrap
-uv run pytest -q
-helm lint charts/agent-platform
-uv run python -m agent_platform.privacy
-
-cd services/hermes-manager
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-# Set DATABASE_URL to an isolated, disposable test database with CREATE DATABASE.
-cargo test --workspace --locked
-cargo build --workspace --bins --locked
-cd ../..
-uv run python -m tests.personal_hermes.api_process
-uv run python -m tests.personal_hermes.kubernetes
-```
-
-The process/Kubernetes runners default to the isolated Docker PostgreSQL
-container `personal-hermes-manager-tests`; they do not use a deployment database
-or an existing kubecontext. To recreate the disposable fixture after pausing:
+Use Python 3.14, `uv sync --locked`, Helm 3, Docker and the pinned toolchain in
+`services/hermes-manager/rust-toolchain.toml`. Run from the repository root unless
+shown otherwise. Create a disposable PostgreSQL fixture before the full Rust or
+Kubernetes/process tests; never point these tests at deployment data:
 
 ```bash
 docker run --detach --name personal-hermes-manager-tests \
@@ -388,9 +109,61 @@ docker run --detach --name personal-hermes-manager-tests \
 export DATABASE_URL=postgres://hermes_test@127.0.0.1:32814/hermes_test
 ```
 
-This is a nonsecret local test fixture, not a deployment configuration. Remove
-only that exact fixture container/volume after the test run.
- `native_runtime --build`, `native_owner` and
-`router_compatibility` remain the separate native/proxy acceptance fixtures;
-run the relevant ones when those runtime/proxy inputs change. Read their local
-fixture requirements first. Keep fixture secrets out of logs and release inputs.
+Wait for that fixture's `pg_isready` before testing. SQLx uses a test-only role
+with CREATE DATABASE to create/migrate isolated databases. The process and
+Kubernetes runners default to this named Docker container and use temporary
+credentials; they do not read an existing kubecontext.
+
+```bash
+uv sync --locked
+uv run ruff check agent_platform tests services/tools/platform_bootstrap
+uv run ruff format --check agent_platform tests services/tools/platform_bootstrap
+uv run pytest -q
+helm lint charts/agent-platform
+uv run python -m agent_platform.privacy
+
+cd services/hermes-manager
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo build --workspace --bins --locked
+cd ../..
+uv run python -m tests.personal_hermes.api_process
+uv run python -m tests.personal_hermes.native_runtime --build
+uv run python -m tests.personal_hermes.kubernetes --native
+```
+
+Run Cargo builds/tests sequentially against a shared target directory. The native
+Kubernetes fixture uses the image built by `native_runtime --build`. Native-owner
+and router-compatibility fixtures are additional targeted checks for changes to
+those components. Clean up only the exact disposable PostgreSQL fixture and its
+test volume after verification; the other runners remove their own temporary
+containers. Keep fixture credentials out of logs and release inputs.
+
+## Remaining work
+
+1. Complete the worker controller and authenticated SSH readiness before granting
+   real terminal leases. Align the native egress selector (`hermes-worker`) with
+   worker labels (`worker`), install owner-scoped SSH ingress, resolve approved
+   Service/Endpoint egress and verify CNI enforcement. Nonempty runtime service
+   egress currently prevents policy activation.
+2. Finish exact-UID worker retirement, idle/recycle, later generations and the
+   combined native/terminal drain barrier. Preserve original deadlines and lease
+   tombstones. Finish policy retry/deadline/manual-recovery status.
+3. Complete route publication and real Keycloak/native/proxy browser acceptance,
+   including HTTP mutations, uploads, cookies, identity changes and WebSockets.
+4. Implement the manager frontend and remaining owner/checkpoint contracts using
+   the existing administration authorization and CSRF boundary.
+5. Implement checkpoint/inventory/readback receipts, full data restore and
+   explicit adoption; supply backup transport and scheduling from infrastructure.
+6. Package the new services and personal-mode chart configuration, then complete
+   release acceptance. Updating source is separate from deployment/publication.
+
+## Paused handoff — 2026-10-20
+
+The earlier pause ended when native commissioning work resumed. That checkpoint
+ended at migration 0016 and is preserved in Git history; it is not the current
+status or resume instruction. Migration 0017, explicit fresh initialization and
+integrated native commissioning described above supersede its native-instance
+and fresh-inventory gaps. Terminal, routing, UI and coordinated recovery work
+remain incomplete as listed here.

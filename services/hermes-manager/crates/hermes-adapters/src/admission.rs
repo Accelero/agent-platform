@@ -69,15 +69,30 @@ pub fn manifests(scope: &InstallationScope, controller_subject: &str) -> Vec<Val
             checks.push("request.operation != 'UPDATE' || oldObject.metadata.labels['app.kubernetes.io/component'] == variables.labels['app.kubernetes.io/component']".into());
             variables.push(worker::runtime_variable());
         }
+        let mut policy = json!({"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicy","metadata":{"name":name},"spec":{
+            "failurePolicy":"Fail","paramKind":{"apiVersion":VERSION,"kind":"InstancePolicy"},
+            "matchConstraints":{"matchPolicy":"Equivalent","namespaceSelector":{"matchLabels":{"agent-platform.io/installation":scope.id.to_string()}},"objectSelector":{},"resourceRules":[
+                {"apiGroups":[group],"apiVersions":["v1"],"operations":["CREATE","UPDATE"],"resources":[resource],"scope":"Namespaced"}
+            ]},
+            "variables":variables,
+            "validations":checks.into_iter().map(|expression|json!({"expression":expression,"reason":"Forbidden","message":"Workload differs from approved personal instance policy"})).collect::<Vec<_>>()
+        }});
+        if resource == "deployments" {
+            // Foreground GC removes finalizers after scale-to-zero. That is
+            // metadata cleanup, not permission to run an old/disabled spec.
+            // Evaluate before parameter lookup so missing policy cannot strand
+            // a terminating workload. Every executable field stays identical.
+            let mut cleanup = vec!["request.operation == 'UPDATE'".to_string(),
+                "has(oldObject.metadata.deletionTimestamp) && has(object.metadata.deletionTimestamp) && object.metadata.deletionTimestamp == oldObject.metadata.deletionTimestamp".into(),
+                "object.metadata.uid == oldObject.metadata.uid && object.spec == oldObject.spec".into(),
+                "!has(object.metadata.finalizers) || (has(oldObject.metadata.finalizers) && object.metadata.finalizers.all(f, f in oldObject.metadata.finalizers))".into()];
+            for field in ["labels", "annotations", "ownerReferences"] {
+                cleanup.push(format!("has(object.metadata.{field}) == has(oldObject.metadata.{field}) && (!has(object.metadata.{field}) || object.metadata.{field} == oldObject.metadata.{field})"));
+            }
+            policy["spec"]["matchConditions"] = json!([{"name":"validate-workload-changes","expression":format!("request.operation != 'UPDATE' ? true : !({})",cleanup.iter().map(|c|format!("({c})")).collect::<Vec<_>>().join(" && "))}]);
+        }
         result.extend([
-            json!({"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicy","metadata":{"name":name},"spec":{
-                "failurePolicy":"Fail","paramKind":{"apiVersion":VERSION,"kind":"InstancePolicy"},
-                "matchConstraints":{"matchPolicy":"Equivalent","namespaceSelector":{"matchLabels":{"agent-platform.io/installation":scope.id.to_string()}},"objectSelector":{},"resourceRules":[
-                    {"apiGroups":[group],"apiVersions":["v1"],"operations":["CREATE","UPDATE"],"resources":[resource],"scope":"Namespaced"}
-                ]},
-                "variables":variables,
-                "validations":checks.into_iter().map(|expression|json!({"expression":expression,"reason":"Forbidden","message":"Workload differs from approved personal instance policy"})).collect::<Vec<_>>()
-            }}),
+            policy,
             json!({"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":{"name":name},"spec":{"policyName":name,"paramRef":{"name":"instance-policy","parameterNotFoundAction":"Deny"},"validationActions":["Deny"]}}),
         ]);
     }

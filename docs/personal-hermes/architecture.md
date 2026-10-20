@@ -1,8 +1,13 @@
 # Personal Hermes architecture
 
-Status: proposed implementation architecture, based on release 0.6.1. None of
-the new manager/router services or chart settings below exist in that release.
-See the [specification](specification.md) and [delivery plan](plan.md).
+Status: target architecture, based on release 0.6.1. The chart in that release
+does not install the new manager/router services or settings below. Parts now
+exist in source: see the [implementation status](implementation.md) for the
+current boundary and the [native commissioning guide](native-commissioning.md)
+for implemented infrastructure templates, database mappings and update/removal
+behavior. The UI, complete terminal lifecycle, routing and checkpoint sections
+below describe the intended product, not completed features. See also the
+[specification](specification.md) and [delivery plan](plan.md).
 
 ## Ownership and sources of truth
 
@@ -100,11 +105,11 @@ no separate frontend service is required yet.
 
 ## Administration boundary and future panel extraction
 
-Proposed source boundaries:
+Source boundaries, with the planned frontend marked:
 
 ```text
 contracts/hermes-manager/openapi.yaml
-contracts/hermes-manager/router.openapi.yaml # proposed resolver contract supplied now
+contracts/hermes-manager/router.openapi.yaml # resolver contract
 services/hermes-manager/
   Cargo.toml                          # Rust workspace
   crates/hermes-domain/src/            # identity, assignments and instance invariants
@@ -112,14 +117,16 @@ services/hermes-manager/
   crates/hermes-adapters/src/          # HTTP, PostgreSQL, directory and Kubernetes
   crates/hermes-manager/src/bin/       # API/UI and controller process roles
   crates/hermes-router-auth/src/       # OIDC sessions and ForwardAuth adapter
-  ui/                                 # built-in administration presentation
+  ui/                                 # planned; no frontend exists yet
 plugins/hermes-route-resolver/          # thin Go/Yaegi middleware
 ```
 
-Except for the [resolver contract](../../contracts/hermes-manager/router.openapi.yaml),
-these paths describe work to create, not existing packages. Domain code imports
-no HTTP, UI, Kubernetes or identity-provider SDK. Application code depends on
-ports such as `AssignmentRepository`, `InstanceRepository`, `IdentityDirectory`,
+The Rust crates, API contracts and Go plugin exist in source. The frontend,
+directory integration and checkpoint adapters remain planned. The interface
+names below illustrate the target boundaries; see the workspace for current
+traits and the implementation status for completed adapters. Domain code imports
+no HTTP, UI, Kubernetes or identity-provider SDK. Target application ports include
+`AssignmentRepository`, `InstanceRepository`, `IdentityDirectory`,
 `InstanceDriver`, `OperationQueue`, `AuditSink` and `CheckpointCoordinator`.
 Add `TerminalRuntimeRepository`, `StorageBindingRepository`,
 `ExecutionEnvironmentRepository`, `ExecutionLeaseRepository` and `ExecutionDriver`
@@ -144,6 +151,9 @@ Use separate OIDC clients, host-only cookies and explicit CSRF checks. Do not
 enable broad credentialed CORS to make a later panel work.
 
 ### Dashboard build and API communication
+
+This is the planned manager administration frontend. The current source has
+the API and browser-session authentication, but no frontend assets or UI serving.
 
 Use React and TypeScript for the browser application, built with
 [Vite](https://vite.dev/guide/build.html). Node.js and the frontend package
@@ -533,13 +543,17 @@ boundaries. A new manager assignment does not create a board membership.
 
 ## Recovery and teardown boundary
 
+The coordinated checkpoint/restore flow below is planned. Current source has
+an explicit fresh-install scanner and ownership/epoch gates, but no automated
+backups or full-data restore implementation. Retained PVCs are not backup copies.
+
 Dynamic instances invalidate a fixed backup dataset/Secret list. Before adoption,
 the deployment integration must consume a versioned inventory containing all
 instance IDs, owner keys, namespace/resource UID bindings, PVC datasets, selected
 Secrets, template/image digests, terminal-runtime/storage policy and execution
 environment/lease state from the shared manager database.
 
-The manager exposes prepare, inventory, completion and resume interfaces to a
+The manager must expose prepare, inventory, completion and resume interfaces to a
 trusted checkpoint coordinator. Fence configuration changes and reconciliation,
 drain work and stop all inventoried writers before exporting a consistent
 registry and instance payload. The deployment supplies backup transport and

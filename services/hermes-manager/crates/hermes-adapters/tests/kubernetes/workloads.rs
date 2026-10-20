@@ -75,6 +75,7 @@ pub(super) async fn verify(
         workspace_gib: 10,
         cpu_millis: 1000,
         memory_mib: 1024,
+        admin_config: Default::default(),
     };
     let bootstrap =
         NativeBootstrap::generate(template, "https://manager.example.org/execution").unwrap();

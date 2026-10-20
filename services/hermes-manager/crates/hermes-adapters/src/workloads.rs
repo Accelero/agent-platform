@@ -330,7 +330,22 @@ pub fn render(
         None,
         json!({"metadata":{},"data":{"context.json":serde_json::to_string(&context).map_err(|_|Error::Invalid)?}}),
     )?;
-    let mut trust = BTreeMap::from([("ca.crt", config.execution_ca_pem.as_str())]);
+    // Native managed scope overlays only administrator-selected leaves. It is
+    // mounted read-only, independently of the owner's mutable config.yaml.
+    let mut managed = definition.admin_config.clone();
+    let mut terminal = bootstrap.native_config["terminal"]
+        .as_object()
+        .ok_or(Error::Invalid)?
+        .clone();
+    if let Some(approved) = managed.get("terminal").and_then(Value::as_object) {
+        terminal.extend(approved.clone());
+    }
+    managed.insert("terminal".into(), Value::Object(terminal));
+    let managed = serde_json::to_string(&managed).map_err(|_| Error::Invalid)?;
+    let mut trust = BTreeMap::from([
+        ("ca.crt", config.execution_ca_pem.as_str()),
+        ("config.yaml", managed.as_str()),
+    ]);
     if let Some(ca) = &config.oidc_ca_pem {
         trust.insert("oidc-ca.crt", ca);
     }
@@ -347,6 +362,7 @@ pub fn render(
     let mut env = vec![
         json!({"name":"HOME","value":"/opt/data"}),
         json!({"name":"HERMES_HOME","value":"/opt/data"}),
+        json!({"name":"HERMES_MANAGED_DIR","value":"/run/hermes/execution-ca"}),
         json!({"name":"HERMES_DASHBOARD_OIDC_ISSUER","value":scope.issuer}),
         json!({"name":"HERMES_DASHBOARD_OIDC_CLIENT_ID","value":config.oidc_client}),
         json!({"name":"HERMES_DASHBOARD_PUBLIC_URL","value":config.public_origin}),

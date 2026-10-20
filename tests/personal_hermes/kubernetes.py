@@ -31,7 +31,16 @@ def command(args, timeout=30):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--postgres-container", default="personal-hermes-manager-tests")
+    parser.add_argument(
+        "--native",
+        action="store_true",
+        help="Also commission real cached native images inside Kubernetes",
+    )
     args = parser.parse_args()
+    postgres = json.loads(command(["docker", "inspect", args.postgres_container]))[0]
+    networks = postgres["NetworkSettings"]["Networks"]
+    assert networks, "Disposable PostgreSQL fixture has no network"
+    network = "bridge" if "bridge" in networks else next(iter(networks))
     name = "personal-hermes-kube-test-" + uuid.uuid4().hex[:12]
     identifier = None
     try:
@@ -43,6 +52,8 @@ def main():
                 "--name",
                 name,
                 "--privileged",
+                "--network",
+                network,
                 "--tmpfs",
                 "/run",
                 "--tmpfs",
@@ -150,6 +161,10 @@ def main():
                 timeout=600,
             )
             assert result.returncode == 0, "Real Kubernetes ownership test failed"
+            if args.native:
+                from tests.personal_hermes.native_commissioning import run_fixture
+
+                run_fixture(identifier, args.postgres_container, temporary)
         print(
             "PASS: isolated Kubernetes creation recovery, namespace/UID ownership "
             "and preconditioned retirement; ServiceAccount bootstrap/admission"

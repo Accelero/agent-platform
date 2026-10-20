@@ -17,7 +17,7 @@ async fn retained_resource(
         ResourceKind::Deployment => (namespace, "hermes", "instance"),
         _ => return Err(Error::Invalid),
     };
-    let row = sqlx::query("SELECT * FROM manager.owned_resources WHERE installation_id=$1 AND instance_id=$2 AND kind=$3 AND namespace=$4 AND name=$5")
+    let row = sqlx::query("SELECT * FROM manager.owned_resources WHERE installation_id=$1 AND instance_id=$2 AND kind=$3 AND namespace=$4 AND name=$5 AND state<>'Deleted'")
         .bind(scope.id).bind(claim.instance_id).bind(kind.as_str()).bind(parent).bind(name)
         .fetch_optional(&mut **tx).await.map_err(db_error)?;
     let Some(row) = row else { return Ok(None) };

@@ -1,6 +1,8 @@
 """Native home initialization survives real abrupt death and preserves owner state."""
 
+import errno
 import importlib.util
+import io
 import json
 import multiprocessing
 import os
@@ -81,6 +83,32 @@ def test_termination_message_replaces_an_untrusted_symlink_without_touching_owne
     assert not result.is_symlink()
     receipt = json.loads(result.read_bytes())
     assert receipt["record"]["complete"] is True
+
+
+@pytest.mark.parametrize("alias", ["symlink", "hardlink"])
+def test_mounted_result_fallback_never_truncates_an_owner_alias(
+    tmp_path, monkeypatch, alias
+):
+    initializer = module()
+    victim = tmp_path / "owner-state"
+    victim.write_bytes(b"owner configuration")
+    target = tmp_path / "result"
+    if alias == "symlink":
+        target.symlink_to(victim)
+    else:
+        target.hardlink_to(victim)
+
+    def busy(*_args):
+        raise OSError(errno.EBUSY, "mountpoint")
+
+    def mountinfo(*_args, **_kwargs):
+        return io.StringIO(f"1 2 3:4 / {target} rw - tmpfs tmpfs rw\n")
+
+    monkeypatch.setattr(initializer.os, "replace", busy)
+    monkeypatch.setattr(initializer, "open", mountinfo, raising=False)
+    with pytest.raises((OSError, ValueError)):
+        initializer.write_result(target, b"replacement")
+    assert victim.read_bytes() == b"owner configuration"
 
 
 @pytest.mark.parametrize("stage", ["intent", "config"])

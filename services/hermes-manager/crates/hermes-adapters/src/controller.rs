@@ -28,6 +28,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+mod infrastructure;
 mod policy;
 
 #[derive(Serialize, Deserialize)]
@@ -91,13 +92,25 @@ impl Controller {
     /// One bounded claim at a time. Concurrent controller processes use the
     /// database lease/fence, not a leader flag or an in-memory assignment cache.
     pub async fn step(&self) -> Result<bool, Error> {
+        Box::pin(self.step_inner()).await
+    }
+    async fn step_inner(&self) -> Result<bool, Error> {
+        let infrastructure_work =
+            Box::pin(self.store.reconcile_infrastructure(&self.scope)).await? > 0;
         self.store.enqueue_due(&self.scope, 64).await?;
-        let policy_work = self.policy_step().await?;
+        let policy_work = Box::pin(self.policy_step()).await?;
         let Some(claim) = self.store.claim(&self.scope, self.worker, 30).await? else {
-            return Ok(policy_work);
+            return Ok(policy_work || infrastructure_work);
         };
-        let outcome = self.reconcile(&claim).await;
+        let outcome = Box::pin(self.reconcile(&claim)).await;
         let schedule = match outcome {
+            Ok(ConditionReason::NativeRemoved) => return Ok(true),
+            Ok(ConditionReason::NativeReady) => {
+                self.store
+                    .complete_native_commissioning(&self.scope, &claim)
+                    .await?;
+                return Ok(true);
+            }
             Ok(reason) => Schedule::Waiting { reason, seconds: 5 },
             Err(error @ (Error::StaleFence | Error::Maintenance | Error::RecoveryRequired)) => {
                 return Err(error);
@@ -128,13 +141,57 @@ impl Controller {
         self.driver.verify_bootstrap(&self.bootstrap).await?;
         self.store.renew(&self.scope, claim, 30).await?;
         let lifecycle = self.store.lifecycle_plan(&self.scope, claim).await?;
+        if lifecycle.assignment.access == Access::Enabled
+            && self
+                .store
+                .infrastructure_managed(&self.scope, claim)
+                .await?
+            && let Some(retained) = &lifecycle.deployment
+            && retained.owned.state == "Retiring"
+        {
+            self.retire_infrastructure_workload(claim, retained.owned.clone())
+                .await?;
+            return Ok(ConditionReason::Provisioning);
+        }
+        if lifecycle.assignment.access == Access::Revoked
+            && self
+                .store
+                .infrastructure_managed(&self.scope, claim)
+                .await?
+        {
+            return Box::pin(self.reconcile_infrastructure_removal(claim, lifecycle)).await;
+        }
+        if lifecycle.assignment.access == Access::Enabled
+            && lifecycle
+                .drain
+                .as_ref()
+                .is_some_and(|d| d.completed_at_millis.is_none())
+            && self
+                .store
+                .infrastructure_managed(&self.scope, claim)
+                .await?
+        {
+            let deployment = lifecycle.deployment.as_ref().map(|d| d.owned.clone());
+            Box::pin(self.reconcile_stopping(claim, lifecycle)).await?;
+            if let Some(deployment) = deployment
+                && !self
+                    .driver
+                    .discover_native_children(&deployment, None, claim)
+                    .await?
+                    .is_empty()
+            {
+                return Ok(ConditionReason::Draining);
+            }
+            self.store.complete_native_drain(&self.scope, claim).await?;
+            return Ok(ConditionReason::Provisioning);
+        }
         if lifecycle.assignment.access != Access::Enabled
             || lifecycle
                 .drain
                 .as_ref()
                 .is_some_and(|d| d.completed_at_millis.is_none())
         {
-            return self.reconcile_stopping(claim, lifecycle).await;
+            return Box::pin(self.reconcile_stopping(claim, lifecycle)).await;
         }
         let plan = self.store.commission_plan(&self.scope, claim).await?;
         let (material, bootstrap) = self
@@ -362,6 +419,13 @@ impl Controller {
             .await?;
         self.store.renew(&self.scope, claim, 30).await?;
         self.probe.verify(&plan.assignment.namespace).await?;
+        if self
+            .store
+            .infrastructure_managed(&self.scope, claim)
+            .await?
+        {
+            return Ok(ConditionReason::NativeReady);
+        }
         use hermes_application::execution::ExecutionRepository;
         match self
             .store

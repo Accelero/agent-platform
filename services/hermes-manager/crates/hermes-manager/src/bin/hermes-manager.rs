@@ -79,12 +79,21 @@ async fn run() -> Result<(), Error> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.len() != 3
         || args[1] != "--config"
-        || !matches!(args[0].as_str(), "api" | "controller" | "migrate" | "check")
+        || !matches!(
+            args[0].as_str(),
+            "api" | "controller" | "migrate" | "check" | "initialize" | "render-bootstrap"
+        )
     {
         return Err(Error::Invalid);
     }
     if args[0] == "controller" {
         return hermes_manager::controller::run(Path::new(&args[2])).await;
+    }
+    if args[0] == "initialize" {
+        return hermes_manager::controller::initialize(Path::new(&args[2])).await;
+    }
+    if args[0] == "render-bootstrap" {
+        return hermes_manager::controller::render_bootstrap(Path::new(&args[2])).await;
     }
     let config: Config = serde_json::from_slice(&read(Path::new(&args[2]), 64 * 1024).await?)
         .map_err(|_| Error::Invalid)?;

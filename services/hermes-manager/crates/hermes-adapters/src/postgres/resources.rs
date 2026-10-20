@@ -151,7 +151,7 @@ impl ResourceRepository for PgStore {
         spec.validate()?;
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_claim(&mut tx, scope, claim).await?;
-        let row=sqlx::query("SELECT * FROM manager.owned_resources WHERE installation_id=$1 AND instance_id=$2 AND kind=$3 AND namespace=$4 AND name=$5")
+        let row=sqlx::query("SELECT * FROM manager.owned_resources WHERE installation_id=$1 AND instance_id=$2 AND kind=$3 AND namespace=$4 AND name=$5 AND state<>'Deleted'")
             .bind(scope.id).bind(claim.instance_id).bind(spec.kind.as_str()).bind(spec.namespace.as_deref().unwrap_or("")).bind(&spec.name).fetch_optional(&mut *tx).await.map_err(db_error)?;
         let owned = row.as_ref().map(resource).transpose()?;
         tx.commit().await.map_err(db_error)?;
@@ -192,6 +192,15 @@ impl ResourceRepository for PgStore {
         if owner.get::<String, _>("access") != "enabled" {
             return Err(Error::Forbidden);
         }
+        let tombstone: Option<i64> = sqlx::query_scalar("SELECT max((creation->>'generation')::bigint) FROM manager.owned_resources WHERE installation_id=$1 AND kind=$2 AND namespace=$3 AND name=$4 AND state='Deleted'")
+            .bind(scope.id).bind(spec.kind.as_str()).bind(spec.namespace.as_deref().unwrap_or("")).bind(&spec.name).fetch_one(&mut *tx).await.map_err(db_error)?;
+        if let Some(generation) = tombstone {
+            let managed: bool = sqlx::query_scalar("SELECT a.infrastructure_managed FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
+                .bind(claim.instance_id).fetch_one(&mut *tx).await.map_err(db_error)?;
+            if !managed || claim.generation <= generation || spec.kind != ResourceKind::Deployment {
+                return Err(Error::OwnershipConflict);
+            }
+        }
         let namespace: String = owner.get("namespace");
         if spec.kind == ResourceKind::Namespace {
             if spec.name != namespace {
@@ -219,9 +228,9 @@ impl ResourceRepository for PgStore {
             operation_id: claim.id,
             spec: spec.clone(),
         };
-        sqlx::query("INSERT INTO manager.owned_resources(id,installation_id,instance_id,kind,namespace,name,creation,encrypted_material_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(installation_id,kind,namespace,name) DO NOTHING")
+        sqlx::query("INSERT INTO manager.owned_resources(id,installation_id,instance_id,kind,namespace,name,creation,encrypted_material_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING")
             .bind(creation.id).bind(scope.id).bind(claim.instance_id).bind(spec.kind.as_str()).bind(spec.namespace.as_deref().unwrap_or("")).bind(&spec.name).bind(serde_json::to_value(&creation).map_err(|_|Error::Invalid)?).bind(spec.encrypted_material_ref).execute(&mut *tx).await.map_err(db_error)?;
-        let row=sqlx::query("SELECT * FROM manager.owned_resources WHERE installation_id=$1 AND kind=$2 AND namespace=$3 AND name=$4 FOR UPDATE")
+        let row=sqlx::query("SELECT * FROM manager.owned_resources WHERE installation_id=$1 AND kind=$2 AND namespace=$3 AND name=$4 AND state<>'Deleted' FOR UPDATE")
             .bind(scope.id).bind(spec.kind.as_str()).bind(spec.namespace.as_deref().unwrap_or("")).bind(&spec.name).fetch_one(&mut *tx).await.map_err(db_error)?;
         let owned = resource(&row)?;
         if owned.creation.instance_id != claim.instance_id

@@ -113,6 +113,18 @@ jobs:
   hermes-personal-native-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres@sha256:2a0d0fe14825b0939f78a8cad5cd4e6aa68bf94d0e5dd96e24b6d23af4315545
+        env:
+          POSTGRES_USER: hermes_test
+          POSTGRES_DB: hermes_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hermes_test -d hermes_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -122,5 +134,9 @@ jobs:
           version: '0.13.0'
           python-version: '3.14'
       - run: uv sync --locked
+      - name: Install the pinned Rust toolchain for native commissioning
+        run: rustup toolchain install 1.99.1 --profile minimal
       - name: Build reviewed context and verify non-root native startup and crash recovery
         run: uv run python -m tests.personal_hermes.native_runtime --build
+      - name: Commission real per-user native instances and retain their PVC state
+        run: uv run python -m tests.personal_hermes.kubernetes --native --postgres-container '${{ job.services.postgres.id }}'

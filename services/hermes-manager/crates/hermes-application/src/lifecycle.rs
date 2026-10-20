@@ -15,12 +15,14 @@ pub struct DrainBarrier {
     pub deadline_expired: bool,
 }
 
+#[derive(Clone)]
 pub struct RenderingReference {
     pub id: Uuid,
     pub purpose: String,
     pub generation: i64,
 }
 
+#[derive(Clone)]
 pub struct RetainedResource {
     pub owned: OwnedResource,
     /// Exact original rendering for read-only recovery of an unbound CREATE.

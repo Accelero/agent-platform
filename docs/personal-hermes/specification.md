@@ -3,6 +3,10 @@
 Status: proposed requirements for a future release. Release 0.6.1 does not
 implement these services, APIs or values. The [architecture](architecture.md)
 selects the component design; the [plan](plan.md) defines delivery gates.
+These are target requirements rather than a feature inventory. See the
+[implementation status](implementation.md) for completed source behavior and
+remaining gaps, and [native commissioning](native-commissioning.md) for the
+implemented infrastructure-to-manager contract.
 
 ## Scope and terminology
 
