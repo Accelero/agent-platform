@@ -473,21 +473,12 @@
       "type": "object",
       "required": [
         "dashboardUsername",
-        "maxConcurrentTasks",
-        "providerSecret",
-        "providerKeys"
+        "maxConcurrentTasks"
       ],
       "properties": {
         "maxConcurrentTasks": {
           "type": "integer",
           "minimum": 1
-        },
-        "providerKeys": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
         },
         "dashboardAuth": {
           "type": "object",

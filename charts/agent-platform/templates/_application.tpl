@@ -36,9 +36,6 @@
 {{- range $hermes.secretEnv -}}
   {{- if or (ne .name "CAMOFOX_API_KEY") (index $workloads "camofox").enabled -}}{{- $secrets = append $secrets . -}}{{- end -}}
 {{- end -}}
-{{- range $key := .Values.hermes.providerKeys -}}
-  {{- $secrets = append $secrets (dict "name" $key "key" $key "secretName" $.Values.hermes.providerSecret) -}}
-{{- end -}}
 {{- $_ := set $hermes "secretEnv" $secrets -}}
 {{- $_ := include "agent-platform.dashboard" (dict "root" . "workload" $hermes) -}}
 {{- $manager := index $workloads "runtime-manager" -}}

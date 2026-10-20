@@ -6,9 +6,7 @@ multica:
   mailKeys:
   - SMTP_HOST
   - SMTP_FROM_EMAIL
-hermes:
-  providerKeys:
-  - EXAMPLE_API_KEY
+hermes: {}
 workloads:
   hermes:
     enabled: true

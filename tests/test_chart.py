@@ -127,6 +127,10 @@ def test_oidc_replaces_basic_auth_without_replacing_workload_lists(
     tmp_path: Path, oidc_values: dict
 ) -> None:
     """OIDC removes both literal and Secret-based Basic auth while keeping API auth."""
+    oidc_values["workloads"]["hermes"]["secretEnv"] = [
+        {"name": "API_SERVER_KEY", "key": "API_SERVER_KEY"},
+        {"name": "EXAMPLE_API_KEY", "key": "api-key", "secretName": "user-owned-model"},
+    ]
     oidc_values["workloads"]["hermes"]["env"] = [
         {"name": "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "value": "legacy-fixture"},
         {"name": "KEEP_CUSTOM_SETTING", "value": "preserved"},
@@ -147,7 +151,7 @@ def test_oidc_replaces_basic_auth_without_replacing_workload_lists(
     assert env["KEEP_CUSTOM_SETTING"]["value"] == "preserved"
     assert env["API_SERVER_KEY"]["valueFrom"]["secretKeyRef"]["key"] == "API_SERVER_KEY"
     assert env["EXAMPLE_API_KEY"]["valueFrom"]["secretKeyRef"]["name"] == (
-        "hermes-provider-credentials"
+        "user-owned-model"
     )
     assert len(env) == len(container["env"])
     assert not any(kind == "Secret" for kind, _name in objects)
@@ -401,3 +405,24 @@ def test_native_backend_accepts_and_recognizes_chart_configured_runtime(
     assert pod["spec"]["securityContext"]["runAsUser"] == 1000
     assert not pod["spec"]["automountServiceAccountToken"]
     assert pod["spec"]["volumes"] == template["kubernetes"]["volumes"]
+
+
+def test_hermes_renders_without_chart_owned_model_credentials(
+    tmp_path: Path, values: dict
+) -> None:
+    """No model provider or model login is required to deploy the application."""
+    objects = render(tmp_path, values)
+    container = objects["Deployment", "hermes"]["spec"]["template"]["spec"][
+        "containers"
+    ][0]
+    env = {item["name"]: item for item in container["env"]}
+    assert "EXAMPLE_API_KEY" not in env
+    assert not any(
+        item.get("valueFrom", {}).get("secretKeyRef", {}).get("name")
+        == "hermes-provider-credentials"
+        for item in env.values()
+    )
+    assert any(
+        item["name"] == "hermes-home" and item["mountPath"] == "/opt/data"
+        for item in container["volumeMounts"]
+    )

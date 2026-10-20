@@ -57,7 +57,8 @@ application. No downloaded Python or secondary configuration bundle is needed.
 
 `templates/_application.tpl` owns internal service URLs and native application
 environment variables. Gateway nginx configs are packaged files. Database/mail,
-public URL, owner, provider credentials and resource/storage choices are values.
+public URL, owner and resource/storage choices are values. Model configuration
+and login belong to native Hermes state.
 
 ## Installation inputs
 
@@ -73,8 +74,8 @@ Important values:
   operations tools references. Packaged releases populate these exact manifest digests.
 - `multica`: public URL, allowed owner, database connection/CA reference and outbound
   mail Secret/key names. Credentials are named references, not inline values.
-- `hermes`: dashboard authentication, username, concurrency and provider Secret/key
-  names. `dashboardAuth.mode` selects `basic` or `oidc`.
+- `hermes`: dashboard authentication, username and concurrency.
+  `dashboardAuth.mode` selects `basic` or `oidc`.
 - `runtimeManager`: native templates/clients, non-root identity, token and TLS Secret
   references. The server certificate must cover `runtime-manager` and the service
   DNS names used by clients. Mounts contain only selected existing keys.
@@ -94,12 +95,27 @@ Important values:
 - `multicaGithub`: optional GitHub App integration and narrowly scoped webhook ingress.
 
 For the lightweight defaults, provision `agent-platform-secrets` with Multica's
-Postgres password/JWT secret and the Hermes dashboard/API keys; `multica-mail` and
-`hermes-provider-credentials` with the configured mail/provider keys; manager bearer
-and TLS Secrets; `execution-controller-ssh` with its Hermes private key; and the
-sandbox's selected SSH/profile-login Secrets. Manager TLS clients select `tls.crt`
+Postgres password/JWT secret and the Hermes dashboard/API keys; `multica-mail`
+with configured mail keys; manager bearer and TLS Secrets;
+`execution-controller-ssh` with its Hermes private key; and the sandbox's selected
+SSH/profile-login Secrets. Manager TLS clients select `tls.crt`
 as their CA. Initialize Hermes home/profile files, identities and skills before
 starting controllers, then register their Multica roster through normal auth.
+
+Hermes model/provider selection and model credentials belong to its native
+persistent home. A fresh deployment has no model login; the administrator uses
+the native dashboard or `hermes model` to configure it. There is no required
+provider Secret. API-key providers can use native `.env` files or the generic
+`workloads.hermes.env` and `workloads.hermes.secretEnv` interfaces. Workload lists replace the defaults, so
+retain required application authentication entries when supplying a custom list.
+
+Codex subscription OAuth uses Hermes's native login flow and writable `auth.json`,
+not an API-key environment variable. Preserve the native home across restarts so
+refresh tokens and model settings survive. An external OAuth credential file can
+be imported through native Hermes tooling; read-only mounting it as the active
+auth store prevents Hermes from persisting refreshed credentials. External
+Secrets need their own backup policy; environment variables alone are not a
+backup of native state.
 
 The chart does not generate or seed credentials. Seed/export, database provisioning,
 backups, bucket credentials, PVC backing and VPN ingress are infrastructure duties.

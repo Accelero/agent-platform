@@ -1120,8 +1120,6 @@ hermes:
         name: ''
         key: client-secret
   maxConcurrentTasks: 1
-  providerSecret: hermes-provider-credentials
-  providerKeys: []
 # Bootstrap is opt-in. Deployment values must supply recovery and lifecycle hooks.
 bootstrap:
   enabled: false
