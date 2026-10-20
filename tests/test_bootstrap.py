@@ -241,6 +241,17 @@ def test_chart_ships_automatic_job_and_suspended_manual_template(tmp_path):
     assert pod["containers"][0]["args"] == []
     assert pod["securityContext"]["runAsUser"] == 1000
     assert not any(kind == "Secret" for kind, _ in objects)
+    configuration = json.loads(
+        objects["ConfigMap", "agents-bootstrap"]["data"]["config.json"]
+    )
+    assert configuration["createAgent"] is True
+    assert configuration["runtimeVisibility"] == "private"
+    values["bootstrap"]["createAgent"] = False
+    runtime_only = render(tmp_path, values)
+    configuration = json.loads(
+        runtime_only["ConfigMap", "agents-bootstrap"]["data"]["config.json"]
+    )
+    assert configuration["createAgent"] is False
 
 
 def test_bootstrap_waits_for_every_pinned_native_migration():
@@ -290,3 +301,31 @@ def test_default_enrollment_uses_root_hermes_without_creating_a_profile(scenario
     assert profile["token"] == "profile-fixture"
     posts = [call for call in board.request.call_args_list if len(call.args) == 2]
     assert posts[0].args[1]["custom_args"] == []
+
+
+def test_runtime_only_bootstrap_registers_hermes_without_creating_an_agent(scenario):
+    config, cluster, stored, command, board, hook = scenario
+    config["createAgent"] = False
+    config["runtimeVisibility"] = "public"
+    config["profile"] = ""
+    responses = {
+        "/api/runtimes": [
+            {
+                "id": "runtime-id",
+                "provider": "hermes",
+                "status": "online",
+                "visibility": "private",
+            }
+        ],
+        "/api/agents": [],
+        "/api/runtimes/runtime-id": {},
+    }
+    board.request.side_effect = lambda path, *args, **kwargs: responses[path]
+    assert bootstrap.enroll(config, cluster, force=False).startswith("enrolled")
+    writes = [call for call in board.request.call_args_list if len(call.args) == 2]
+    assert [(call.args, call.kwargs) for call in writes] == [
+        (("/api/runtimes/runtime-id", {"visibility": "public"}), {"method": "PATCH"})
+    ]
+    assert (Path(config["home"]) / ".multica/config.json").is_file()
+    assert not (Path(config["home"]) / "profiles").exists()
+    assert json.loads(stored["agent-onboarding"]["bootstrap.json"])["pending"] is False

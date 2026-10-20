@@ -225,10 +225,13 @@ class Board:
             urllib.request.ProxyHandler({}), NoRedirect()
         )
 
-    def request(self, path: str, payload: dict | None = None) -> dict | list:
+    def request(
+        self, path: str, payload: dict | None = None, method: str | None = None
+    ) -> dict | list:
         request = urllib.request.Request(
             self.url + path,
             data=None if payload is None else json.dumps(payload).encode(),
+            method=method,
             headers={
                 "Authorization": "Bearer " + self.token,
                 "X-Workspace-ID": self.workspace,
@@ -421,6 +424,16 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
             if time.monotonic() >= deadline:
                 raise RuntimeError("Hermes did not reconnect within its deadline.")
             time.sleep(2)
+        # Public lets every workspace member bind agents to the shared Hermes runtime.
+        visibility = config.get("runtimeVisibility", "private")
+        if visibility not in {"private", "public"}:
+            raise ValueError("Invalid runtime visibility")
+        if matches[0].get("visibility", "private") != visibility:
+            board.request(
+                "/api/runtimes/" + matches[0]["id"],
+                {"visibility": visibility},
+                method="PATCH",
+            )
         agents = collection(board.request("/api/agents"), "agents")
         existing = [
             item
@@ -428,7 +441,8 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
             if item.get("runtime_id") == matches[0]["id"]
             and not item.get("archived_at")
         ]
-        if not existing:
+        # Runtime-only installations leave agent creation to Multica users.
+        if not existing and config.get("createAgent", True):
             seed = dict(config["agent"])
             if config.get("agentSeedFile"):
                 seed = json.loads(Path(config["agentSeedFile"]).read_text())

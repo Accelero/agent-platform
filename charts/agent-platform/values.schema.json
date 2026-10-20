@@ -669,6 +669,12 @@
         "enabled": {
           "type": "boolean"
         },
+        "createAgent": {
+          "type": "boolean"
+        },
+        "runtimeVisibility": {
+          "enum": ["private", "public"]
+        },
         "workspace": {
           "type": "object",
           "required": [

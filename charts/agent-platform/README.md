@@ -374,6 +374,14 @@ Secret in the execution namespace (default `hermes-task-login`). Terminal Pods r
 context; they do not register a second daemon. This is separate from future
 multi-user runtime provisioning.
 
+`bootstrap.createAgent: false` registers only the Hermes runtime; workspace
+members then create Multica agents and choose Hermes profiles themselves. The
+default `true` creates one agent from `bootstrap.agent`. `bootstrap.runtimeVisibility:
+public` lets every member of the bootstrap workspace bind agents to that runtime
+(default `private`, owner only). Visibility belongs to each workspace's runtime
+entry: the daemon also registers in workspaces its owner creates later, as
+`private`, and the owner changes visibility there in Multica's runtime settings.
+
 The Job waits for native schema migrations, then checks application users and
 workspaces. Existing/restored installations are successful no-ops, including
 changed or absent enrollment credentials. Native IDs and live settings are not

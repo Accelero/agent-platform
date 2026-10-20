@@ -1082,6 +1082,10 @@ bootstrap:
   profile: ''
   profileSecret: hermes-task-login
   serverUrl: http://multica-backend:8080
+  # false registers only the Hermes runtime; users create Multica agents themselves.
+  createAgent: true
+  # public lets every member of the workspace bind agents to the Hermes runtime.
+  runtimeVisibility: private
   agentSeedFile: ''
   workspace:
     name: Research
