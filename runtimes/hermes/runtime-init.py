@@ -5,17 +5,50 @@ operations. Startup only updates adapter code supplied by the current image.
 """
 import json
 import os
+import re
+from copy import deepcopy
 from pathlib import Path
 
 import yaml
 
-from native_files import atomic_file, safe_parent, sync_tree
+from native_files import atomic_file, merge, safe_parent, sync_tree
 
 
-def initialize(root=Path('/opt/data'), plugin_home=Path('/opt/hermes-stack/plugin-home')):
+def seed_defaults(root: Path, defaults: dict) -> None:
+    """Initialize missing native configs from deployment values, without persona seeds."""
+    if not isinstance(defaults, dict) or not isinstance(defaults.get('config'), dict):
+        raise ValueError('Hermes defaults require a config mapping')
+    profiles = defaults.get('profiles', {})
+    if not isinstance(profiles, dict):
+        raise ValueError('Hermes profiles must be a mapping')
+    for name, config in profiles.items():
+        if (not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', name)
+                or name in ('default', 'custom') or not isinstance(config, dict)):
+            raise ValueError('Invalid native Hermes profile')
+    configs = [(root / 'config.yaml', defaults['config'])]
+    for name, config in profiles.items():
+        inherited = merge(deepcopy(defaults['config']), config)
+        # A named profile needs its own execution identity even when its terminal
+        # settings otherwise inherit the generic root configuration.
+        settings = inherited.setdefault('plugins', {}).setdefault('entries', {}).setdefault(
+            'managed_execution', {}).setdefault('settings', {})
+        settings['profile'] = name
+        configs.append((root / 'profiles' / name / 'config.yaml', inherited))
+    for path, config in configs:
+        if not atomic_file(path, yaml.safe_dump(config, sort_keys=False).encode(), root, 'missing') and not path.is_file():
+            raise RuntimeError('Cannot initialize native Hermes configuration')
+
+
+def initialize(root: Path = Path('/opt/data'), plugin_home: Path = Path('/opt/hermes-stack/plugin-home')) -> None:
     os.umask(0o077)
-    if not (root / 'config.yaml').is_file():
-        raise RuntimeError('Native Hermes home is uninitialized; run bin/seed --only native')
+    defaults_path = Path('/etc/hermes-defaults/defaults.json')
+    if defaults_path.is_file():
+        defaults = json.loads(defaults_path.read_text())
+    else:
+        defaults = {'config': {'terminal': {'backend': 'managed_execution', 'cwd': '/workspace'},
+                    'plugins': {'enabled': ['managed_execution'], 'entries': {
+                        'managed_execution': {'settings': {'profile': 'default'}}}}}}
+    seed_defaults(root, defaults)
     homes = [root]
     if (root / 'profiles').is_dir():
         homes.extend(profile for profile in sorted((root / 'profiles').iterdir())

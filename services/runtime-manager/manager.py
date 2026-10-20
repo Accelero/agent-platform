@@ -1,4 +1,4 @@
-"""Infrastructure-owned execution environments. No agent-provided container specs."""
+"""Deployment-owned execution environments with native Hermes image selection."""
 from __future__ import annotations
 
 import hashlib
@@ -37,15 +37,13 @@ class Manager:
             id TEXT PRIMARY KEY, identity TEXT UNIQUE, deployment TEXT, profile TEXT,
             session TEXT, template TEXT, mode TEXT, fingerprint TEXT, generation TEXT,
             resource TEXT, endpoint TEXT, last_used REAL, idle_since REAL,
+            runtime TEXT NOT NULL DEFAULT '{}', image TEXT,
             stale INTEGER DEFAULT 0, closing INTEGER DEFAULT 0, last_schedule TEXT DEFAULT '');
           CREATE TABLE IF NOT EXISTS leases (
             id TEXT PRIMARY KEY, environment TEXT, request TEXT UNIQUE, expires REAL);
         """)
         self.db.commit()
         self.lease_ttl = int(config.get("lease_ttl_seconds", 120))
-        if 'runtime' not in {row[1] for row in self.db.execute('PRAGMA table_info(environments)')}:
-            self.db.execute("ALTER TABLE environments ADD COLUMN runtime TEXT NOT NULL DEFAULT '{}'")
-            self.db.commit()
         if self.lease_ttl < 30:
             raise ValueError("lease_ttl_seconds must be >= 30")
 
@@ -65,7 +63,7 @@ class Manager:
             if not self._count(row[0]):
                 self.db.execute("UPDATE environments SET idle_since=? WHERE id=?", (now, row[0]))
 
-    def _template(self, deployment, profile, name, mode):
+    def _template(self, deployment, profile, name, mode, image=None):
         policy = self.config.get("deployments", {}).get(deployment)
         if not policy:
             raise ValueError("Unknown deployment")
@@ -73,7 +71,13 @@ class Manager:
         allowed = profiles.get(profile, profiles.get("*"))
         if not allowed or name not in allowed.get("templates", []) or mode not in allowed.get("modes", list(MODES)):
             raise ValueError("Profile, template or lifetime mode is not permitted")
-        template = self.config["templates"][name]
+        template = dict(self.config["templates"][name])
+        if image is not None:
+            if not isinstance(image, str) or not image or len(image) > 512 or any(c.isspace() for c in image):
+                raise ValueError("Invalid terminal image")
+            if image not in template.get('allowed_images', [template.get('image')]):
+                raise Forbidden("Terminal image is not approved for this template")
+            template['image'] = image
         fingerprint = hashlib.sha256(json.dumps(template, sort_keys=True).encode()).hexdigest()
         return template, fingerprint
 
@@ -123,7 +127,7 @@ class Manager:
             try:
                 now = self.clock()
                 self._expire(now)
-                template, fingerprint = self._template(deployment, profile, name, mode)
+                template, fingerprint = self._template(deployment, profile, name, mode, payload.get('image'))
                 runtime = payload.get('runtime', {})
                 if template.get('runtime_guest_root'):
                     if mode != 'per_session' or not isinstance(runtime, dict):
@@ -170,6 +174,11 @@ class Manager:
                         self._delete(other)
                 if row and template.get('exclusive') and self._count(row['id']) and not existing:
                     raise Conflict('Codex environment is already executing a run')
+                if row and row['image'] != payload.get('image'):
+                    if existing or joined or self._count(row['id']):
+                        raise Conflict('Terminal image changed while a run is active')
+                    self._delete(row)
+                    row = None
                 if row and json.loads(row['runtime']) != runtime:
                     if self._count(row['id']):
                         raise Conflict('Runtime mounts changed while a run is active')
@@ -187,8 +196,8 @@ class Manager:
                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (environment, identity, deployment, profile,
                         session if mode == "per_session" else "", name, mode, fingerprint, uuid.uuid4().hex[:12], 0, now))
                     row = self._row(environment)
-                    self.db.execute('UPDATE environments SET runtime=? WHERE id=?',
-                                    (json.dumps(runtime, sort_keys=True), environment))
+                    self.db.execute('UPDATE environments SET runtime=?,image=? WHERE id=?',
+                                    (json.dumps(runtime, sort_keys=True), payload.get('image'), environment))
                     row = self._row(environment)
                 # A freshly created environment has already satisfied today's recycle boundary.
                 day = self._scheduled(row, template, now)
@@ -288,8 +297,8 @@ class Manager:
                 try:
                     row = original
                     try:
-                        template, fingerprint = self._template(row["deployment"], row["profile"], row["template"], row["mode"])
-                    except (ValueError, KeyError):
+                        template, fingerprint = self._template(row["deployment"], row["profile"], row["template"], row["mode"], row["image"])
+                    except (ValueError, KeyError, Forbidden):
                         if not self._count(row["id"]):
                             self._delete(row)
                         continue

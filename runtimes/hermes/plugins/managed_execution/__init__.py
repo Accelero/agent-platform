@@ -1,4 +1,4 @@
-"""Native Hermes terminal provider; manager owns images, mounts and scheduling."""
+"""Native Hermes terminal image selection with deployment-owned mounts and scheduling."""
 import json
 import hashlib
 import logging
@@ -80,6 +80,8 @@ class Client:
         # Idempotent retry protects against a lost response after the manager grants a lease.
         payload = {key: self.settings[key] for key in ("profile", "mode")}
         payload.update(session=session, request=uuid.uuid4().hex)
+        if self.settings.get('image'):
+            payload['image'] = self.settings['image']
         if self.runtime:
             payload['runtime'] = self.runtime
         if parent_lease:
@@ -335,7 +337,7 @@ class Provider(TerminalEnvironmentProvider):
     def settings(self):
         defaults = dict(manager_url="https://runtime-manager:8090", token_file="/run/secrets/runtime-manager-token",
                         ca_file='/etc/runtime-manager/tls/ca.crt', profile="", mode="per_session",
-                        ssh_key="/opt/ssh/id_ed25519", acquire_timeout_seconds=180)
+                        ssh_key="/opt/ssh/id_ed25519", acquire_timeout_seconds=180, image="")
         settings = {key: self.ctx.get_config(key, value) for key, value in defaults.items()}
         # Existing native profiles preserve their config across image updates.
         # Upgrade the former built-in endpoint to the encrypted transport.
@@ -361,6 +363,7 @@ class Provider(TerminalEnvironmentProvider):
 
     def create_environment(self, *, cwd, timeout, task_id="default", image=None, container_config=None, **kwargs):
         settings = self.settings()
+        settings['image'] = settings['image'] or image
         cwd = invocation_cwd(cwd, task_id)
         from hermes_cli.config import get_hermes_home
         home = str(get_hermes_home())
@@ -375,7 +378,7 @@ class Provider(TerminalEnvironmentProvider):
         key = task_id.removeprefix('session:')
         if key != 'prompt-backend-probe' and workdir and os.environ.get('MULTICA_TASK_ID'):
             key = 'multica:' + os.environ['MULTICA_TASK_ID']
-        identity = (settings['manager_url'], settings['profile'], settings['mode'], key,
+        identity = (settings['manager_url'], settings['profile'], settings['mode'], settings['image'], key,
                     json.dumps(runtime, sort_keys=True))
         with self._guard:
             lock = self._creation_locks.setdefault(identity, threading.Lock())

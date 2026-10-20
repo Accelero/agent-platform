@@ -80,8 +80,11 @@ def test_complete_application_uses_chart_defaults_and_named_credentials(
     }
     config = native(objects)
     assert config["backend"] == "kubernetes"
-    assert config["kubernetes"] == {"namespace": "agent-execution"}
-    template = config["templates"]["personal-assistant"]
+    assert config["kubernetes"] == {
+        "namespace": "agents-execution",
+        "image_pull_secrets": [],
+    }
+    template = config["templates"]["hermes"]
     assert template["image"] == values["images"]["agent-runtime"]
     assert template["kubernetes"]["uid"] == 1000
     assert values["images"]["agent-runtime"] in policy(objects)
@@ -271,14 +274,14 @@ def test_image_identity_and_mount_changes_reach_manager_and_admission_together(
     values["runtimeManager"].update(uid=1200, gid=1300)
     values["runtimeManager"]["config"] = {
         "templates": {
-            "personal-assistant": {
+            "hermes": {
                 "image": IMAGE,
                 "workdir_scope": {"kubernetes_claim": "custom-tasks"},
             }
         }
     }
     objects = render(tmp_path, values)
-    spec = native(objects)["templates"]["personal-assistant"]["kubernetes"]
+    spec = native(objects)["templates"]["hermes"]["kubernetes"]
     assert spec["uid"] == 1200 and spec["gid"] == 1300
     expression = policy(objects)
     assert IMAGE in expression and 'claimName == "custom-tasks"' in expression
@@ -313,10 +316,8 @@ def test_image_identity_and_mount_changes_reach_manager_and_admission_together(
 )
 def test_unsafe_or_divergent_runtime_settings_are_rejected(tmp_path, values, mutation):
     defaults = yaml.safe_load((CHART / "values.yaml").read_text())
-    template = deepcopy(
-        defaults["runtimeManager"]["config"]["templates"]["personal-assistant"]
-    )
-    values["runtimeManager"]["config"] = {"templates": {"personal-assistant": template}}
+    template = deepcopy(defaults["runtimeManager"]["config"]["templates"]["hermes"])
+    values["runtimeManager"]["config"] = {"templates": {"hermes": template}}
     if mutation == "root":
         values["runtimeManager"]["uid"] = 0
     elif mutation == "host-volume":
@@ -385,7 +386,7 @@ def test_native_backend_accepts_and_recognizes_chart_configured_runtime(
 
     objects = render(tmp_path, values)
     config = native(objects)
-    template = config["templates"]["personal-assistant"]
+    template = config["templates"]["hermes"]
     backend = KubernetesBackend(config["kubernetes"])
     recorded = {}
 

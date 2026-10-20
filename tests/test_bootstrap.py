@@ -25,7 +25,8 @@ def scenario(tmp_path):
         "namespace": "agents",
         "executionNamespace": "execution",
         "onboardingSecret": "agent-onboarding",
-        "profileSecret": "profile-personal-assistant",
+        "profileSecret": "hermes-task-login",
+        "profile": "researcher",
         "email": "owner@example.org",
         "workspace": {"name": "Research", "slug": "research", "issuePrefix": "RES"},
         "home": str(tmp_path),
@@ -86,17 +87,15 @@ def test_first_start_creates_both_native_configs_and_only_one_assistant(scenario
     ]
     daemon = json.loads((Path(config["home"]) / ".multica/config.json").read_text())
     profile = json.loads(
-        (
-            Path(config["home"]) / "profiles/personal-assistant/.multica/config.json"
-        ).read_text()
+        (Path(config["home"]) / "profiles/researcher/.multica/config.json").read_text()
     )
     assert daemon["token"] != profile["token"]
     assert daemon["workspace_id"] == profile["workspace_id"] == "workspace-id"
     assert json.loads(stored["agent-onboarding"]["bootstrap.json"])["pending"] is False
-    assert json.loads(stored["profile-personal-assistant"]["config.json"]) == profile
+    assert json.loads(stored["hermes-task-login"]["config.json"]) == profile
     posts = [call for call in board.request.call_args_list if len(call.args) == 2]
     assert len(posts) == 1
-    assert posts[0].args[1]["custom_args"] == ["-p", "personal-assistant"]
+    assert posts[0].args[1]["custom_args"] == ["-p", "researcher"]
 
 
 @pytest.mark.parametrize("journal", ["{}", "malformed"])
@@ -277,3 +276,17 @@ def test_secret_repair_refuses_foreign_installation_labels():
         with pytest.raises(RuntimeError, match="another installation"):
             cluster.save("agent-onboarding", {"daemon.json": "private fixture"})
         core.return_value.patch_namespaced_secret.assert_not_called()
+
+
+def test_default_enrollment_uses_root_hermes_without_creating_a_profile(scenario):
+    config, cluster, stored, _, board, _ = scenario
+    config["profile"] = ""
+    bootstrap.enroll(config, cluster, force=False)
+    home = Path(config["home"])
+    assert not (home / "profiles").exists()
+    daemon = json.loads((home / ".multica/config.json").read_text())
+    profile = json.loads(stored["hermes-task-login"]["config.json"])
+    assert daemon["token"] == "daemon-fixture"
+    assert profile["token"] == "profile-fixture"
+    posts = [call for call in board.request.call_args_list if len(call.args) == 2]
+    assert posts[0].args[1]["custom_args"] == []

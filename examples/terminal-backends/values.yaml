@@ -1,0 +1,87 @@
+# Overlay on examples/lightweight/values.yaml. Images must implement the SSH worker contract.
+images:
+  agent-runtime: &defaultImage registry.example.org/terminal-base:1
+hermes:
+  profiles:
+    research:
+      plugins:
+        entries:
+          managed_execution:
+            settings:
+              image: &researchImage registry.example.org/research-terminal:1
+    coding:
+      plugins:
+        entries:
+          managed_execution:
+            settings:
+              image: &codingImage registry.example.org/coding-terminal:1
+sandbox:
+  imagePullSecrets:
+  - name: private-registry
+runtimeManager:
+  config:
+    deployments:
+      hermes-stack:
+        profiles:
+          research:
+            templates: [research]
+            modes: [per_session, per_profile_on_demand]
+          coding:
+            templates: [coding]
+            modes: [per_session, per_profile_on_demand]
+    templates:
+      research:
+        allowed_images: [*defaultImage, *researchImage]
+        workdir_scope: &taskScope
+          validation_root: /opt/hermes-workspaces
+          controller_root: /opt/data/.multica/workspaces
+          read_only: false
+          kubernetes_claim: hermes-tasks
+        kubernetes:
+          role: research
+          volumes:
+          - &sshVolume
+            name: ssh-public
+            secret:
+              secretName: execution-ssh-public
+              items: [{key: hermes, path: worker}]
+              defaultMode: 292
+          - name: workspace
+            emptyDir: {}
+          - name: datasets
+            persistentVolumeClaim:
+              claimName: research-data
+          volume_mounts:
+          - &sshMount
+            name: ssh-public
+            mountPath: /etc/ssh/authorized_keys/worker
+            subPath: worker
+            readOnly: true
+          - name: workspace
+            mountPath: /workspace
+          - name: datasets
+            mountPath: /datasets
+            subPath: published
+            readOnly: true
+      coding:
+        allowed_images: [*defaultImage, *codingImage]
+        workdir_scope: *taskScope
+        kubernetes:
+          role: coding
+          volumes:
+          - *sshVolume
+          - name: projects
+            persistentVolumeClaim:
+              claimName: coding-projects
+          volume_mounts:
+          - *sshMount
+          - name: projects
+            mountPath: /workspace
+            subPath: projects
+            readOnly: false
+networkPolicy:
+  sandboxIngress:
+    multica-backend:
+      roles: [hermes, research, coding]
+    hermes:
+      roles: [hermes, research, coding]

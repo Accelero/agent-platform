@@ -1,6 +1,6 @@
 # Agent platform
 
-A Kubernetes application containing the Multica board, Hermes personal assistant,
+A Kubernetes application containing the Multica board, generic Hermes controller,
 HTTPS runtime manager and isolated agent runtimes. One versioned Helm chart owns
 service wiring, gateway configuration and runtime isolation. Images and charts
 are built on GitHub-hosted runners independently of deployment tooling.
@@ -63,7 +63,8 @@ settings, public PKCE or a referenced client Secret, and automatic removal of
 Basic-auth settings. The [OIDC overlay](examples/oidc/values.yaml) shows the inputs.
 The [lightweight example](examples/lightweight/values.yaml) enables the six core
 Deployments. Provision its database, retained PVCs, named Secrets and initialized
-native Hermes state before installation. Controllers are disabled in defaults
+native Hermes storage before installation. The chart initializes missing native
+configs, without a persona or model login. Controllers are disabled in defaults
 until those inputs are ready. Optional browser, memory and additional agent
 services remain disabled unless deliberately configured with supported images.
 
@@ -76,6 +77,15 @@ Kubernetes/S3/YAML libraries for short-lived administrator Jobs. Deployments
 project their own reviewed backup/seed/restore scripts and mount persistent data.
 An alternative tools image can provide these dependencies; publishing them once
 keeps backup and recovery independent of package installation at runtime.
+
+The next chart revision removes the personal-assistant execution preset and
+specialized worker image variants. Deployments supply native profile configs,
+terminal image choices and storage policy through Helm. The managed-execution
+plugin reads its active profile's `image` setting; the manager enforces the
+Helm-approved image catalog and mount policy in its dedicated execution namespace.
+Private worker registries use `sandbox.imagePullSecrets`. See
+[native profiles and terminal workers](charts/agent-platform/README.md#native-profiles-and-terminal-workers)
+and the [two-profile example](examples/terminal-backends/values.yaml).
 
 ## Personal Hermes design
 

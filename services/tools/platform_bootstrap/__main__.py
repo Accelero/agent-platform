@@ -6,6 +6,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -266,6 +267,12 @@ def install(path: Path, value: dict, *, force: bool) -> None:
 
 
 def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
+    profile_name = config.get("profile", "")
+    if profile_name and (
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", profile_name)
+        or profile_name in {"default", "custom"}
+    ):
+        raise ValueError("Invalid bootstrap profile")
     with cluster.lock():
         fresh = cluster.recovery()
         deadline = time.monotonic() + 180
@@ -376,15 +383,11 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
         home = Path(config["home"])
         # The before hook has fenced dispatch, drained work and stopped writers.
         install(home / ".multica/config.json", daemon, force=journal["force"])
-        install(
-            home / "profiles/personal-assistant/.multica/config.json",
-            profile,
-            force=journal["force"],
-        )
+        if profile_name:
+            profile_path = home / "profiles" / profile_name / ".multica/config.json"
+            install(profile_path, profile, force=journal["force"])
+            profile = json.loads(profile_path.read_text())
         daemon = json.loads((home / ".multica/config.json").read_text())
-        profile = json.loads(
-            (home / "profiles/personal-assistant/.multica/config.json").read_text()
-        )
         cluster.save(
             config["onboardingSecret"],
             {"daemon.json": json.dumps(daemon), "profile.json": json.dumps(profile)},
@@ -434,7 +437,7 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
                 {
                     **seed,
                     "runtime_id": matches[0]["id"],
-                    "custom_args": ["-p", "personal-assistant"],
+                    "custom_args": ["-p", profile_name] if profile_name else [],
                 },
             )
         native(

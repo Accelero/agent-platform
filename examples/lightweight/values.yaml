@@ -27,15 +27,6 @@ persistence:
   hermes-tasks:
     enabled: false
     existingClaim: hermes-tasks
-  hermes-workspaces:
-    enabled: false
-    existingClaim: hermes-workspaces
-  identity-personal-assistant:
-    enabled: false
-    existingClaim: identity-personal-assistant
-  skills-personal-assistant:
-    enabled: false
-    existingClaim: skills-personal-assistant
   multica-uploads:
     enabled: false
     existingClaim: multica-uploads

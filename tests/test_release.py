@@ -142,24 +142,17 @@ def test_failed_build_diagnostics_are_explicit_and_bounded(tmp_path):
     assert "build failed" not in str(error.value)
 
 
-def test_imported_runtime_sources_are_complete_and_not_ignored():
+def test_reviewed_build_sources_are_complete_and_not_ignored():
     """Generic credential ignore patterns must not drop required source files."""
     import subprocess
 
-    manifest = json.loads((release.ROOT / "provenance/import.json").read_text())
+    manifest = json.loads((release.ROOT / "release-policy.json").read_text())
     names = []
-    for original in manifest["imported_files"]:
-        name = original.replace("infra/tools/", "tools/platform/")
-        name = name.replace(
-            "services/execution-manager/", "services/runtime-manager/"
-        ).replace("runtimes/workers/", "runtimes/agent-runtime/")
-        name = name.replace("services/state-tools/", "services/tools/")
-        if name == "services/runtime-manager/configuration.py":
-            continue  # Replaced by the chart-owned native configuration generator.
-        if name == "infra/kubernetes/native_files.py":
-            name = "runtimes/hermes/native_files.py"
-        assert (release.ROOT / name).is_file(), name
-        names.append(name)
+    for context in manifest["contexts"].values():
+        for relative in context.get("files", []):
+            name = str(Path(context["root"]) / relative)
+            assert (release.ROOT / name).is_file(), name
+            names.append(name)
     result = subprocess.run(
         ["git", "check-ignore", "--no-index", "--stdin", "-z"],
         input=("\0".join(names) + "\0").encode(),

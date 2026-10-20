@@ -22,15 +22,15 @@ RUN mkdir -p /workspace \
  && touch /etc/s6-overlay/s6-rc.d/multica-checkout/dependencies.d/base \
           /etc/s6-overlay/s6-rc.d/user/contents.d/multica-checkout
 
-# The assistant definition and optional dependencies travel with the image.
+# Generic runtime adapters and optional dependencies travel with the image.
 COPY runtimes/hermes/requirements.lock /tmp/assistant-requirements.lock
 RUN uv --no-config pip install --python /opt/hermes/.venv/bin/python --no-deps -r /tmp/assistant-requirements.lock \
  && HERMES_HOME=/opt/hermes-stack/plugin-home /opt/hermes/.venv/bin/hermes plugins install hindsight --ref 176f8c2de1369f569c489b831d143b78128b5535 --no-deps --no-enable
 COPY runtimes/hermes/plugins/managed_execution /opt/hermes-stack/plugin-home/plugins/managed_execution
 COPY config/managed-execution /etc/hermes
 COPY runtimes/hermes/native_files.py runtimes/hermes/runtime-init.py /usr/local/lib/
-COPY runtimes/hermes/assistant-init /etc/cont-init.d/019-personal-assistant
-RUN chmod 755 /etc/cont-init.d/019-personal-assistant \
+COPY runtimes/hermes/assistant-init /etc/cont-init.d/019-hermes-runtime
+RUN chmod 755 /etc/cont-init.d/019-hermes-runtime \
  && chmod -R a+rX /opt/hermes-stack
 
 RUN uv --no-config pip install --python /opt/hermes/.venv/bin/python ddgs==9.16.0

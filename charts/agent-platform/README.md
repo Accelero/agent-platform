@@ -37,7 +37,7 @@ runtimeManager:
       tokenKey: hermes-token
   config:
     templates:
-      personal-assistant:
+      hermes:
         session_idle_seconds: 60
         workdir_scope:
           kubernetes_claim: my-task-data
@@ -48,8 +48,10 @@ sandbox:
 Helm merges this with defaults, writes the client credential path into native YAML,
 mounts that selected Secret key into the manager, and admits only the same task
 claim and non-root identity. The default runtime image comes from the chart's
-`images.agent-runtime` digest. A reviewed explicit template `image` override feeds
-both outputs too. Templates reject duplicated roles/volumes, unsupported volume
+`images.agent-runtime` digest. An explicit template `image` overrides that fallback.
+`allowed_images` defines the image references Hermes may select for that template;
+it defaults to the fallback image alone and must include that fallback. Both the
+manager and admission policy enforce the same list. Templates reject duplicated roles/volumes, unsupported volume
 sources, writable/unselected Secret mounts and unsafe subpaths. The values schema
 rejects manually supplied `sandbox.roles`, preventing a second competing policy.
 Changes to generated configuration update Pod checksums and roll the affected
@@ -74,7 +76,7 @@ Important values:
   operations tools references. Packaged releases populate these exact manifest digests.
 - `multica`: public URL, allowed owner, database connection/CA reference and outbound
   mail Secret/key names. Credentials are named references, not inline values.
-- `hermes`: dashboard authentication, username and concurrency.
+- `hermes`: initial native root/profile configs, dashboard authentication, username and concurrency.
   `dashboardAuth.mode` selects `basic` or `oidc`.
 - `runtimeManager`: native templates/clients, non-root identity, token and TLS Secret
   references. The server certificate must cover `runtime-manager` and the service
@@ -98,9 +100,10 @@ For the lightweight defaults, provision `agent-platform-secrets` with Multica's
 Postgres password/JWT secret and the Hermes dashboard/API keys; `multica-mail`
 with configured mail keys; manager bearer and TLS Secrets;
 `execution-controller-ssh` with its Hermes private key; and the sandbox's selected
-SSH/profile-login Secrets. Manager TLS clients select `tls.crt`
-as their CA. Initialize Hermes home/profile files, identities and skills before
-starting controllers, then register their Multica roster through normal auth.
+SSH public-key Secret. Manager TLS clients select `tls.crt`
+as their CA. The chart initializes missing native configs without a persona, model
+login, identity or skills. Deployment-specific identities and skills can be seeded
+separately, and Multica enrollment remains opt-in.
 
 Hermes model/provider selection and model credentials belong to its native
 persistent home. A fresh deployment has no model login; the administrator uses
@@ -119,7 +122,8 @@ backup of native state.
 
 The chart does not generate or seed credentials. Seed/export, database provisioning,
 backups, bucket credentials, PVC backing and VPN ingress are infrastructure duties.
-Mutable native settings live in retained storage, not Helm values. Claims and a
+Mutable native settings live in retained storage. Helm supplies initial config
+values and execution policy, while existing native config files are preserved. Claims and a
 chart-created sandbox namespace are retained on uninstall; losing the node disk
 still requires a separately designed backup/restore strategy.
 
@@ -129,6 +133,114 @@ methods to Hermes, which enforces authentication, ownership and origin checks.
 Uploads have a 64 MiB gateway limit; streaming and WebSocket connections use a
 one-hour upstream idle timeout. Multica remains available as another task entry
 point. Native Hermes and runtime-manager settings govern task concurrency.
+
+## Native profiles and terminal workers
+
+These interfaces describe the next chart revision; published 0.6.2 retains the
+older personal-assistant execution preset.
+
+The default chart has one native root Hermes configuration, no named profiles and
+no personal-assistant preset. `hermes.config` supplies its initial native YAML.
+`hermes.profiles.<name>` supplies named profiles, each merged over `hermes.config`
+when its config file is first created. Named profiles receive their own execution
+profile identity. Missing configs are initialized at startup; existing configs,
+model credentials and user preferences are never overwritten by a Helm upgrade.
+Change an existing native config through native Hermes administration. A terminal
+image change takes effect when Hermes creates a new execution environment; active
+leases finish before the manager replaces their worker generation.
+
+A profile selects its terminal image through the managed-execution plugin:
+
+```yaml
+terminal:
+  backend: managed_execution
+plugins:
+  enabled: [managed_execution]
+  entries:
+    managed_execution:
+      settings:
+        image: registry.example.org/team/terminal:1
+        mode: per_profile_on_demand
+```
+
+For a new chart-managed profile, put this under
+`hermes.profiles.<name>`. The plugin requests a worker from the manager and then
+connects over SSH. It does not use the built-in `ssh` or `docker` backend, and
+`terminal.docker_image` is not its image setting. Leaving the plugin's `image`
+empty selects the deployment's fallback image. The Hermes native plugin API reads
+these settings from the active profile, including task overlays. An explicit
+image is persisted with the execution environment so manager restarts and worker
+recycling keep that selection.
+
+Authorize each profile in
+`runtimeManager.config.deployments.<deployment>.profiles`, selecting one execution
+template and permitted lifetime modes. That template's `allowed_images` must
+include its chosen image and its default. The mapping supplies storage/resources
+policy; it does not duplicate which image the profile selects.
+
+The generic `agent-runtime` is retained as the default worker. Specialized personal,
+developer, browser and operator images are deployment responsibilities. Custom
+images must implement the worker contract: non-root UID/GID matching
+`runtimeManager.uid`/`gid` (default 1000), SSH on TCP 2222, user `worker`, authorized
+keys at `/etc/ssh/authorized_keys/worker`, and a writable `/workspace`. Retain the
+entrypoint when extending the generic image. Images needing other software can
+be built independently and selected by their exact reference in deployment values.
+
+### Persistent storage and namespace permissions
+
+Templates define `kubernetes.volumes` and `kubernetes.volume_mounts`; these support
+selected PVCs, Secret keys and emptyDir volumes, with mount paths, safe subpaths
+and read-only flags. Each profile can select a different template and storage
+layout. Helm lists replace defaults, so include all required SSH and workspace
+volumes/mounts when replacing these lists. Persistent claims must already exist
+in the configured execution namespace and be writable by the configured worker
+identity where required. Normal Kubernetes access-mode and attachment constraints
+apply when profiles share a claim.
+
+The default execution template mounts an ephemeral workspace and the selected
+SSH public key. It does not mount the controller's native config, credentials,
+profile home, identity or skills. Add reviewed deployment mounts explicitly when
+needed. Task execution can mount its single validated Multica workdir through
+`workdir_scope`; it cannot name an arbitrary claim or mount its parent directory.
+
+The chart-owned execution namespace defaults to `<application namespace>-execution`,
+for example `agents-execution` when the application namespace is `agents`. Long
+namespace names receive a bounded suffix with a hash. `sandbox.namespace` can
+explicitly select another dedicated namespace; using the application namespace
+itself is rejected because its admission, quota and network policies serve a
+different purpose. The manager ServiceAccount lives in the application
+namespace, with a RoleBinding granting only Pod `get`, `create` and `delete` in
+that one execution namespace. It has no cluster-wide admin, PVC management or
+Secret-reading permission. Worker PVC references resolve only in their own
+namespace. Admission further restricts them to the Helm-approved claims, mount
+paths and subpaths. Hermes requests cannot supply a namespace, PVC name, template
+or container mount specification. Infrastructure administrators choose storage
+policy through Helm; native Hermes config can only select an approved image.
+
+### Private registry credentials
+
+Reference existing Kubernetes registry Secrets in the execution namespace:
+
+```yaml
+sandbox:
+  imagePullSecrets:
+  - name: private-registry
+```
+
+Use Secrets of type `kubernetes.io/dockerconfigjson` (or the supported legacy
+`kubernetes.io/dockercfg` type). The chart puts these references on the worker
+ServiceAccount and in manager configuration; the manager includes them on worker
+Pods. Kubernetes pulls private images using those credentials. Credentials are
+never sent through Hermes, read by the manager, or mounted into worker containers.
+Admission permits only the configured pull-Secret references. The top-level
+`imagePullSecrets` separately configures pulls for the application workloads.
+
+The [terminal-backends overlay](../../examples/terminal-backends/values.yaml)
+shows two native profiles, different images, separate PVC layouts and a registry
+Secret. Its registry references and claims are examples to replace before use.
+Apply it together with the lightweight example and your deployment values. The
+execution manager's SQLite schema targets fresh development installations; this
+change includes no migration of earlier manager state.
 
 ## Hermes dashboard OIDC
 
@@ -211,8 +323,10 @@ packages are no longer supported. Publish a new version for all subsequent chang
 Enable `bootstrap.enabled` to deploy the automatic Job and the permanently
 suspended `<release>-bootstrap` CronJob template. Set `multica.ownerEmail`,
 `bootstrap.workspace`, a stable `bootstrap.installation`, and the restore gate
-and lifecycle command contract below. This currently enrolls the shipped Hermes
-controller/profile and its `agent-runtime` template. Terminal Pods receive task
+and lifecycle command contract below. This enrolls the root Hermes controller by default. Set `bootstrap.profile` to a
+deployment-defined named profile to enroll that profile instead; bootstrap does
+not create its native config. `bootstrap.profileSecret` selects the worker login
+Secret in the execution namespace (default `hermes-task-login`). Terminal Pods receive task
 context; they do not register a second daemon. This is separate from future
 multi-user runtime provisioning.
 

@@ -18,6 +18,8 @@
   {{- $_ := set $backend "volumes" (append (default list $backend.volumes) (dict "name" "postgres-ca" "mountPath" "/etc/postgres" "source" (dict "secret" (dict "secretName" .)))) -}}
 {{- end -}}
 {{- $hermes := index $workloads "hermes" -}}
+{{- $_ := set $hermes "volumes" (append (default list $hermes.volumes) (dict "name" "hermes-defaults" "mountPath" "/etc/hermes-defaults" "readOnly" true "source" (dict "configMap" (dict "name" "hermes-defaults")))) -}}
+
 {{- $env = list -}}
 {{- range $hermes.env -}}
   {{- if not (has .name (list "MULTICA_APP_URL" "HERMES_DASHBOARD_BASIC_AUTH_USERNAME" "MULTICA_DAEMON_MAX_CONCURRENT_TASKS" "FIRECRAWL_API_URL" "SEARXNG_URL" "CAMOFOX_URL")) -}}{{- $env = append $env . -}}{{- end -}}

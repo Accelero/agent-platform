@@ -35,3 +35,16 @@ data:
     {{- $.Files.Get (printf "files/%s.nginx.conf" $name) | nindent 4 }}
 {{- end }}
 {{- end }}
+
+{{- if .Values.workloads.hermes.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hermes-defaults
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+data:
+  defaults.json: {{ dict "config" .Values.hermes.config "profiles" .Values.hermes.profiles | toJson | quote }}
+{{- end }}

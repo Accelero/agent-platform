@@ -1,4 +1,4 @@
-"""Authenticated scope API; clients never submit worker specifications."""
+"""Authenticated scope API; clients select images within deployment-owned policy."""
 import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -69,7 +69,7 @@ class ExecutionAPI:
         if path == '/v1/environments' and payload is None:
             return self.manager.status(deployment=deployment)
         fields = {
-            '/v1/leases/acquire': ({'profile', 'session', 'mode', 'request'}, {'runtime', 'parent_lease'}),
+            '/v1/leases/acquire': ({'profile', 'session', 'mode', 'request'}, {'runtime', 'parent_lease', 'image'}),
             '/v1/leases/heartbeat': ({'lease'}, set()),
             '/v1/leases/release': ({'lease'}, set()),
             '/v1/sessions/close': ({'profile', 'session'}, {'runtime'}),

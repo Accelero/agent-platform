@@ -6,7 +6,7 @@ import sys
 import uuid
 
 sys.path.insert(0, '/opt/hermes')
-os.environ.setdefault('HERMES_HOME', '/opt/data/profiles/personal-assistant')
+os.environ.setdefault('HERMES_HOME', '/opt/data')
 from hermes_cli.plugins import get_plugin_manager
 from tools.terminal_tool_lifecycle import ensure_task_env, cleanup_vm
 
