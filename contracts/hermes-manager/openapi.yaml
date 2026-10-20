@@ -1395,6 +1395,7 @@ components:
           - Pending
           - Reconciling
           - Waiting
+          - Applied
         desired:
           $ref: '#/components/schemas/ResolvedPolicy'
         digest:

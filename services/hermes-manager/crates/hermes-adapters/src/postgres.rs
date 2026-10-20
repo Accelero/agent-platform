@@ -30,6 +30,7 @@ mod materials;
 mod namespace_fence;
 mod native_children;
 mod native_stop;
+mod policy_activation;
 mod resources;
 mod resync;
 mod terminal;

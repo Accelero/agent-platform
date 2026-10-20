@@ -1,5 +1,6 @@
 //! Owner-scoped terminal clients and durable lease lifecycle. No Kubernetes or
 //! transport access, credential values in persistence, or request-selected specs.
+pub mod activation;
 pub mod clients;
 pub mod leases;
 

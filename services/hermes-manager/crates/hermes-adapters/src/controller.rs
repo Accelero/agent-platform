@@ -28,6 +28,8 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+mod policy;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FrozenRendering {
@@ -90,8 +92,9 @@ impl Controller {
     /// database lease/fence, not a leader flag or an in-memory assignment cache.
     pub async fn step(&self) -> Result<bool, Error> {
         self.store.enqueue_due(&self.scope, 64).await?;
+        let policy_work = self.policy_step().await?;
         let Some(claim) = self.store.claim(&self.scope, self.worker, 30).await? else {
-            return Ok(false);
+            return Ok(policy_work);
         };
         let outcome = self.reconcile(&claim).await;
         let schedule = match outcome {
@@ -359,6 +362,33 @@ impl Controller {
             .await?;
         self.store.renew(&self.scope, claim, 30).await?;
         self.probe.verify(&plan.assignment.namespace).await?;
+        use hermes_application::execution::ExecutionRepository;
+        match self
+            .store
+            .execution_policy(&self.scope, plan.assignment.id)
+            .await
+        {
+            Ok(policy) => {
+                let authorized = crate::execution_workloads::authorized_keys(
+                    &policy.desired,
+                    &bootstrap.ssh_public_key,
+                    material.context.id,
+                )?;
+                for rendered in self.freeze(claim, "worker-keys", vec![authorized]).await? {
+                    self.store.renew(&self.scope, claim, 30).await?;
+                    resources
+                        .ensure(
+                            claim,
+                            &rendered.key,
+                            rendered.spec.clone(),
+                            &rendered.manifest,
+                        )
+                        .await?;
+                }
+            }
+            Err(Error::NotFound) => {}
+            Err(error) => return Err(error),
+        }
         Ok(ConditionReason::ExecutionPolicyPending)
     }
     async fn fence_namespace(

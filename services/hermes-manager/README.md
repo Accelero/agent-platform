@@ -105,8 +105,8 @@ keep their pinned binding versions until a separate policy update.
 resolves only approved runtime versions and that instance's registered storage
 and pull-Secret references; no raw Pod/PV specs, credential values or caller
 selected worker image enter the policy request. The response distinguishes
-desired from applied generation. Applied generation remains zero until a trusted
-worker/admission activation path exists; registering configuration does not make
+desired from applied generation. Migration 0016 permits trusted controller
+admission/storage activation; registering configuration does not make
 an instance Ready or publish a route. Execution mutations use the same current
 human administrator authorization and browser Origin/CSRF checks as assignments,
 with actor/body-scoped idempotency and durable execution configuration audit.
@@ -340,10 +340,10 @@ do not enable this development controller against an existing deployment.
 The execution-policy foundation stores immutable runtime versions, owner-local
 storage/pull references and resolved desired policy generations with audited,
 idempotent optimistic mutations and independent fenced policy work. Applied
-generation remains zero until actual drain/admission/worker observations can
-authorize activation. The scoped execution HTTP and durable lease implementation
-are described above; production terminal grants remain blocked until trusted
-activation and authenticated SSH readiness are integrated.
+generation advances only through the trusted admission/storage activation port,
+after prior-generation drain and exact Kubernetes readback. The scoped execution HTTP and durable lease implementation
+are described above; production terminal grants still require the unfinished worker/controller and
+authenticated SSH readiness integration.
 
 ## Retained lifecycle work
 
@@ -365,3 +365,9 @@ Pod. Completed-instance resync uses a durable database cadence.
 Terminal execution draining and verified lifecycle completion are still being
 integrated. Native shutdown alone does not mark an assignment Suspended/Retained,
 finish its original drain barrier, re-enable native work or publish a route.
+
+
+Development is paused at the user's request. See the
+[paused handoff](../../docs/personal-hermes/implementation.md#paused-handoff--2026-10-20)
+for the exact implemented boundary, known gaps, verification commands and resume
+sequence. The full specification remains open; this branch is not ready to deploy.

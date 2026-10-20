@@ -1,6 +1,8 @@
 //! Real API-server proof. Run explicitly with a disposable fixture kubeconfig.
 //! This uses fixture administrator transport; scoped controller admission/RBAC
 //! must be tested separately before commissioning is enabled.
+#[path = "kubernetes/activation.rs"]
+mod activation;
 #[path = "kubernetes/bootstrap.rs"]
 mod bootstrap;
 #[path = "kubernetes/controller.rs"]

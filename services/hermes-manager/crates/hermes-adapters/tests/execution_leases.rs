@@ -247,15 +247,26 @@ async fn prepared(
     sqlx::query("INSERT INTO manager.execution_policy_status(instance_id,desired_generation,state,epoch)VALUES($1,1,'Pending',1)").bind(claim.instance_id).execute(pool).await.unwrap();
     (store, scope, client, p)
 }
-// Explicit trusted test fixture ONLY: production migration0008 still forbids
-// applied>0 and exposes no method that can turn a client flag into activation.
+// Explicit trusted lease test fixture ONLY. Activation adapter tests separately
+// exercise the production readback guard; lease tests seed that trusted boundary.
 async fn effective_fixture(pool: &PgPool, p: &ResolvedPolicy) {
-    sqlx::query("ALTER TABLE manager.execution_policy_status DROP CONSTRAINT execution_policy_status_applied_generation_check").execute(pool).await.unwrap();
+    sqlx::query(
+        "ALTER TABLE manager.execution_policy_status DISABLE TRIGGER verified_applied_policy",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO manager.execution_effective_policy_receipts(instance_id,generation,epoch,content_digest)VALUES($1,1,1,$2)").bind(p.instance_id).bind(p.digest().unwrap()).execute(pool).await.unwrap();
     sqlx::query(
-        "UPDATE manager.execution_policy_status SET applied_generation=1 WHERE instance_id=$1",
+        "UPDATE manager.execution_policy_status SET applied_generation=1,state='Applied' WHERE instance_id=$1",
     )
     .bind(p.instance_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "ALTER TABLE manager.execution_policy_status ENABLE TRIGGER verified_applied_policy",
+    )
     .execute(pool)
     .await
     .unwrap();
@@ -985,3 +996,6 @@ async fn policy_quotas_bound_durable_pending_and_active_leases(pool: PgPool) {
         8
     );
 }
+
+#[path = "execution_leases/activation.rs"]
+mod activation;

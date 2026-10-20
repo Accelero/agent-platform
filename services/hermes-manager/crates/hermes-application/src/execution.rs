@@ -464,8 +464,8 @@ pub trait ExecutionRepository: Send + Sync {
         condition: PolicyCondition,
         seconds: u16,
     ) -> Result<(), Error>;
-    // Deliberately no activate method. A later trusted observation adapter must
-    // prove old-environment drain plus exact worker/admission readiness first.
+    // Activation is a separate trusted observation port in terminal::activation;
+    // administrative desired-state mutations cannot mark a policy applied.
 }
 
 pub struct ExecutionAdministration<S> {

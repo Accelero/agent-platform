@@ -93,17 +93,22 @@ impl KubernetesDriver {
         Ok(())
     }
     async fn execution_references(&self, intent: &WorkerIntent) -> Result<(), Error> {
-        let runtime = intent
-            .claim
-            .policy
+        self.verify_execution_references(&intent.claim.policy, &intent.claim.runtime_id)
+            .await
+    }
+    pub(super) async fn verify_execution_references(
+        &self,
+        policy: &hermes_application::execution::ResolvedPolicy,
+        runtime_id: &str,
+    ) -> Result<(), Error> {
+        let runtime = policy
             .runtimes
             .iter()
-            .find(|runtime| runtime.definition.runtime.id == intent.claim.runtime_id)
+            .find(|runtime| runtime.definition.runtime.id == runtime_id)
             .ok_or(Error::Forbidden)?;
         let claims: Api<PersistentVolumeClaim> =
-            Api::namespaced(self.client.clone(), &intent.claim.policy.namespace);
-        let secrets: Api<Secret> =
-            Api::namespaced(self.client.clone(), &intent.claim.policy.namespace);
+            Api::namespaced(self.client.clone(), &policy.namespace);
+        let secrets: Api<Secret> = Api::namespaced(self.client.clone(), &policy.namespace);
         for mount in &runtime.mounts {
             let claim = timeout(Duration::from_secs(6), claims.get(&mount.binding.pvc_name))
                 .await

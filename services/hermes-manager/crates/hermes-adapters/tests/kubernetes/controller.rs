@@ -283,7 +283,18 @@ pub(super) async fn verify(
         .await
         .unwrap();
     assert_eq!(audit, 1);
-    super::process::verify(pool, scope, config, workload, &cluster).await;
+    super::process::verify(pool, scope, config.clone(), workload, &cluster).await;
+    let assignment_version = super::activation::verify(
+        pool,
+        &store,
+        scope,
+        config.clone(),
+        &cluster,
+        &restarted,
+        accepted.assignment_id,
+        accepted.instance_id,
+    )
+    .await;
     // Use the same constrained controller, not administrator transport, for the
     // entire disable path. All state is retained while execution drain remains
     // an explicit unfinished barrier.
@@ -294,7 +305,7 @@ pub(super) async fn verify(
             "revoke-controller",
             AssignmentCommand::SetAccess {
                 assignment_id: accepted.assignment_id,
-                expected_version: accepted.version,
+                expected_version: assignment_version,
                 access: Access::Revoked,
             },
         )
@@ -339,6 +350,6 @@ pub(super) async fn verify(
     assert_eq!(labels["agent-platform.io/fence-generation"], "2");
     let (resources,draining):(i64,bool)=sqlx::query_as("SELECT (SELECT count(*) FROM manager.owned_resources WHERE instance_id=$1),drain_completed_at IS NULL FROM manager.instances WHERE id=$1")
         .bind(accepted.instance_id).fetch_one(pool).await.unwrap();
-    assert_eq!(resources, 14);
+    assert_eq!(resources, 15);
     assert!(draining);
 }

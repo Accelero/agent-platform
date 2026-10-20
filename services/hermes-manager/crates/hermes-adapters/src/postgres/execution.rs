@@ -168,6 +168,14 @@ impl ExecutionRepository for PgStore {
         }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         gate(&mut tx, &mutation.scope).await?;
+        if matches!(mutation.command, ExecutionCommand::SetPolicy { .. }) {
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,184712))")
+                .bind(mutation.scope.id.to_string())
+                .execute(&mut *tx)
+                .await
+                .map_err(db_error)?;
+        }
+
         let action = mutation.command.action();
         let digest =
             Sha256::digest(serde_json::to_vec(&mutation.command).map_err(|_| Error::Invalid)?)
@@ -291,7 +299,11 @@ impl ExecutionRepository for PgStore {
                 .await?;
                 let digest = resolved.digest()?;
                 sqlx::query("INSERT INTO manager.execution_policy_versions(instance_id,generation,content_digest,policy) VALUES($1,$2,$3,$4)").bind(instance).bind(generation).bind(&digest).bind(serde_json::to_value(&resolved).map_err(|_|Error::Invalid)?).execute(&mut *tx).await.map_err(db_error)?;
-                sqlx::query("INSERT INTO manager.execution_policy_status(instance_id,desired_generation,state,epoch) VALUES($1,$2,'Pending',$3) ON CONFLICT(instance_id) DO UPDATE SET desired_generation=EXCLUDED.desired_generation,state='Pending',epoch=EXCLUDED.epoch,fence=manager.execution_policy_status.fence+1,lease_owner=NULL,lease_until=NULL,next_attempt_at=clock_timestamp(),condition=NULL")
+                sqlx::query("INSERT INTO manager.execution_policy_status(instance_id,desired_generation,state,epoch) VALUES($1,$2,'Pending',$3) ON CONFLICT(instance_id) DO UPDATE SET desired_generation=EXCLUDED.desired_generation,state='Pending',applied_generation=CASE WHEN manager.execution_policy_status.epoch<>EXCLUDED.epoch THEN 0 ELSE manager.execution_policy_status.applied_generation END,epoch=EXCLUDED.epoch,fence=manager.execution_policy_status.fence+1,lease_owner=NULL,lease_until=NULL,next_attempt_at=clock_timestamp(),condition=NULL")
+                    .bind(instance).bind(generation).bind(mutation.scope.epoch).execute(&mut *tx).await.map_err(db_error)?;
+                // New work is already fenced by desired != applied. Commit the
+                // old-generation drain deadline in the acknowledgement TX too.
+                sqlx::query("UPDATE manager.execution_environments SET state='Draining',drain_deadline=COALESCE(drain_deadline,clock_timestamp()+interval '5 minutes'),lease_owner=NULL,lease_until=NULL WHERE instance_id=$1 AND (policy_generation<>$2 OR epoch<>$3) AND state NOT IN ('Draining','Retired')")
                     .bind(instance).bind(generation).bind(mutation.scope.epoch).execute(&mut *tx).await.map_err(db_error)?;
                 let version = expected_version.checked_add(1).ok_or(Error::Invalid)?;
                 sqlx::query("UPDATE manager.assignments SET version=$2,updated_at=clock_timestamp() WHERE id=$1").bind(assignment_id).bind(version).execute(&mut *tx).await.map_err(db_error)?;
@@ -409,7 +421,7 @@ impl ExecutionRepository for PgStore {
     }
 }
 
-async fn lock_policy(
+pub(super) async fn lock_policy(
     tx: &mut Transaction<'_, Postgres>,
     scope: &InstallationScope,
     claim: &PolicyClaim,

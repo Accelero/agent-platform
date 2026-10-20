@@ -115,9 +115,9 @@ published application. This file tracks evidence against the full
 - Execution configuration foundation: immutable digest-pinned terminal versions,
   owner-specific storage/pull references and resolved desired policy generations.
   Mutations commit idempotency, optimistic versions, audit and policy work in the
-  same transaction. Independent database leases fence policy work. Applied policy
-  generation remains zero until real drain/admission/worker checks are integrated;
-  no terminal lease is granted by this foundation.
+  same transaction. Independent database leases fence policy work. Desired policy remains separate from applied policy. Migration 0016 adds
+  trusted admission/storage activation and prior-generation drain checks;
+  authenticated worker readiness and terminal lifecycle integration remain open.
 - Periodic resync enqueues bounded PostgreSQL work for completed enabled and
   retained instances without advancing desired generation or resetting failed
   work. Disabled instances without a bound Namespace remain observable for late
@@ -152,7 +152,7 @@ published application. This file tracks evidence against the full
 | Proxy plugin | Go tests with race detector | Full native HTTP/upload/browser/cookie behavior and configured provider revocation |
 | Traefik | `tests/personal_hermes/router_compatibility.py`, pinned official image | End-to-end Rust/Keycloak/native Hermes acceptance |
 | Existing release | Python checks including OpenAPI validation and native initialization, Helm lint, release privacy preflight | Repeat after chart/runtime changes |
-| Runtime policy/execution | Real PostgreSQL catalog/storage/policy/client/lease tests, separate native HTTPS contract and authorization tests, worker renderer/admission and authenticated Pod staging/start proofs, native runtime selection tests | Effective-policy activation, authenticated SSH readiness, controller integration, idle/recycle/retirement and full drain |
+| Runtime policy/execution | Real PostgreSQL catalog/storage/policy/client/lease tests, separate native HTTPS contract and authorization tests, worker renderer/admission and authenticated Pod staging/start proofs, native runtime selection tests | Authenticated SSH readiness, complete worker/controller integration, approved service egress, idle/recycle/retirement and full drain |
 | Commissioning | Durable outbox/resource reservations, authenticated ownership/UID adapter/reconciler; encrypted material, frozen rendering, initialization/native observation and HTTP auth-gate probe tests; actual ServiceAccount bootstrap/workload admission, compiled controller create/kill/reopen proof and built native image startup/restart | Definition registration, integrated native/effective-policy readiness, route publication, effective worker policy, terminal drain integration and completed lifecycle results |
 | Administration UI | Versioned administration contract, bearer and browser-session API; presentation-separated application ports | Owner/checkpoint contracts, generated client and React/Vite build |
 | Recovery | Fresh/existing registry gate and maintenance/epoch fencing | Trusted inventory scanner, checkpoint/receipt/restore lifecycle and coordinated full-data recovery tests |
@@ -212,7 +212,7 @@ policy and an additional binding that grants ClusterRoleBinding creation.
 Admission type checks and dry-run probes use the live API server. This proves the
 namespace/bootstrap boundary. Native workload dry runs also reject foreign
 images, mounts/credentials, identity/generation labels, commands, probes and
-resource limits. Effective worker-policy activation, CNI enforcement and full
+resource limits. Approved worker service egress, CNI enforcement and full
 commissioning acceptance remain outstanding.
 
 The same fixture commissions a committed assignment using the constrained
@@ -270,10 +270,127 @@ readiness candidates require the same Pod UID and observed specification.
 Native settings accept an approved `runtime_id` selector and separate cached
 transports and session-close requests by selected runtime.
 
-These pieces do not complete execution activation. Applied policy remains zero
-in production, and no controller path yet joins admission/storage activation,
-authenticated SSH readiness, worker retirement/recycling, terminal drain and
-native lifecycle completion. Database grant tests use explicitly trusted SQL
-activation/readiness fixtures; HTTP tests preserve the production pending gate.
+Migration 0016 adds controller-driven admission/storage activation. It can mark
+a matching generation applied only after exact owner/resource checks, readback
+and prior-generation drain. It does not yet join authenticated SSH readiness,
+worker retirement/recycling, terminal drain and native lifecycle completion. Lease tests use explicitly trusted SQL readiness
+fixtures; separate activation tests exercise the production guard and actual constrained Kubernetes controller.
+HTTP tests preserve the pending gate when activation or readiness is absent.
 Kubernetes-only readiness candidates are not SSH authentication or lease-grant
 proofs. Routes remain unpublished until the complete readiness contract passes.
+
+## Paused handoff — 2026-10-20
+
+Implementation is paused at the user's request on
+`feat/personal-hermes-commissioning`. The full specification is **not complete**
+and this branch is not deployment-qualified. Release 0.6.1, release tags and the
+existing chart defaults remain unchanged. No deployment was performed.
+All subagents are stopped. Resume the existing branch and preserve the scope of
+[specification.md](specification.md), [architecture.md](architecture.md) and
+[plan.md](plan.md); do not treat this checkpoint as completion of those documents.
+
+The final current slice is migration `0016_policy_activation.sql` and
+`terminal::activation`: independent policy claims, first-winner public admission
+renderings, immutable UID/RV action inputs and verified outcomes, and an atomic
+applied-policy receipt/status transition. The controller preserves the original
+native admission subtree and creation proof while changing only worker
+parameters. It rechecks the owned Namespace, worker ServiceAccount, immutable
+public SSH authorization Secret and selected PVC/pull-Secret identities. Every
+unknown original action must be observed before activation can complete. A
+restart can recover a successful patch whose SQL acknowledgement was lost.
+Policy edits commit old-environment drain deadlines in their acknowledgement
+transaction. A last applied generation alone does not authorize execution when
+current policy observation is reconciling or failed.
+
+Production worker readiness is deliberately not fabricated. Activation can make
+an empty-service-egress policy effective, while acquires remain pending until a
+trusted worker readiness receipt exists. Nonempty runtime `egress` is blocked
+until Service/Endpoint identities and matching NetworkPolicies are resolved.
+The real Kubernetes activation fixture creates only fixture resources; it does
+not start an actual SSH worker or assert native/browser end-to-end readiness.
+
+Continue in this order:
+
+1. Complete the shared worker controller. Use the existing environment claim,
+   immutable worker rendering/creation, UID binding and start-input ports in
+   `terminal::leases` and `kubernetes/execution_workers.rs`. Add bounded,
+   authenticated SSH readiness with trusted host identity; Kubernetes TCP/Pod
+   readiness alone must not call `record_execution_worker_ready`.
+2. Complete and verify worker networking before granting real terminal access.
+   Native egress currently selects component `hermes-worker`, while the renderer
+   labels workers `worker`; align that selector and install owner-scoped worker
+   SSH ingress. Resolve approved Service egress to verified identities and
+   ports, journal/apply its policies and prove CNI isolation. Do not broaden
+   access or guess a Service's Pod selector.
+3. Implement terminal retirement, idle/recycle and subsequent generations. Stop
+   exact registered UIDs with committed inputs, observe absence, retain
+   tombstones and never reuse expired/released request IDs. Preserve live child
+   leases when another lease expires. Keep the original drain deadlines.
+4. Join terminal absence with native stop and complete the original drain
+   barrier. Only then mark Suspended/Retained or re-enable native work. Implement
+   native generation updates and combined readiness/route publication. Native
+   shutdown, policy application or a journal result alone is insufficient.
+5. Finish policy retry/deadline/manual-recovery status and environment status
+   administration endpoints. Policy conflicts currently remain waiting and need
+   the planned bounded blocked/retry behavior; do not leave persistent faults in
+   an endless retry loop as a finished product.
+6. Finish owner/checkpoint contracts, the generated administration client and
+   React/TypeScript/Vite UI, served by Rust with the existing OIDC/CSRF boundary.
+7. Implement trusted inventory, encrypted full-data checkpoint/readback receipts,
+   restore/epoch fencing and explicit adoption. Finish Dockerfiles/reviewed build
+   inputs, opt-in chart configuration/RBAC/networking and operator documentation.
+8. Complete real Keycloak/native/router browser, HTTP mutation, upload, cookie
+   and WebSocket acceptance, crash tests at the remaining external boundaries,
+   and the full release qualification checklist. Publication/deployment requires
+   separate authorization; the authorized push is only this source branch.
+
+Closeout verification passed: 161 standard Rust tests, both isolated live
+Kubernetes tests, 112 Python tests, five OpenAPI contract checks, workspace
+formatting and Clippy, Helm lint and release privacy preflight. The compiled
+manager/router-auth process fixture is also part of closeout verification.
+The Kubernetes proof covers the new controller activation and lost-reply path;
+it does not claim complete worker SSH, native/browser or recovery acceptance.
+
+Local verification uses Python 3.14 with `uv sync --locked`, Rust 1.99.1 from
+`services/hermes-manager/rust-toolchain.toml`, a disposable PostgreSQL 17 fixture
+and Helm 3. Run Cargo from `services/hermes-manager` so its pinned toolchain is
+selected. Standard checks:
+
+```bash
+uv run ruff check agent_platform tests services/tools/platform_bootstrap
+uv run ruff format --check agent_platform tests services/tools/platform_bootstrap
+uv run pytest -q
+helm lint charts/agent-platform
+uv run python -m agent_platform.privacy
+
+cd services/hermes-manager
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+# Set DATABASE_URL to an isolated, disposable test database with CREATE DATABASE.
+cargo test --workspace --locked
+cargo build --workspace --bins --locked
+cd ../..
+uv run python -m tests.personal_hermes.api_process
+uv run python -m tests.personal_hermes.kubernetes
+```
+
+The process/Kubernetes runners default to the isolated Docker PostgreSQL
+container `personal-hermes-manager-tests`; they do not use a deployment database
+or an existing kubecontext. To recreate the disposable fixture after pausing:
+
+```bash
+docker run --detach --name personal-hermes-manager-tests \
+  --label agent-platform.io/fixture=personal-hermes-postgres \
+  --publish 127.0.0.1:32814:5432 \
+  --env POSTGRES_USER=hermes_test --env POSTGRES_DB=hermes_test \
+  --env POSTGRES_HOST_AUTH_METHOD=trust \
+  postgres@sha256:2a0d0fe14825b0939f78a8cad5cd4e6aa68bf94d0e5dd96e24b6d23af4315545
+export DATABASE_URL=postgres://hermes_test@127.0.0.1:32814/hermes_test
+```
+
+This is a nonsecret local test fixture, not a deployment configuration. Remove
+only that exact fixture container/volume after the test run.
+ `native_runtime --build`, `native_owner` and
+`router_compatibility` remain the separate native/proxy acceptance fixtures;
+run the relevant ones when those runtime/proxy inputs change. Read their local
+fixture requirements first. Keep fixture secrets out of logs and release inputs.

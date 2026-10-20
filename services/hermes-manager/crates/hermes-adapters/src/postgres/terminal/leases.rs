@@ -42,7 +42,7 @@ async fn policy(
     scope: &InstallationScope,
     instance: Uuid,
 ) -> Result<Option<(ResolvedPolicy, bool)>, Error> {
-    let row=sqlx::query("SELECT v.policy,v.content_digest,s.applied_generation=s.desired_generation AND s.applied_generation>0 AND s.epoch=$2 AND EXISTS(SELECT 1 FROM manager.execution_effective_policy_receipts r WHERE r.instance_id=s.instance_id AND r.generation=s.desired_generation AND r.epoch=$2 AND r.content_digest=v.content_digest) AS effective FROM manager.execution_policy_status s JOIN manager.execution_policy_versions v ON v.instance_id=s.instance_id AND v.generation=s.desired_generation WHERE s.instance_id=$1")
+    let row=sqlx::query("SELECT v.policy,v.content_digest,s.applied_generation=s.desired_generation AND s.applied_generation>0 AND s.state='Applied' AND s.epoch=$2 AND EXISTS(SELECT 1 FROM manager.execution_effective_policy_receipts r WHERE r.instance_id=s.instance_id AND r.generation=s.desired_generation AND r.epoch=$2 AND r.content_digest=v.content_digest) AS effective FROM manager.execution_policy_status s JOIN manager.execution_policy_versions v ON v.instance_id=s.instance_id AND v.generation=s.desired_generation WHERE s.instance_id=$1")
  .bind(instance).bind(scope.epoch).fetch_optional(&mut **tx).await.map_err(db_error)?;
     row.map(|r| {
         let p: ResolvedPolicy =
@@ -57,7 +57,7 @@ async fn policy(
     })
     .transpose()
 }
-async fn current_open(
+pub(in crate::postgres) async fn current_open(
     tx: &mut Tx<'_>,
     scope: &InstallationScope,
     instance: Uuid,
