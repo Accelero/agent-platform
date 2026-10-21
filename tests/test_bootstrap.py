@@ -80,11 +80,10 @@ def test_first_start_creates_both_native_configs_and_only_one_assistant(scenario
         "ensure",
         "complete",
     ]
-    assert [call.args[1] for call in hook.call_args_list] == [
-        "before",
-        "after",
-        "checkpoint",
-    ]
+    # First enrollment changes no live state: no cutoff, no scaling.
+    assert [call.args[1] for call in hook.call_args_list] == ["checkpoint"]
+    cluster.scale.assert_not_called()
+    cluster.replicas.assert_not_called()
     daemon = json.loads((Path(config["home"]) / ".multica/config.json").read_text())
     profile = json.loads(
         (Path(config["home"]) / "profiles/researcher/.multica/config.json").read_text()
@@ -168,8 +167,96 @@ def test_retry_reuses_pending_credentials_and_does_not_duplicate_agent(scenario)
     assert all(len(call.args) == 1 for call in board.request.call_args_list)
 
 
+def test_failed_first_enrollment_retries_without_stopping_writers(scenario):
+    config, cluster, stored, command, board, hook = scenario
+    original = command.side_effect
+
+    def failing(config, action, **kwargs):
+        if action == "ensure":
+            raise RuntimeError("Native bootstrap failed; private details suppressed.")
+        return original(config, action, **kwargs)
+
+    command.side_effect = failing
+    with pytest.raises(RuntimeError):
+        bootstrap.enroll(config, cluster, force=False)
+    journal = json.loads(stored["agent-onboarding"]["bootstrap.json"])
+    assert journal["pending"] and journal["cold"] is False
+    command.side_effect = lambda config, action, **kwargs: (
+        {"state": "pending"}
+        if action == "inspect"
+        else original(config, action, **kwargs)
+    )
+    assert bootstrap.enroll(config, cluster, force=False).startswith("enrolled")
+    assert [call.args[1] for call in hook.call_args_list] == ["checkpoint"]
+    cluster.scale.assert_not_called()
+    ensure = [call for call in command.call_args_list if call.args[1] == "ensure"]
+    assert {call.kwargs["daemon"] for call in ensure} == {"daemon-fixture"}
+
+
+def test_pending_journal_from_an_earlier_release_keeps_the_cold_cycle(scenario):
+    config, cluster, stored, command, _, hook = scenario
+    stored["agent-onboarding"] = {
+        "bootstrap.json": json.dumps(
+            {
+                "pending": True,
+                "force": False,
+                "daemon": "original-daemon",
+                "profile": "original-profile",
+                "previous": "",
+                "workspace": "",
+                "replicas": {"hermes": 1, "multica-backend": 1, "multica-web": 1},
+            }
+        )
+    }
+    original = command.side_effect
+    command.side_effect = lambda config, action, **kwargs: (
+        {"state": "pending"}
+        if action == "inspect"
+        else original(config, action, **kwargs)
+    )
+    bootstrap.enroll(config, cluster, force=False)
+    assert [call.args[1] for call in hook.call_args_list] == [
+        "before",
+        "after",
+        "checkpoint",
+    ]
+    restored = [call.args for call in cluster.scale.call_args_list][-3:]
+    assert restored == [("hermes", 1), ("multica-backend", 1), ("multica-web", 1)]
+
+
+def test_failures_name_their_step_without_private_details(tmp_path, capsys):
+    config = tmp_path / "config.json"
+    config.write_text("{}")
+
+    def failing(*_args, **_kwargs):
+        bootstrap.step("runtime reconnect")
+        raise RuntimeError("private fixture detail")
+
+    with (
+        patch.object(bootstrap.kubernetes.config, "load_incluster_config"),
+        patch.object(bootstrap, "Cluster"),
+        patch.object(bootstrap, "wait_for_cluster"),
+        patch.object(bootstrap, "enroll", side_effect=failing),
+        patch.object(bootstrap.sys, "argv", ["bootstrap", "--config", str(config)]),
+    ):
+        assert bootstrap.main() == 1
+    error = capsys.readouterr().err
+    assert "during runtime reconnect (RuntimeError)" in error
+    assert "private fixture detail" not in error
+
+
+def test_hook_failure_reports_phase_and_exit_code():
+    result = Mock(returncode=3)
+    with (
+        patch.object(bootstrap.subprocess, "run", return_value=result),
+        pytest.raises(RuntimeError),
+    ):
+        bootstrap.hook({"lifecycle": {"before": ["fixture"]}}, "before")
+    assert bootstrap._STEP["name"] == "before hook (exit 3)"
+
+
 def test_force_updates_auth_without_overwriting_native_preferences(scenario):
-    config, cluster, stored, command, _, _ = scenario
+    config, cluster, stored, command, _, hook = scenario
     command.side_effect = lambda config, action, **kwargs: {
         "inspect": {"state": "initialized"},
         "generate": {"daemon": "new-daemon", "profile": "new-profile"},
@@ -192,6 +279,13 @@ def test_force_updates_auth_without_overwriting_native_preferences(scenario):
     stored["agent-onboarding"] = {"daemon.json": path.read_text()}
     bootstrap.enroll(config, cluster, force=True)
     assert json.loads(path.read_text())["custom_setting"] == "keep"
+    # Repair changes live state, so writers stop and their replicas are restored.
+    assert [call.args[1] for call in hook.call_args_list] == [
+        "before",
+        "after",
+        "checkpoint",
+    ]
+    assert ("hermes", 1) in [call.args for call in cluster.scale.call_args_list]
     ensure = next(call for call in command.call_args_list if call.args[1] == "ensure")
     assert ensure.kwargs["previous"] == "old"
     assert ensure.kwargs["workspace"] == "same-workspace"

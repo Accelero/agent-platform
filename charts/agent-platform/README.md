@@ -414,11 +414,18 @@ Deployment integration must provide:
   was positively checked empty, not that storage could not be read. A restored
   empty database cannot become a fresh installation.
 - `bootstrap.lifecycle.before`, `after` and `checkpoint`: command argument arrays.
-  Before mutation, create a verified checkpoint, fence dispatch, drain work and
-  stop all native writers. After successful reconnection, restore dispatch and
-  writers. Finally publish a verified encrypted checkpoint including the native
-  database, home and both enrollment Secrets. Commands must fail on any missing
-  durability prerequisite. The Job captures private command output.
+  `checkpoint` runs after every enrollment and publishes a verified encrypted
+  checkpoint including the native database, home and both enrollment Secrets.
+  `before` and `after` run only for an explicit `--force` repair, which changes
+  existing state: before mutation, create a verified checkpoint, fence dispatch,
+  drain work and stop all native writers; after successful reconnection, restore
+  dispatch and writers. First enrollment of a fresh installation changes no live
+  state, so it neither stops nor scales writers: the Hermes daemon starts once its
+  atomically written login file exists. Retries of a first enrollment keep that
+  path; journals written by releases before 0.6.9 keep the cold cycle. Commands
+  must fail on any missing durability prerequisite. The Job captures private
+  command output and reports only the failed step, exception type and hook exit
+  code.
 - `bootstrap.volumes`, `volumeMounts`, `env` and `envFrom`: private deployment
   inputs for those commands; keep credentials in referenced Secrets. Optional
   `agentSeedFile` loads initial agent instructions from a mounted private JSON

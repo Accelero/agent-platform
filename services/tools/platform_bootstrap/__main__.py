@@ -27,9 +27,16 @@ _IDENTITY_ERRORS = (OSError, ValueError)
 _CONNECTION_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError)
 # Tuple constants keep the tools image's Python 3.11 except syntax.
 _NETWORK_ERRORS = (urllib3.exceptions.HTTPError, OSError)
+# The step a failure is reported against; names carry no private data.
+_STEP = {"name": "start"}
+
+
+def step(name: str) -> None:
+    _STEP["name"] = name
 
 
 def native(config: dict, action: str, **values: object) -> dict:
+    step("native " + action)
     env = dict(os.environ)
     url = config["databaseUrl"]
     for key, value in env.items():
@@ -207,9 +214,11 @@ class Cluster:
 
 
 def hook(config: dict, name: str) -> None:
+    step(name + " hook")
     command = config["lifecycle"][name]
     result = subprocess.run(command, capture_output=True, timeout=600)
     if result.returncode:
+        step(f"{name} hook (exit {result.returncode})")
         raise RuntimeError("Recovery lifecycle command failed; state retained.")
 
 
@@ -304,6 +313,7 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
         or profile_name in {"default", "custom"}
     ):
         raise ValueError("Invalid bootstrap profile")
+    step("recovery gate")
     with cluster.lock():
         fresh = cluster.recovery()
         deadline = time.monotonic() + 180
@@ -358,7 +368,9 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
                     "token", ""
                 ),
                 "workspace": previous.get("workspace_id", ""),
-                "replicas": cluster.replicas(),
+                # Only repair touches live state; first enrollment needs no cutoff.
+                "cold": force,
+                **({"replicas": cluster.replicas()} if force else {}),
             }
             cluster.save(
                 config["onboardingSecret"], {"bootstrap.json": json.dumps(journal)}
@@ -366,6 +378,14 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
         elif force:
             # Resume the pending credential pair rather than orphaning a new pair.
             journal["force"] = True
+        # Journals from releases without this field already stopped writers.
+        cold = journal.get("cold", True) or journal["force"]
+        if cold and "replicas" not in journal:
+            journal["replicas"] = cluster.replicas()
+            journal["cold"] = True
+            cluster.save(
+                config["onboardingSecret"], {"bootstrap.json": json.dumps(journal)}
+            )
         if journal["force"] and status["state"] != "empty":
             # Native Multica would regenerate a missing/corrupt daemon ID. Refuse
             # before mutation rather than create a replacement runtime by accident.
@@ -376,7 +396,8 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
                 raise RuntimeError(
                     "Restore the original native daemon identity before repair."
                 ) from error
-        hook(config, "before")
+        if cold:
+            hook(config, "before")
         identity = native(
             config,
             "ensure",
@@ -412,7 +433,9 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
         daemon.setdefault("runtime_name", "Hermes container")
         daemon.setdefault("max_concurrent_tasks", 1)
         home = Path(config["home"])
-        # The before hook has fenced dispatch, drained work and stopped writers.
+        step("login files")
+        # Repair runs after the before hook stopped writers. On first enrollment
+        # the daemon service waits for this atomically replaced file.
         install(home / ".multica/config.json", daemon, force=journal["force"])
         if profile_name:
             profile_path = home / "profiles" / profile_name / ".multica/config.json"
@@ -428,8 +451,10 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
             {"config.json": json.dumps(profile)},
             config["executionNamespace"],
         )
-        cluster.scale("multica-backend", 1)
-        cluster.scale("hermes", 1)
+        if cold:
+            cluster.scale("multica-backend", 1)
+            cluster.scale("hermes", 1)
+        step("runtime reconnect")
         board = Board(config, journal["profile"], workspace)
         deadline = time.monotonic() + 180
         while True:
@@ -452,6 +477,7 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
             if time.monotonic() >= deadline:
                 raise RuntimeError("Hermes did not reconnect within its deadline.")
             time.sleep(2)
+        step("runtime settings")
         # Public lets every workspace member bind agents to the shared Hermes runtime.
         visibility = config.get("runtimeVisibility", "private")
         if visibility not in {"private", "public"}:
@@ -492,9 +518,10 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
             daemon=journal["daemon"],
             profile=journal["profile"],
         )
-        hook(config, "after")
-        for name, count in journal["replicas"].items():
-            cluster.scale(name, count)
+        if cold:
+            hook(config, "after")
+            for name, count in journal["replicas"].items():
+                cluster.scale(name, count)
         # A restored checkpoint with this journal only needs checkpoint completion,
         # never credential installation or dispatch resumption.
         journal["mutation_complete"] = True
@@ -525,11 +552,13 @@ def main() -> int:
         kubernetes.config.load_incluster_config()
         config = json.loads(args.config.read_text())
         cluster = Cluster(config)
+        step("cluster access")
         wait_for_cluster(cluster)
         print(enroll(config, cluster, force=args.force))
-    except Exception:
+    except Exception as error:
         sys.stderr.write(
-            "Platform bootstrap failed; private details suppressed. "
+            f"Platform bootstrap failed during {_STEP['name']} "
+            f"({type(error).__name__}); private details suppressed. "
             "State retained for retry.\n"
         )
         return 1
