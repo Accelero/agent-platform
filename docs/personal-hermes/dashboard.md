@@ -7,6 +7,18 @@ Assignment creation, lifecycle controls, template/policy editors, directory
 search and pagination controls remain future work. There are no mock production
 users, credentials or runtime records in the frontend.
 
+The [dashboard feature specification](dashboard-features.md) details the next
+searchable data views, template inspection, form/raw configuration editors,
+per-template managed Hermes `adminConfig`, user assignments and editable
+administrator list. It explicitly separates those requirements from the current
+Keycloak role gate and records the administrator-authority decision still needed.
+
+The [dashboard stack and implementation conventions](dashboard-stack.md) records
+the current React/TypeScript/Vite/Rust foundation and planned TanStack, form,
+Monaco, JSON Schema and Radix integrations. It covers data flow, source layout,
+validation, protected workers/assets, accessibility and delivery checks; planned
+libraries are distinguished from installed dependencies.
+
 ## Build and run
 
 From the repository root:
@@ -59,6 +71,34 @@ administration hostname from personal Hermes. Configure:
   `admin.managementClient`. Grant it only to platform administrators; configure
   its name in `admin.administratorRole`.
 - The exact realm issuer and its HTTPS JWKS endpoint, plus a CA file if needed.
+
+Today access is granted by that Keycloak client role, not by an administrator
+allowlist in the manager database. PostgreSQL assignment rows control who gets
+a Hermes instance. They do not grant dashboard access. An editable administrator
+list is a new requirement; its authority/write path is not implemented. See the
+[authorization design options](dashboard-features.md#administrator-list-and-authorization-authority).
+
+Relevant access-token claims for the example configuration include:
+
+```json
+{
+  "aud": "manager-api",
+  "azp": "manager-admin",
+  "resource_access": {
+    "manager-admin": { "roles": ["platform-administrator"] }
+  }
+}
+```
+
+This is only a claims excerpt; the manager also validates the signature, issuer,
+subject, token type, user-session evidence and validity times. Assign the client
+role to the intended users in Keycloak and ensure its role mapper/scopes include
+it in access tokens. This uses Keycloak's standard
+[client-role token mapping](https://www.keycloak.org/docs/latest/server_admin/index.html#_role_mappings_in_the_token),
+not an arbitrary unsigned `admin=true` flag. Granting/revoking a role affects
+newly issued/refreshed tokens; current browser sessions refresh their verified
+token after 60 seconds on use (or earlier near expiry). Already-issued bearer
+tokens retain their claims until expiry; do not promise immediate revocation.
 
 Anonymous page navigation redirects through `/auth/login`. Rust validates OIDC
 state, nonce, PKCE, signature, issuer, audience, client and administrator role.

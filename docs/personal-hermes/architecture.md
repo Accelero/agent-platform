@@ -157,6 +157,13 @@ the existing API and browser-session authentication. The
 [dashboard guide](dashboard.md) documents the build, Keycloak setup and remaining
 editors. The following architecture applies to further frontend work as well.
 
+The [dashboard stack](dashboard-stack.md) specifies React/TypeScript/Vite with
+planned TanStack Router/Table/Query, React Hook Form, Monaco, shared JSON Schema
+validation and Radix primitives. It separates installed packages from planned
+work and documents the Rust asset/CSP, schema-version and API integration needed
+for the editors. The [feature specification](dashboard-features.md) defines their
+user-facing behavior.
+
 Use React and TypeScript for the browser application, built with
 [Vite](https://vite.dev/guide/build.html). Node.js and the frontend package
 manager are build/development tools. Copy the locked production build into the

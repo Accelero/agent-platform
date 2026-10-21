@@ -13,6 +13,10 @@ process configuration and authentication, and the
 input contract and per-user deployment behavior.
 The [terminal backend guide](terminal-backends.md) covers profile selection,
 scoped worker provisioning, SSH identity and cleanup.
+The [dashboard feature specification](dashboard-features.md) and
+[stack guide](dashboard-stack.md) describe the next administration workflows and
+selected implementation direction; planned libraries in those guides are not
+claims of completed functionality.
 The [current handover](handover.md) records the completed SSH acceptance,
 integration fixes and remaining work.
 

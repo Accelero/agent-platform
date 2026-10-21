@@ -95,6 +95,14 @@ assignment's default/allowed runtime versions, storage bindings, resources and
 desired/effective policy status. Configure the Hermes application image through
 its approved instance template independently of the terminal worker image.
 
+The [dashboard feature specification](dashboard-features.md) expands this into
+searchable/filterable data tables, template details and synchronized form/raw
+editors, template-managed Hermes `adminConfig`, explicit user/template assignment
+and an editable administrator list. Its administrator-authority alternatives are
+an open design decision; the current implemented gate remains the configured
+Keycloak management-client role. Changing that gate or adding Keycloak role
+writes requires updating the authorization/directory boundary explicitly.
+
 ## Durable data contract
 
 Use versioned PostgreSQL migrations and explicit constraints, at least:

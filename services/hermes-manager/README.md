@@ -21,6 +21,9 @@ manager administration editors remain open. The
 React/TypeScript/Vite overview and read-only administration lists, using the
 existing Keycloak OIDC session and administrator-role checks. Its local/CI
 multi-stage image pipeline is separate from tagged release publication.
+The [dashboard stack guide](../../docs/personal-hermes/dashboard-stack.md) records
+installed and planned libraries, schema-driven form/raw editing, data/query
+boundaries, styling/accessibility and production integration checks.
 The manager is not installed by the 0.6.1 chart. The
 [implementation status](../../docs/personal-hermes/implementation.md) is the
 current capability/evidence index; the
@@ -167,8 +170,10 @@ realm roles cannot confer administration. JWT algorithms are pinned (the process
 currently selects RS256), and keys come from a configured HTTPS JWKS endpoint
 on the issuer origin. Key fetches are bounded, size-limited and do not follow
 redirects or environment proxies. The key cache is independent of assignment
-authorization. Optional browser authentication is described below; static UI
-serving remains in development.
+authorization. Optional browser authentication is described below; the
+[dashboard scaffold](../../docs/personal-hermes/dashboard.md) is served behind
+that same administrator gate. The manager database has no administrator-grant
+allowlist; its user/assignment rows do not confer administration.
 
 The resolver listener requires client mTLS AND fresh user access-token evidence
 for its separate route audience/client. Its peer role comes from an exact

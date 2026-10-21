@@ -6,7 +6,7 @@ services described here are not installed by the 0.6.1 chart. See the
 remaining acceptance gates. Infrastructure-driven native commissioning is now
 implemented and tested. Profile-selected v2 terminal provisioning and SSH are
 implemented in source; runtime service egress, complete combined lifecycle,
-the manager frontend, routing and coordinated recovery still need work. The
+the manager's administration editors, routing and coordinated recovery still need work. The
 [native commissioning guide](native-commissioning.md) documents the current
 database/template contract.
 See [terminal backends](terminal-backends.md) for the new profile/worker flow and
@@ -167,6 +167,12 @@ can later move to a separate service without changing the core use cases.
 The [dashboard scaffold](dashboard.md), protected asset serving and local/CI
 image pipeline now exist. Read-only assignment/runtime/audit lists are available;
 the full editing workflows and their acceptance above remain unfinished.
+The [dashboard feature specification](dashboard-features.md) defines the next
+tables, template/admin-config editors, user assignment workflows and editable
+administrator list, including the authorization-authority decision.
+The [stack implementation guide](dashboard-stack.md) defines the planned library
+integrations and their schema, authentication, accessibility and production-build
+acceptance checks. Adding those dependencies does not complete the workflows.
 
 ### 3. Implement commissioning and reconciliation
 
