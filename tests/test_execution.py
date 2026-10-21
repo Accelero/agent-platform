@@ -1,5 +1,6 @@
 """Verify native image selection, lease transitions and persisted reconciliation."""
 
+import ast
 import base64
 import json
 from copy import deepcopy
@@ -8,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import yaml
 
 from agent_platform.build import ROOT
 from tests.test_chart import native, policy, render
@@ -62,6 +64,24 @@ def acquire(execution, **overrides: object) -> dict:
     return execution.api.dispatch(
         "hermes", "/v1/leases/acquire", {**execution.payload, **overrides}
     )
+
+
+def test_plugin_defaults_to_profile_scoped_on_demand_workers():
+    plugin = ROOT / "runtimes/hermes/plugins/managed_execution"
+    schema = yaml.safe_load((plugin / "plugin.yaml").read_text())["config_schema"]
+    source = (plugin / "__init__.py").read_text()
+    defaults = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "dict"
+        and any(keyword.arg == "mode" for keyword in node.keywords)
+    )
+    mode = next(k.value.value for k in defaults.keywords if k.arg == "mode")
+    assert schema["mode"]["default"] == mode == "per_profile_on_demand"
+    # Multica task workdirs still require their own session-scoped worker.
+    assert "settings['mode'] = 'per_session'" in source
 
 
 def test_profile_image_reaches_backend_and_survives_manager_restart(execution):

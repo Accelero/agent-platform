@@ -359,7 +359,7 @@ class Provider(TerminalEnvironmentProvider):
 
     def settings(self):
         defaults = dict(manager_url="https://runtime-manager:8090", token_file="/run/secrets/runtime-manager-token",
-                        ca_file='/etc/runtime-manager/tls/ca.crt', profile="", mode="per_session",
+                        ca_file='/etc/runtime-manager/tls/ca.crt', profile="", mode="per_profile_on_demand",
                         ssh_key="/opt/ssh/id_ed25519", acquire_timeout_seconds=180, image="", template="")
         settings = {key: self.ctx.get_config(key, value) for key, value in defaults.items()}
         # Existing native profiles preserve their config across image updates.

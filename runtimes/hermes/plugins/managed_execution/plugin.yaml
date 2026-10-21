@@ -1,5 +1,5 @@
 name: managed_execution
-version: 2.3.0
+version: 2.4.0
 kind: backend
 description: Infrastructure-provisioned SSH environments with conversation and profile lifetimes.
 provides_hooks: [pre_llm_call, on_session_end, on_session_finalize, on_session_reset]
@@ -12,7 +12,7 @@ config_schema:
   profile: {type: str, default: '', description: Stable profile identity; empty uses the active Hermes profile}
   mode:
     type: str
-    default: per_session
+    default: per_profile_on_demand
     choices: [per_session, per_profile_on_demand, per_profile_always_running]
     description: Environment lifetime
   ssh_key: {type: str, default: /opt/ssh/id_ed25519, description: SSH client key on the controller}

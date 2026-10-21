@@ -173,6 +173,17 @@ these settings from the active profile, including task overlays. An explicit
 image is persisted with the execution environment so manager restarts and worker
 recycling keep that selection.
 
+`mode` selects the worker lifetime. The default, `per_profile_on_demand`, shares
+one worker per profile across its conversations, starts it at first use and
+removes it after the template's `on_demand_idle_seconds`. `per_session` gives each
+conversation its own worker, removed after `session_idle_seconds`.
+`per_profile_always_running` keeps the profile worker running until it has been
+unused for `recycle.inactive_after_seconds`. Per-profile workers are rebuilt at
+the template's daily `recycle.at` once their active leases finish. Multica task
+invocations and other runs outside the profile workspace always use their own
+`per_session` worker, whatever the profile selects, because a shared worker cannot
+carry per-task mounts. Earlier releases defaulted to `per_session`.
+
 Managed SSH execution is an administrator policy, not a per-profile choice. The
 image's managed Hermes layer (`/etc/hermes/config.yaml`) requires
 `terminal.backend: managed_execution` and binds every profile, including the
