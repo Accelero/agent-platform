@@ -260,7 +260,7 @@ pub fn render(
     let mut egress = vec![
         json!({"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}],"ports":[{"protocol":"UDP","port":53},{"protocol":"TCP","port":53}]}),
         json!({"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":config.control_namespace}},"podSelector":{"matchLabels":{"app.kubernetes.io/component":"hermes-manager-api"}}}],"ports":[{"protocol":"TCP","port":config.execution_port}]}),
-        json!({"to":[{"podSelector":{"matchLabels":{"app.kubernetes.io/component":"hermes-worker"}}}],"ports":[{"protocol":"TCP","port":2222}]}),
+        json!({"to":[{"podSelector":{"matchLabels":{"app.kubernetes.io/component":"worker"}}}],"ports":[{"protocol":"TCP","port":2222}]}),
     ];
     for peer in &config.service_egress {
         egress.push(json!({"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":peer.namespace}},"podSelector":{"matchLabels":peer.labels}}],"ports":[{"protocol":"TCP","port":peer.port}]}));
@@ -341,6 +341,40 @@ pub fn render(
         terminal.extend(approved.clone());
     }
     managed.insert("terminal".into(), Value::Object(terminal));
+    // Connection authority belongs to infrastructure. The profile's
+    // terminal.runtime_id stays editable and is checked by the manager.
+    let plugins = managed.entry("plugins").or_insert_with(|| json!({}));
+    let enabled = plugins
+        .as_object_mut()
+        .ok_or(Error::Invalid)?
+        .entry("enabled")
+        .or_insert_with(|| json!([]));
+    let enabled = enabled.as_array_mut().ok_or(Error::Invalid)?;
+    if !enabled.iter().any(|name| name == "managed_execution") {
+        enabled.push(json!("managed_execution"));
+    }
+    let entries = plugins
+        .as_object_mut()
+        .ok_or(Error::Invalid)?
+        .entry("entries")
+        .or_insert_with(|| json!({}));
+    let execution = entries
+        .as_object_mut()
+        .ok_or(Error::Invalid)?
+        .entry("managed_execution")
+        .or_insert_with(|| json!({}));
+    let settings = execution
+        .as_object_mut()
+        .ok_or(Error::Invalid)?
+        .entry("settings")
+        .or_insert_with(|| json!({}));
+    for key in ["manager_url", "token_file", "ca_file", "ssh_key"] {
+        settings.as_object_mut().ok_or(Error::Invalid)?.insert(
+            key.into(),
+            bootstrap.native_config["plugins"]["entries"]["managed_execution"]["settings"][key]
+                .clone(),
+        );
+    }
     let managed = serde_json::to_string(&managed).map_err(|_| Error::Invalid)?;
     let mut trust = BTreeMap::from([
         ("ca.crt", config.execution_ca_pem.as_str()),

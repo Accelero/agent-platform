@@ -11,6 +11,10 @@ exists now, the [manager README](../../services/hermes-manager/README.md) for
 process configuration and authentication, and the
 [native commissioning guide](native-commissioning.md) for the infrastructure
 input contract and per-user deployment behavior.
+The [terminal backend guide](terminal-backends.md) covers profile selection,
+scoped worker provisioning, SSH identity and cleanup.
+The [current handover](handover.md) records the completed SSH acceptance,
+integration fixes and remaining work.
 
 ## Current capability boundary
 
@@ -22,7 +26,7 @@ input contract and per-user deployment behavior.
 | Shutdown during updates | Kubernetes Recreate rollout; runtime forwards SIGTERM to gateway/dashboard, waits up to 20 seconds and then kills remaining children; Pod grace period is 45 seconds | No update handshake that waits for agent runs to finish or acknowledges a completed application checkpoint; active work can be interrupted |
 | Manager crash recovery | PostgreSQL action journal, leased/fenced claims, frozen renderings, authenticated resource provenance, exact UID/RV checks, uncertain-create recovery and periodic resync | Ownership/admission/manual-recovery faults remain blocked; a deleted or foreign resource is not blindly adopted or replaced; exhaustive crash testing at every external boundary remains open |
 | Administration | Versioned API, Keycloak access-token validation, browser OIDC sessions, CSRF, audit, optimistic mutations and execution configuration endpoints | No manager admin frontend, generated React client, owner-status/checkpoint UI or completed directory integration |
-| Terminal execution | Immutable runtime catalog, per-owner storage/pull references, desired/applied policy, scoped execution API and durable leases; worker rendering/admission/UID/start primitives | No complete automatic worker lifecycle: authenticated SSH readiness, networking, creation orchestration, idle/recycle/retirement and terminal drain still need integration |
+| Terminal execution | Database runtime catalog and owner storage/subpaths; profile dashboard `terminal.runtime_id`; instance credential/allowlist enforcement; fenced on-demand v2 worker creation, authenticated pinned SSH readiness, scoped leases and exact-UID retirement/idle cleanup; verified two-owner SSH/file-transfer/denial/retirement integration | Nonempty runtime service-egress resolution, proactive prewarming, combined native/API/routing lifecycle and release acceptance remain open; v1 workers do not get automatic readiness |
 | Routing | Rust resolver/auth processes, Go/Yaegi plugin and isolated Traefik/WebSocket compatibility proofs | Native commissioning does not publish routes; full Keycloak/native/browser/proxy integration remains open |
 | Backup and recovery | Explicit fresh-install namespace/PV scan, schema/installation/epoch gates and retained ownership history | No scheduled backups, snapshot/copy jobs, backup retention, checkpoint coordinator or full data restore implementation; PVC retention is not a backup |
 | Distribution and adoption | Locked source builds and CI checks; reviewed native runtime test image | No released manager/router-auth images or personal-mode chart installation; existing-owner adoption and release acceptance remain open |
@@ -32,6 +36,37 @@ instance. It is distinct from the unimplemented manager administration frontend.
 Native `Ready` means the manager observed storage, the exact current workload,
 signed initialization and the native HTTP/auth gate. It does not mean a terminal
 backend is ready, a route was published or a real Keycloak browser login passed.
+
+## Hermes image, plugin and recorded identity
+
+`runtimes/hermes/Dockerfile` extends the pinned upstream Hermes image with
+reviewed platform changes and bundles
+`runtimes/hermes/plugins/managed_execution`. The `hermes` release build target
+already supplies that image; infrastructure selects its digest in a template.
+The plugin reads the profile's native dashboard `terminal.runtime_id`, requests
+an authenticated HTTPS lease and uses the manager-supplied SSH endpoint with
+strict host-key pinning. The v2 worker controller commits creation/start intents,
+verifies real SSH login and records readiness before grants. Session close,
+expiry, policy/access/generation changes, lost Pod observation and ordinary idle
+cleanup feed fenced retirement with exact UID/RV deletion and verified absence.
+Original requests/leases remain tombstones; a new request can create a fresh
+environment after retirement. Nonempty runtime service egress still blocks
+activation and combined product acceptance remains incomplete.
+
+The manager creates a distinct opaque execution credential for each instance,
+registers its hash before dispatching the bootstrap Secret and maps successful
+authentication through `manager.execution_clients.instance_id`. This binds the
+plugin to its logical instance and assignment without trusting a caller-supplied
+user or container ID. Raw bootstrap material is encrypted; selected application
+credential files are mounted read-only.
+
+The registry persists stable instance IDs, Namespace/Deployment UIDs in owned
+resource records and exact Hermes Pod UIDs in `manager.native_children`, with
+verified owner provenance. It does **not** persist CRI/containerd/Docker container
+runtime IDs. The execution credential survives ordinary Pod replacement; it
+identifies the logical instance rather than attesting a particular Pod or
+container process. The full target is specified in the
+[image/plugin and identity contract](specification.md#hermes-application-image-execution-plugin-and-caller-identity).
 
 ## Manager implementation
 
@@ -78,19 +113,22 @@ restore a lost registry or payload.
 | --- | --- | --- |
 | Rust workspace with disposable PostgreSQL | Concurrent ingestion, exact owner isolation, immutable snapshots, stale-claim fencing, invalid definitions, pending-create barriers, transient retry, API/session/policy/lease/journal invariants | Complete application functionality through all external services |
 | `tests.personal_hermes.kubernetes` | Real Kubernetes create-before-UID-save recovery, copied-proof/foreign UID rejection, bounded preconditioned updates/deletes, finalizer cleanup, actual bootstrap/admission, compiled controller SIGKILL/reopen and policy activation | Running native application by itself; the base fixture uses an unavailable application image |
-| `tests.personal_hermes.kubernetes --native` | Two real Hermes instances commissioned from SQL input using the constrained controller; image/admin updates, Pod restart, owner separation, mapping removal/re-add, retained PVC/credential identities and user payload/config | Real Keycloak browser login, routed chat, live model calls, cron side effects, terminal SSH or backup/restore |
+| `tests.personal_hermes.kubernetes --native` | Two real Hermes instances, image/admin updates, Pod restart, owner separation, removal/re-add and retained state; native profile selection and plugin HTTPS requests; three allowed workers across two backend types/owners, denied backend access, real SSH/file transfer, wrong-host-key rejection, PVC subpath isolation and all three worker retirement/absence receipts | Real Keycloak browser login, routed chat, live model calls, cron side effects or backup/restore |
 | `tests.personal_hermes.native_runtime --build` | Reviewed runtime image; non-root gateway/dashboard, private API denial, private/public CA handling, init-only key isolation, managed config precedence and state after forced restart; bind-mounted initialization result handling | Full cluster/provider acceptance |
 | `tests.personal_hermes.native_owner` | Pinned real Hermes self-hosted provider with signed token fixtures; exact subject/issuer on login/session/refresh and legacy unpinned compatibility | An actual Keycloak token exchange or full browser session |
 | `tests.personal_hermes.api_process` | Compiled API/router-auth listener/configuration gates, abrupt process termination and registry reopening | Full Kubernetes/execution lifecycle |
 | `tests.personal_hermes.router_compatibility` | Real pinned Traefik/Yaegi, two fixture backends on the same hostname/path, forged-header rejection and open-WebSocket revocation | Combined Rust/Keycloak/native login, uploads, cookie handling or production route publication |
 
-Latest verification snapshot: **164 standard Rust tests and 114 Python tests
-passed**, alongside workspace formatting/Clippy, Helm lint, privacy preflight,
-two explicit live Kubernetes tests and the integrated real-native commissioning
-fixture. The three live Kubernetes/native Rust tests are ignored in the standard
-Cargo invocation and are run by the explicit Python fixture. The native runtime
-fixture also passed. These results cover native commissioning; they do not
-complete every P01–P18 acceptance requirement in the specification.
+Latest verification snapshot: **168 standard Rust tests and 116 Python tests
+passed**, alongside workspace formatting/Clippy, Helm lint, privacy preflight and
+two explicit live Kubernetes tests and the complete extended native/profile/SSH
+acceptance fixture. The rebuilt native runtime smoke fixture also passed,
+including its non-root SSH client check. Regressions cover native readiness with
+pending/active workers and acquisition while a readiness observer holds its
+claim, preserving the observer's fence and deadline. The three live
+Kubernetes/native Rust tests are ignored in the standard Cargo invocation and
+run through the explicit Python fixture. These results do not complete every
+P01–P18 acceptance requirement in the specification.
 
 ## Verification commands
 
@@ -142,14 +180,13 @@ containers. Keep fixture credentials out of logs and release inputs.
 
 ## Remaining work
 
-1. Complete the worker controller and authenticated SSH readiness before granting
-   real terminal leases. Align the native egress selector (`hermes-worker`) with
-   worker labels (`worker`), install owner-scoped SSH ingress, resolve approved
-   Service/Endpoint egress and verify CNI enforcement. Nonempty runtime service
-   egress currently prevents policy activation.
-2. Finish exact-UID worker retirement, idle/recycle, later generations and the
-   combined native/terminal drain barrier. Preserve original deadlines and lease
-   tombstones. Finish policy retry/deadline/manual-recovery status.
+1. Resolve approved runtime Service/Endpoint egress and verify wider CNI
+   isolation; nonempty runtime service egress still prevents activation. The
+   native-to-worker selector, owner-scoped SSH ingress and controller SSH probe
+   path are implemented.
+2. Finish full API-managed native/terminal lifecycle completion and broader
+   failure/recovery acceptance. Preserve original drain deadlines and request/
+   lease tombstones. Finish policy retry/deadline/manual-recovery status.
 3. Complete route publication and real Keycloak/native/proxy browser acceptance,
    including HTTP mutations, uploads, cookies, identity changes and WebSockets.
 4. Implement the manager frontend and remaining owner/checkpoint contracts using

@@ -101,6 +101,8 @@ pub struct SshEndpoint {
     pub host: String,
     pub port: u16,
     pub user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_key: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AcquireReply {
@@ -204,6 +206,7 @@ pub struct WorkerReady {
     pub resource_version: String,
     pub spec_digest: String,
     pub host: String,
+    pub host_key: Option<String>,
 }
 #[derive(Debug, Clone)]
 pub struct WorkerStartIntent {
@@ -218,6 +221,12 @@ pub struct WorkerBinding {
     pub pod_uid: String,
     pub resource_version: String,
     pub observed_spec_digest: String,
+}
+#[derive(Debug, Clone)]
+pub struct WorkerRetirement {
+    pub claim: EnvironmentClaim,
+    pub intent: Option<WorkerIntent>,
+    pub pod_uid: Option<String>,
 }
 #[async_trait]
 pub trait ExecutionEnvironmentRepository: Send + Sync {

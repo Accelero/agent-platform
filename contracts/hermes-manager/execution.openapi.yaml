@@ -246,6 +246,11 @@ components:
             host: { type: string }
             port: { type: integer, const: 2222 }
             user: { type: string, const: worker }
+            host_key:
+              type: string
+              maxLength: 1024
+              pattern: '^ssh-ed25519 [A-Za-z0-9+/=]+$'
+              description: Manager-provisioned server public key, required by personal-mode Hermes. Verify this identity before SSH login; no private key is returned.
     HeartbeatReply:
       type: object
       additionalProperties: false

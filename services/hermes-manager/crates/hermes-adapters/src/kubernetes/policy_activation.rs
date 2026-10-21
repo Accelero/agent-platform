@@ -45,17 +45,21 @@ impl KubernetesDriver {
         .map_err(|_| Error::Unavailable)?
         .map_err(api_error)?;
         self.verify(owned, &object)?;
+        let native_digest = owned
+            .observed_digest
+            .as_ref()
+            .ok_or(Error::OwnershipConflict)?;
         if object
             .metadata
             .annotations
             .as_ref()
             .and_then(|a| a.get(INTENT))
-            != Some(&owned.creation.spec.manifest_digest)
+            != Some(native_digest)
         {
             return Err(Error::OwnershipConflict);
         }
-        // The native subtree was part of the authenticated initial rendering.
-        // Reconstruct that exact public manifest, omitting only the separately
+        // The native subtree is bound to the authenticated rendering/update
+        // journal. Reconstruct its current public manifest, omitting the separately
         // journaled worker subtree and Kubernetes-owned metadata.
         let mut native = object
             .data
@@ -69,7 +73,7 @@ impl KubernetesDriver {
         let original = Manifest::new(
             json!({"apiVersion":owned.creation.spec.kind.api_version(),"kind":"InstancePolicy","metadata":{"name":owned.creation.spec.name,"namespace":owned.creation.spec.namespace},"spec":native}),
         )?;
-        if original.digest() != Ok(owned.creation.spec.manifest_digest.clone()) {
+        if original.digest() != Ok(native_digest.clone()) {
             return Err(Error::OwnershipConflict);
         }
         if object

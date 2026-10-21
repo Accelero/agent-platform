@@ -142,14 +142,25 @@ pub(super) async fn verify(
         )
         .await;
     assert!(matches!(denied,Err(kube::Error::Api(response)) if response.code==403));
-    let remaining: Vec<_> = terminating
-        .metadata
-        .finalizers
-        .unwrap()
-        .into_iter()
-        .filter(|f| f != "fixture.example.org/retain")
-        .collect();
-    deployments.patch("hermes",&PatchParams::default(),&Patch::Merge(json!({"metadata":{"uid":terminating.metadata.uid,"resourceVersion":terminating.metadata.resource_version,"finalizers":remaining}}))).await.unwrap();
+    // Kubernetes GC can concurrently update the terminating object's metadata.
+    // Keep exact UID/RV preconditions and retry a fresh metadata-only removal.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let fresh = deployments.get("hermes").await.unwrap();
+        assert_eq!(fresh.metadata.uid, terminating.metadata.uid);
+        let remaining: Vec<_> = fresh
+            .metadata
+            .finalizers
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|f| f != "fixture.example.org/retain")
+            .collect();
+        match deployments.patch("hermes", &PatchParams::default(), &Patch::Merge(json!({"metadata":{"uid":fresh.metadata.uid,"resourceVersion":fresh.metadata.resource_version,"finalizers":remaining}}))).await {
+            Ok(_) => break,
+            Err(kube::Error::Api(response)) if response.code == 409 && std::time::Instant::now() < deadline => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+            Err(error) => panic!("fixture finalizer removal failed: {error}"),
+        }
+    }
     converge(&restarted, pool, None).await;
     assert!(deployments.get_opt("hermes").await.unwrap().is_none());
     assert_eq!(

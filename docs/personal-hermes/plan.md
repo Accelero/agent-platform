@@ -4,10 +4,13 @@ Status: implementation in progress on `feat/personal-hermes-commissioning`. The
 services described here are not installed by the 0.6.1 chart. See the
 [implementation status](implementation.md) for implemented portions and
 remaining acceptance gates. Infrastructure-driven native commissioning is now
-implemented and tested; the manager frontend, complete terminal lifecycle,
-routing and coordinated recovery still need work. The
+implemented and tested. Profile-selected v2 terminal provisioning and SSH are
+implemented in source; runtime service egress, complete combined lifecycle,
+the manager frontend, routing and coordinated recovery still need work. The
 [native commissioning guide](native-commissioning.md) documents the current
 database/template contract.
+See [terminal backends](terminal-backends.md) for the new profile/worker flow and
+its verification requirements.
 
 Read the [specification](specification.md) for required behavior and the
 [architecture](architecture.md) for component boundaries and deployment decisions.
@@ -177,6 +180,11 @@ can later move to a separate service without changing the core use cases.
 - [ ] Generate exact native configuration from reviewed platform templates.
   Configure one distinct execution API client scope per owner. No wildcard
   profile, volume, Secret, image or service-account authorization.
+- [ ] Qualify the repository-built Hermes image from pinned upstream plus
+  reviewed modifications and the bundled `managed_execution` plugin. Prove
+  authenticated on-demand worker acquisition with a per-instance execution
+  credential, server-resolved owner/policy and verified SSH readiness. Pod or
+  container IDs and source addresses must not substitute for authentication.
 - [ ] Implement the scoped `/execution/v1/...` API in the Rust manager, porting
   existing lease semantics and adding optional approved `runtime_id` selection
   to the Hermes adapter. Preserve old default behavior; never accept image,

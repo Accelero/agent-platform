@@ -19,6 +19,6 @@ RUN git config --system user.name 'Hermes Agent' \
  && git config --system init.defaultBranch main
 RUN chmod 755 /entrypoint.sh
 WORKDIR /workspace
-RUN mkdir -p /home/worker/hostkeys && chown worker:worker /home/worker/hostkeys
+RUN mkdir -p /home/worker/hostkeys /etc/ssh/authorized_keys && chown worker:worker /home/worker/hostkeys
 USER worker
 ENTRYPOINT ["/entrypoint.sh"]

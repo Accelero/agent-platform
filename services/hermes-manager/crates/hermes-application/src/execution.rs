@@ -60,8 +60,8 @@ pub struct RuntimeDefinition {
     pub schema_version: u16,
     pub runtime: RuntimeRef,
     pub image: String,
-    /// Currently only managed-ssh-v1: /entrypoint.sh, worker, TCP 2222,
-    /// /etc/ssh/authorized_keys/worker, SFTP and required platform helpers.
+    /// managed-ssh-v2 adds a manager-provisioned host key to the v1 entrypoint,
+    /// worker user, TCP 2222, authorized-key, SFTP and platform-helper contract.
     pub ssh_contract: String,
     pub uid: u32,
     pub gid: u32,
@@ -80,7 +80,10 @@ impl RuntimeDefinition {
         validate_name(&self.service_account)?;
         validate_image(&self.image)?;
         if self.schema_version != 1
-            || self.ssh_contract != "managed-ssh-v1"
+            || !matches!(
+                self.ssh_contract.as_str(),
+                "managed-ssh-v1" | "managed-ssh-v2"
+            )
             || !(1..=65_535).contains(&self.uid)
             || !(1..=65_535).contains(&self.gid)
             || self.service_account != "worker"

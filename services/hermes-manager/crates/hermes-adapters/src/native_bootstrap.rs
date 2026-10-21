@@ -32,6 +32,17 @@ pub struct NativeBootstrap {
 pub const PURPOSE: &str = "native-bootstrap-v1";
 
 impl NativeBootstrap {
+    /// Separate server identity derived from retained high-entropy material.
+    /// Never mount the native client's private key inside a terminal worker.
+    pub fn worker_host_key(&self) -> Result<PrivateKey, Error> {
+        use hmac::{Hmac, KeyInit, Mac};
+        let mut mac = Hmac::<sha2::Sha256>::new_from_slice(self.ssh_private_key.as_bytes())
+            .map_err(|_| Error::Invalid)?;
+        mac.update(b"agent-platform-worker-host-key-v1");
+        let seed = Zeroizing::new(<[u8; 32]>::from(mac.finalize().into_bytes()));
+        PrivateKey::new(KeypairData::Ed25519(Ed25519Keypair::from_seed(&seed)), "")
+            .map_err(|_| Error::Invalid)
+    }
     pub fn generate(template: TemplateVersion, execution_url: &str) -> Result<Self, Error> {
         template.validate()?;
         let url = Url::parse(execution_url).map_err(|_| Error::Invalid)?;

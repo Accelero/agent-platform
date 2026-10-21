@@ -2,3 +2,4 @@
 mod clients;
 
 pub(super) mod leases;
+mod workers;

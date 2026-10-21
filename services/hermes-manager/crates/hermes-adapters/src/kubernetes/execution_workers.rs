@@ -18,6 +18,121 @@ pub struct ExecutionWorkerCandidate {
 }
 
 impl KubernetesDriver {
+    pub async fn execution_worker_terminated(
+        &self,
+        work: &hermes_application::terminal::leases::WorkerRetirement,
+    ) -> Result<bool, Error> {
+        let intent = work.intent.as_ref().ok_or(Error::Invalid)?;
+        let (mut owned, _) = self.worker_creation(intent)?;
+        owned.uid = work.pod_uid.clone();
+        if owned.uid.is_none() {
+            return Err(Error::OwnershipConflict);
+        }
+        self.namespace(&owned.creation).await?;
+        let object = timeout(
+            Duration::from_secs(6),
+            self.api(&owned.creation.spec)
+                .get_opt(&intent.claim.pod_name),
+        )
+        .await
+        .map_err(|_| Error::Unavailable)?
+        .map_err(api_error)?;
+        let Some(object) = object.filter(|o| o.metadata.uid == work.pod_uid) else {
+            return Ok(true);
+        };
+        if object.metadata.deletion_timestamp.is_some() {
+            return Ok(true);
+        }
+        self.verify(&owned, &object)?;
+        Ok(matches!(
+            object.data.pointer("/status/phase").and_then(Value::as_str),
+            Some("Failed" | "Succeeded")
+        ))
+    }
+    /// Retained stop observes original namespace/creation ownership even after
+    /// admission closes. A same-named replacement is never a deletion target.
+    pub async fn retiring_execution_worker(
+        &self,
+        work: &hermes_application::terminal::leases::WorkerRetirement,
+    ) -> Result<Option<WorkerBinding>, Error> {
+        let intent = work.intent.as_ref().ok_or(Error::Invalid)?;
+        let (mut owned, manifest) = self.worker_creation(intent)?;
+        owned.uid = work.pod_uid.clone();
+        self.namespace(&owned.creation).await?;
+        let mut object = timeout(
+            Duration::from_secs(6),
+            self.api(&owned.creation.spec)
+                .get_opt(&intent.claim.pod_name),
+        )
+        .await
+        .map_err(|_| Error::Unavailable)?
+        .map_err(api_error)?;
+        let Some(ref mut object) = object else {
+            return Ok(None);
+        };
+        if work
+            .pod_uid
+            .as_ref()
+            .is_some_and(|uid| object.metadata.uid.as_ref() != Some(uid))
+        {
+            return Ok(None);
+        }
+        // Termination does not invalidate immutable creation provenance.
+        object.metadata.deletion_timestamp = None;
+        self.execution_binding(&owned, &manifest, object).map(Some)
+    }
+
+    pub async fn delete_execution_worker(
+        &self,
+        work: &hermes_application::terminal::leases::WorkerRetirement,
+        binding: &WorkerBinding,
+    ) -> Result<bool, Error> {
+        let intent = work.intent.as_ref().ok_or(Error::Invalid)?;
+        let (mut owned, manifest) = self.worker_creation(intent)?;
+        owned.uid = Some(binding.pod_uid.clone());
+        self.namespace(&owned.creation).await?;
+        let api = self.api(&owned.creation.spec);
+        let object = timeout(Duration::from_secs(6), api.get_opt(&intent.claim.pod_name))
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .map_err(api_error)?;
+        let Some(mut object) = object.filter(|o| o.metadata.uid.as_ref() == Some(&binding.pod_uid))
+        else {
+            return Ok(true);
+        };
+        let terminating = object.metadata.deletion_timestamp.is_some();
+        object.metadata.deletion_timestamp = None;
+        let before = self.execution_binding(&owned, &manifest, &object)?;
+        if before.observed_spec_digest != binding.observed_spec_digest {
+            return Err(Error::OwnershipConflict);
+        }
+        if !terminating {
+            if before.resource_version != binding.resource_version {
+                return Err(Error::PreconditionFailed);
+            }
+            let params = DeleteParams {
+                grace_period_seconds: Some(30),
+                preconditions: Some(Preconditions {
+                    uid: Some(binding.pod_uid.clone()),
+                    resource_version: Some(binding.resource_version.clone()),
+                }),
+                ..Default::default()
+            };
+            timeout(
+                Duration::from_secs(6),
+                api.delete(&intent.claim.pod_name, &params),
+            )
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .map_err(api_error)?;
+        }
+        let after = timeout(Duration::from_secs(6), api.get_opt(&intent.claim.pod_name))
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .map_err(api_error)?;
+        Ok(after.is_none_or(|o| o.metadata.uid.as_ref() != Some(&binding.pod_uid)))
+    }
+
     fn worker_creation(&self, intent: &WorkerIntent) -> Result<(OwnedResource, Manifest), Error> {
         let claim = &intent.claim;
         if claim.installation_id != claim.policy.installation_id

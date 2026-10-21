@@ -68,7 +68,7 @@ impl<R: MaterialRepository> MaterialVault<R> {
             .await?;
         self.open(record)
     }
-    fn open(&self, record: MaterialRecord) -> Result<PlainMaterial, Error> {
+    pub(crate) fn open(&self, record: MaterialRecord) -> Result<PlainMaterial, Error> {
         let value = self.cipher.open_material(&record.context, &record.sealed)?;
         Ok(PlainMaterial {
             context: record.context,

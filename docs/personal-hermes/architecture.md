@@ -258,6 +258,11 @@ response, without relying on graceful shutdown or an in-memory work queue.
 
 ## Instance namespaces and the elevated controller
 
+The Hermes application image is built here from pinned upstream Hermes plus
+reviewed platform changes, including the repository-owned `managed_execution`
+plugin. Infrastructure supplies its immutable digest through the instance
+template. See the [image/plugin and identity contract](specification.md#hermes-application-image-execution-plugin-and-caller-identity).
+
 The first implementation uses one namespace per personal instance, with names
 derived from installation and random instance IDs, never from email addresses.
 Each namespace contains its Hermes Service/Deployment, retained home and
@@ -265,6 +270,20 @@ workspace PVCs, native keys, optional provider credentials, a scoped execution
 client credential and constrained terminal worker resources. The manager stays
 in the control plane. A single Kubernetes cluster hosts these namespaces; this
 adds no VM per user.
+
+The plugin initiates authenticated HTTPS lease requests when Hermes needs a
+terminal. A distinct execution credential identifies the logical instance in
+the manager registry; the manager resolves its owner and permitted worker
+policy server-side. The credential is separate from user OIDC credentials and
+cannot access administration or routing. The controller also records exact
+Namespace/Deployment and Hermes Pod UIDs for lifecycle ownership checks. These
+records do not prove the network caller's identity: an IP address or a claimed
+Pod/container ID is not a substitute for the execution credential. The current
+implementation does not persist container runtime IDs or attest the specific
+calling process. Profile selection and v2 worker provisioning, pinned SSH and
+retirement are described in the [terminal backend guide](terminal-backends.md).
+Runtime service-egress resolution and full combined product acceptance remain
+open.
 
 This choice lets Hermes and its execution Pods reference that owner's selected
 PVCs without cross-namespace mounts or a globally shared home. For RWO storage,

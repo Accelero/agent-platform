@@ -5,7 +5,7 @@ use hermes_application::materials::{
 use hermes_application::resync::ResyncInput;
 use hermes_domain::{Access, resources::valid_uid};
 
-fn record(row: &sqlx::postgres::PgRow) -> Result<MaterialRecord, Error> {
+pub(in crate::postgres) fn record(row: &sqlx::postgres::PgRow) -> Result<MaterialRecord, Error> {
     let context = MaterialContext {
         id: row.get("id"),
         installation_id: row.get("installation_id"),

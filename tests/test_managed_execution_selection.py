@@ -136,3 +136,47 @@ def test_session_close_preserves_selected_runtime_context(plugin):
             },
         )
     ]
+
+
+def test_dashboard_profile_selection_overrides_plugin_default_without_changing_scope(
+    plugin, monkeypatch
+):
+    config = sys.modules["hermes_cli.config"]
+
+    current = {"terminal": {"runtime_id": "python-tools"}}
+    monkeypatch.setattr(config, "load_config", lambda: current, raising=False)
+    session_context = sys.modules["gateway.session_context"]
+
+    monkeypatch.setattr(
+        session_context, "get_session_env", lambda key, default: "research"
+    )
+    values = {"profile": "default", "runtime_id": "fallback-tools"}
+    provider = plugin.Provider(
+        SimpleNamespace(
+            get_config=lambda key, default: values.get(key, default),
+            profile_name="research",
+        )
+    )
+    assert provider.settings()["runtime_id"] == "python-tools"
+    assert provider.settings()["profile"] == "default"
+    current["terminal"]["runtime_id"] = "shell-tools"
+    assert provider.settings()["runtime_id"] == "shell-tools"
+    current["terminal"]["runtime_id"] = ""
+    assert provider.settings()["runtime_id"] == ""
+    current["terminal"]["runtime_id"] = "../foreign"
+    with pytest.raises(ValueError):
+        provider.settings()
+
+
+def test_personal_connection_requires_manager_host_identity(plugin, monkeypatch):
+    monkeypatch.setenv("HERMES_PERSONAL_INSTANCE_ID", "fixture-instance")
+    environment = plugin.ManagedSSHEnvironment.__new__(plugin.ManagedSSHEnvironment)
+    environment.managed_generation = None
+    with pytest.raises(RuntimeError, match="verified SSH host identity"):
+        environment._connect(
+            {
+                "generation": "1",
+                "environment": "00000000-0000-4000-8000-000000000001",
+                "ssh": {"host": "10.42.0.1", "port": 2222, "user": "worker"},
+            }
+        )

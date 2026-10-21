@@ -1071,7 +1071,7 @@ components:
           pattern: ^.+@sha256:[0-9a-f]{64}$
         sshContract:
           type: string
-          const: managed-ssh-v1
+          enum: [managed-ssh-v1, managed-ssh-v2]
         uid:
           type: integer
           format: int64

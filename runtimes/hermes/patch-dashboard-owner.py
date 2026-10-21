@@ -60,5 +60,25 @@ def patch(source: Path) -> None:
     source.write_text(text)
 
 
+def patch_terminal_schema(source: Path) -> None:
+    original = source.read_bytes()
+    if hashlib.sha256(original).hexdigest() != "02ca12ce0ca241ee41e839a0388cbd88618b986e6e8a460b6699e0b125e16ae9":
+        raise RuntimeError("Pinned native settings source changed; review terminal selector")
+    before = '    return {**CONFIG_SCHEMA, **overlay} if overlay else CONFIG_SCHEMA'
+    after = '''    overlay["terminal.runtime_id"] = {
+        "type": "string", "category": "terminal",
+        "description": "Managed terminal backend ID (empty uses manager default; access is enforced by the manager)",
+    }
+    return {**CONFIG_SCHEMA, **overlay} if overlay else CONFIG_SCHEMA'''
+    text = original.decode()
+    if text.count(before) != 1:
+        raise RuntimeError("Native terminal settings schema no longer matches")
+    text = text.replace(before, after)
+    compile(text, str(source), "exec")
+    source.write_text(text)
+
+
 if __name__ == "__main__":
     patch(Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCE)
+    if len(sys.argv) == 1:
+        patch_terminal_schema(Path("/opt/hermes/hermes_cli/web_server_config.py"))

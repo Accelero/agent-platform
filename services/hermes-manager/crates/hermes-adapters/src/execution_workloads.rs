@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 pub const START_GATE: &str = "agent-platform.io/worker-start";
 pub const AUTHORIZED_KEYS: &str = "worker-authorized-keys";
+pub const HOST_KEYS: &str = "worker-host-key";
 pub const LABEL_PREFIX: &str = "hermes.agent-platform.io";
 pub(crate) const TOLERATION_SECONDS: i64 = 300;
 
@@ -185,6 +186,14 @@ pub(crate) fn template(runtime: &ResolvedRuntime) -> Value {
         json!({"name":"worker-tmp","path":"/tmp","readOnly":false}),
         json!({"name":"worker-ssh","path":"/etc/ssh/authorized_keys","readOnly":true}),
     ];
+    if runtime.definition.ssh_contract == "managed-ssh-v2" {
+        // Secret projection roots become group-writable under fsGroup. Mount
+        // only the immutable file below the image's root-owned directory so
+        // OpenSSH StrictModes can validate every parent without weakening it.
+        mounts[2] = json!({"name":"worker-ssh","path":"/etc/ssh/authorized_keys/worker","subPath":"worker","readOnly":true});
+        volumes.push(json!({"name":"worker-host","kind":"host","reference":HOST_KEYS}));
+        mounts.push(json!({"name":"worker-host","path":"/etc/ssh/hostkeys","readOnly":true}));
+    }
     if !runtime.mounts.iter().any(|m| m.mount.path == "/workspace") {
         volumes.push(json!({"name":"worker-workspace","kind":"empty","sizeLimit":disk}));
         mounts.push(json!({"name":"worker-workspace","path":"/workspace","readOnly":false}));
@@ -230,6 +239,7 @@ pub fn render(
             },
             Some("empty") => json!({"name":v["name"],"emptyDir":{"sizeLimit":v["sizeLimit"]}}),
             Some("ssh") => json!({"name":v["name"],"secret":{"secretName":AUTHORIZED_KEYS,"defaultMode":292,"items":[{"key":"worker","path":"worker"}]}}),
+            Some("host") => json!({"name":v["name"],"secret":{"secretName":HOST_KEYS,"defaultMode":288,"items":[{"key":"host-key","path":"ssh_host_ed25519_key"}]}}),
             _ => return Err(Error::Invalid),
         })
     }).collect::<Result<Vec<_>,Error>>()?;
@@ -327,6 +337,46 @@ pub fn authorized_keys(
         json!({"metadata":{},"immutable":true,"type":"Opaque","data":{"worker":STANDARD.encode(public.as_bytes())}}),
     )
 }
+
+pub fn host_keys(
+    policy: &ResolvedPolicy,
+    bootstrap: &crate::native_bootstrap::NativeBootstrap,
+    material_id: Uuid,
+) -> Result<RenderedResource, Error> {
+    validate_policy(policy)?;
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let key = bootstrap.worker_host_key()?;
+    let private = key
+        .to_openssh(ssh_key::LineEnding::LF)
+        .map_err(|_| Error::Invalid)?;
+    resource(
+        policy,
+        ResourceKind::Secret,
+        HOST_KEYS,
+        HOST_KEYS,
+        Retention::Retain,
+        Some(material_id),
+        json!({"metadata":{},"immutable":true,"type":"Opaque","data":{"host-key":STANDARD.encode(private.as_bytes())}}),
+    )
+}
+
+pub fn network(
+    policy: &ResolvedPolicy,
+    control_namespace: &str,
+) -> Result<RenderedResource, Error> {
+    validate_policy(policy)?;
+    validate_name(control_namespace)?;
+    resource(
+        policy,
+        ResourceKind::NetworkPolicy,
+        "worker-access",
+        "worker-access",
+        Retention::Retain,
+        None,
+        json!({"metadata":{},"spec":{"podSelector":{"matchLabels":{"app.kubernetes.io/component":"worker"}},"policyTypes":["Ingress","Egress"],
+            "ingress":[{"from":[{"podSelector":{"matchLabels":{"app.kubernetes.io/component":"hermes"}}},{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":control_namespace}},"podSelector":{"matchLabels":{"app.kubernetes.io/component":"hermes-controller"}}}],"ports":[{"protocol":"TCP","port":2222}]}],"egress":[]}}),
+    )
+}
 fn resource(
     policy: &ResolvedPolicy,
     kind: ResourceKind,
@@ -364,6 +414,81 @@ fn resource(
 mod tests {
     use super::*;
     use hermes_application::execution::{RuntimeDefinition, RuntimeRef, WorkerResources};
+
+    #[test]
+    fn v2_pins_a_separate_instance_host_identity_without_exposing_client_private_key() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        let mut policy = policy();
+        policy.runtimes[0].definition.ssh_contract = "managed-ssh-v2".into();
+        policy.runtimes[0].definition_digest = policy.runtimes[0].definition.digest().unwrap();
+        let bootstrap = crate::native_bootstrap::NativeBootstrap::generate(
+            hermes_domain::TemplateVersion {
+                id: "personal".into(),
+                version: 1,
+            },
+            "https://manager.example.org/execution",
+        )
+        .unwrap();
+        let host = bootstrap.worker_host_key().unwrap();
+        assert!(
+            host.public_key()
+                != &ssh_key::PublicKey::from_openssh(&bootstrap.ssh_public_key).unwrap()
+        );
+        let secret = host_keys(&policy, &bootstrap, Uuid::new_v4()).unwrap();
+        let bytes = STANDARD
+            .decode(
+                secret.manifest.value()["data"]["host-key"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert!(bytes.as_slice() != bootstrap.ssh_private_key.as_bytes());
+        let parsed = ssh_key::PrivateKey::from_openssh(&bytes).unwrap();
+        assert_eq!(parsed.public_key(), host.public_key());
+        let pod = render(
+            &policy,
+            "tools",
+            &WorkerContext {
+                assignment_generation: 1,
+                environment_id: Uuid::new_v4(),
+                environment_generation: 1,
+            },
+        )
+        .unwrap()
+        .pod()
+        .unwrap();
+        let pod = pod.spec.unwrap();
+        let projected = pod
+            .volumes
+            .unwrap()
+            .into_iter()
+            .find(|v| v.name == "worker-host")
+            .unwrap()
+            .secret
+            .unwrap();
+        assert_eq!(projected.secret_name.as_deref(), Some(HOST_KEYS));
+        assert_eq!(projected.default_mode, Some(288));
+        let authorized = pod.containers[0]
+            .volume_mounts
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|m| m.name == "worker-ssh")
+            .unwrap();
+        assert_eq!(authorized.mount_path, "/etc/ssh/authorized_keys/worker");
+        assert_eq!(authorized.sub_path.as_deref(), Some("worker"));
+        assert_eq!(authorized.read_only, Some(true));
+        assert!(
+            pod.containers[0]
+                .volume_mounts
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|m| m.name == "worker-host"
+                    && m.mount_path == "/etc/ssh/hostkeys"
+                    && m.read_only == Some(true))
+        );
+    }
 
     fn policy() -> ResolvedPolicy {
         let instance_id = Uuid::new_v4();

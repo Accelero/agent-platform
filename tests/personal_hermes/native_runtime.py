@@ -82,7 +82,11 @@ def main():
             },
         }
         (fixture / "init/native-config.json").write_text(json.dumps(config))
-        managed = {"terminal": config["terminal"], "agent": {"max_turns": 12}}
+        managed = {
+            "terminal": config["terminal"],
+            "agent": {"max_turns": 12},
+            "plugins": config["plugins"],
+        }
         (fixture / "trust/config.yaml").write_text(json.dumps(managed))
         # Kubelet projects a writable file at terminationMessagePath. Exercise
         # the actual bind-mount EBUSY behavior, not an ordinary temporary file.
@@ -117,6 +121,24 @@ def main():
             if part in {"owner", "credentials", "trust"}:
                 mount += ",readonly"
             common.extend(["--mount", mount])
+        # OpenSSH rejects numeric users missing from passwd before any network
+        # connection. Exercise the actual client as the Pod's non-root UID.
+        run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                *common,
+                "--entrypoint",
+                "/usr/bin/ssh",
+                IMAGE,
+                "-G",
+                "-F",
+                "/dev/null",
+                "worker@fixture.invalid",
+            ],
+            timeout=20,
+        )
         run(
             [
                 "docker",

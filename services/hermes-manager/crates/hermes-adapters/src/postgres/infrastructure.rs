@@ -174,7 +174,9 @@ impl PgStore {
     }
 
     /// Called only after native storage, Pod/init receipt, owner and HTTP gate
-    /// observations. No routing record or execution-policy receipt is published.
+    /// observations. Terminal workers are independent of native readiness;
+    /// their lifecycle still fences generation changes and removal separately.
+    /// No routing record or execution-policy receipt is published.
     pub async fn complete_native_commissioning(
         &self,
         scope: &InstallationScope,
@@ -182,7 +184,7 @@ impl PgStore {
     ) -> Result<(), Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_claim(&mut tx, scope, claim).await?;
-        let valid: bool = sqlx::query_scalar("SELECT a.infrastructure_managed AND a.access='enabled' AND NOT EXISTS(SELECT 1 FROM manager.execution_environments e WHERE e.instance_id=i.id AND e.state<>'Retired') FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
+        let valid: bool = sqlx::query_scalar("SELECT a.infrastructure_managed AND a.access='enabled' FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
             .bind(claim.instance_id).fetch_one(&mut *tx).await.map_err(db_error)?;
         if !valid {
             return Err(Error::Forbidden);

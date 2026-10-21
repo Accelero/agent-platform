@@ -430,7 +430,91 @@ optional deployment adapter may return approved Secret references; the default
 grants no external service access. Copying the original owner's MLflow, SkyPilot
 or other shared automation identity into every instance is invalid.
 
+## Hermes application image, execution plugin and caller identity
+
+This repository must build and supply the Hermes application image. Start from
+the supported upstream Hermes distribution pinned by digest/revision, then apply
+the reviewed platform modifications and bundle the plugin developed in this
+repository. Record the upstream origin and preserve its license notices. Build
+from the reviewed release inputs; do not download mutable plugin code at startup
+or include personal profiles, credentials, prompts, memory or live state in the
+image. Infrastructure selects the resulting immutable platform image digest in
+its instance template; it does not need to build a personal image for each user.
+
+The repository-owned `managed_execution` plugin is the Hermes integration for
+on-demand terminal containers. When Hermes needs command execution, the plugin
+requests an environment/lease from the shared manager over authenticated HTTPS.
+The manager selects the permitted terminal image, storage and policy for that
+Hermes instance and creates or reuses its worker. The plugin waits for a verified
+ready lease, then uses the returned SSH endpoint for execution and file transfer.
+It renews/releases leases and closes sessions according to the agreed protocol.
+The plugin has no Kubernetes credential and cannot directly create containers,
+choose arbitrary images/mounts or run a local execution fallback after denial.
+
+### Authentication and instance identification
+
+The manager must provision a distinct execution credential for each logical
+Hermes instance and register its server-side binding before supplying it to the
+application. Mount the credential read-only at runtime, keep it out of images,
+ordinary configuration and logs, and store only its authentication hash in the
+execution-client registry. Any raw bootstrap copy persisted in the manager
+database must remain encrypted and scoped to the same instance. The plugin reads
+this credential and authenticates every manager execution request over
+certificate-verified TLS.
+It does not forward the owner's browser cookie or Keycloak token as its service
+identity.
+
+The manager derives the caller's installation, instance, assignment/owner and
+execution scope from the authenticated credential and its own registry. A
+caller-supplied user, instance, namespace, Pod name, container ID or runtime name
+cannot select another identity or increase permissions. Recheck current access,
+installation epoch, approved runtime policy and lease ownership on requests;
+disabled/revoked or foreign execution clients must fail closed. Execution
+credentials grant no administration, routing or checkpoint access.
+
+Keep the following identities distinct:
+
+| Identity | Lifetime and purpose |
+| --- | --- |
+| Keycloak issuer/subject | Exact human owner; mapped by the manager to its assignment |
+| Manager instance ID | Stable logical Hermes identity across updates, Pod replacement and retained-state re-add |
+| Namespace/Deployment UID | Exact Kubernetes resource incarnation owned by that instance |
+| Hermes Pod UID | Exact Pod incarnation, linked through its ReplicaSet to the owned Deployment; changes when the Pod is replaced |
+| Container runtime ID | An individual runtime container incarnation; optional diagnostic metadata, not an authentication credential or stable owner identity |
+
+The controller must record and verify the Kubernetes ownership chain and Pod
+UID before authorizing native start. Knowing which resources it created lets
+the manager correlate the authenticated logical instance with its workload, but
+does not authenticate a request by itself. Do not infer authorization from a
+source IP, hostname or a self-reported container/Pod ID. The current per-instance
+credential authenticates the logical instance, not a particular live process;
+proof tied to a specific Pod/container would require a separate authenticated
+workload-identity design. No Kubernetes API token needs to be mounted in Hermes
+to support the per-instance protocol.
+
+This is the target image/plugin contract. The upstream-based Dockerfile,
+bundled plugin, instance credential authentication and recorded Pod ownership
+already exist. The [terminal backend guide](terminal-backends.md) describes the
+implemented profile selection, v2 provisioning, pinned SSH readiness and cleanup;
+the [implementation status](implementation.md) lists remaining integration gates.
+
 ## Per-Hermes terminal images and mounts
+
+Terminal backend types are persistent database configuration items. Each has a
+stable unique type ID and immutable template versions, independently of the
+ephemeral Kubernetes Pod/Deployment UID used by a running worker. The current
+model uses a catalog ID such as `python-tools` together with its version; a UUID
+is not required for uniqueness. Administration APIs write these PostgreSQL
+records rather than maintaining a separate configuration source.
+
+The effective backend template combines its image/resources/SSH definition with
+the instance's permitted mount selections. A reusable backend type may declare
+mount requirements; concrete PVC bindings remain owner-specific. Each Hermes
+assignment explicitly allows type/version references, and the authenticated
+plugin requests a type ID rather than submitting an image or Kubernetes spec.
+The manager resolves that selection, renders the approved Kubernetes workload
+and owns its commissioning/lifecycle. Use a typed template so resource ownership,
+credentials, security settings and generation fencing remain manager-controlled.
 
 The Rust manager owns assignment policy, commissions Hermes and creates terminal
 worker Pods through its execution module. Creating an assignment does not require
@@ -487,13 +571,21 @@ template override; Hermes's `managed_execution` provider does not use native
 `image` or `container_config` arguments to choose a worker.
 
 Personal mode replaces that service with the shared Rust manager and PostgreSQL
-execution policy. Preserve the native lease protocol and add an optional
-`runtime_id` selector to managed-execution configuration and the manager's
-lease/session-close API. Its absence uses the assignment's default. Hermes
-owners may choose among their approved runtime IDs through native settings;
-arbitrary image references and mount specs
-remain invalid lease fields. This selector and native settings integration are
-new work, not functionality already supplied by release 0.6.1.
+execution policy. The native dashboard must expose profile-scoped
+`terminal.runtime_id`; the plugin forwards that backend ID as `runtime_id` in
+lease/session-close requests. Empty uses the assignment's default. Hermes owners
+can select a requested type, while the manager enforces its effective allowlist
+and resolves the exact image/mount policy. Arbitrary image references and mount
+specs remain invalid lease fields. This exists in branch source as described in
+the terminal guide; it is not functionality shipped by release 0.6.1.
+
+The manager must supply the verified SSH endpoint and server public key only
+after authenticated worker readiness. The plugin uses its mounted per-instance
+SSH client key and pins that returned server identity; no private key belongs in
+the API response or profile/dashboard configuration. A denied backend must
+produce an error without local execution or fallback to another image. Existing
+leases stay bound to their granted backend/generation when profile settings
+change; newly acquired environments use the new selection.
 
 The authenticated execution API resolves `runtime_id` within the exact client's
 deployment/profile policy, using the server-selected template and version. A
@@ -523,6 +615,13 @@ or mounts in place, or delete its owner's retained data to apply a policy.
 Mounts specify owner-bound storage ID, absolute terminal path, optional bounded
 subpath and explicit read-only/read-write access. Validate overlapping/reserved
 paths, traversal, claim/Secret identity, namespace and storage permissions.
+An authorized mount may expose only a PVC subdirectory: for example, PVC
+`owner-data`, relative `subPath: projects/example`, mounted at `/workspace`.
+Render Kubernetes `volumeMounts[].subPath`; the container receives that selected
+directory at the mount point. Reject absolute subpaths and `.`/`..` traversal.
+The exact subpath/access selection must be permitted by the storage binding;
+the agent cannot expand it to the PVC root. The PVC must still be available in
+the worker's namespace and satisfy its storage/access/permission requirements.
 Custom mounts must not replace SSH authorization, internal credentials or
 another owner's home. Bind mounts to terminal Pods only unless a separate
 approved Hermes application mount is configured. Mount access never implies
@@ -606,6 +705,10 @@ administrators are identity-provider roles, not a second user-password database.
 | Built-in UI disabled and external API client used | Same assignment workflow and permissions without SQL/Kubernetes access |
 | Frontend build and browser requests | Static React/TypeScript build served by Rust; only the administration API is called, and browser bundles contain no credentials or live identities |
 | Plugin resolver boundary | Valid mTLS plus exact fresh identity resolves a registered destination; forged headers, wrong audience/client, malformed responses and manager failure deny routing |
+| Repository-built Hermes image | Pinned upstream base plus reviewed platform modifications and bundled repository-owned plugin; no startup plugin download, personal seeds or embedded credentials |
+| Plugin requests a terminal on demand | Authenticated acquire causes only that instance's approved worker to be created/reused; verified SSH readiness precedes a usable lease, and renewal/release/session close preserve owner scope |
+| Plugin caller identity and forged container metadata | Distinct instance credentials resolve to distinct assignments; a forged user/instance/Pod/container ID or source address cannot select another owner or substitute for authentication |
+| Hermes Pod replacement | New Pod UID remains bound to the same logical instance and owner; credentials/state are not reassigned, and an old Pod/container identifier cannot authorize a new start |
 | Two owners with distinct terminal images and mounts | Each terminal Pod uses its own exact image digest and authorized claims/access; changing one assignment leaves the other unchanged |
 | Same image, different owner storage | Shared image layers do not share homes, network folders, credentials or execution scope |
 | Native Hermes runtime selection | An approved `runtime_id` selects its server-defined image and policy; another owner's ID, raw image/mount fields and unsupported versions are rejected |

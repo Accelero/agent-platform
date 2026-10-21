@@ -22,6 +22,8 @@ use std::{
     time::{Duration, Instant},
 };
 use uuid::Uuid;
+#[path = "native_commissioning/terminal.rs"]
+mod terminal;
 
 fn api(client: &Client, manifest: &Value) -> Api<DynamicObject> {
     let kind = manifest["kind"].as_str().unwrap();
@@ -75,7 +77,7 @@ fn worker(
         vault,
         scope.clone(),
         workload.clone(),
-        "https://unused.example.org/execution".into(),
+        std::env::var("HERMES_FIXTURE_EXECUTION_URL").unwrap(),
     )
     .unwrap()
 }
@@ -169,9 +171,16 @@ async fn real_native_instances_converge_from_database_and_preserve_owner_state(p
         public_origin: "https://hermes.example.org".into(),
         oidc_client: "native-hermes".into(),
         execution_port: 8443,
-        execution_ca_pem: include_str!("fixtures/template-ca.crt").into(),
+        execution_ca_pem: std::fs::read_to_string("/fixture-tls/server.crt").unwrap(),
         oidc_ca_pem: None,
-        service_egress: vec![],
+        service_egress: vec![hermes_adapters::workloads::ServiceEgress {
+            namespace: control.clone(),
+            labels: BTreeMap::from([(
+                "app.kubernetes.io/component".into(),
+                "hermes-controller".into(),
+            )]),
+            port: 8443,
+        }],
         public_https: false,
     };
     let accounts: Api<ServiceAccount> = Api::namespaced(administrator.clone(), &control);
@@ -216,6 +225,22 @@ async fn real_native_instances_converge_from_database_and_preserve_owner_state(p
     config.auth_info = Default::default();
     config.auth_info.token = Some(token.into());
     let controller = worker(store.clone(), &scope, config.clone(), &cluster, &workload);
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8443").await.unwrap();
+    let tls = hermes_adapters::server::tls_config(
+        &std::fs::read("/fixture-tls/server.crt").unwrap(),
+        &std::fs::read("/fixture-tls/server.key").unwrap(),
+        None,
+    )
+    .unwrap();
+    let router =
+        hermes_adapters::execution_http::execution_router(store.clone(), scope.clone()).unwrap();
+    let api_server = tokio::spawn(hermes_adapters::server::serve_until(
+        listener,
+        tls,
+        Default::default(),
+        router,
+        std::future::pending::<()>(),
+    ));
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         if controller.verify_startup().await.is_ok() {
@@ -305,4 +330,6 @@ async fn real_native_instances_converge_from_database_and_preserve_owner_state(p
         home.metadata.uid
     );
     stage(&progress, "readded", namespace_a, namespace_b).await;
+    terminal::verify(&pool, &store, &scope, &restarted, &progress, &bindings).await;
+    api_server.abort();
 }

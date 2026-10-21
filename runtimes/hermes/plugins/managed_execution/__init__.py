@@ -1,6 +1,8 @@
 """Native Hermes terminal provider; manager owns images, mounts and scheduling."""
 import json
 import hashlib
+import base64
+import ipaddress
 import logging
 import os
 import re
@@ -11,6 +13,7 @@ import socket
 import shlex
 import ssl
 import time
+import tempfile
 import urllib.error
 import urllib.request
 import uuid
@@ -149,7 +152,30 @@ class ManagedSSHEnvironment(SSHEnvironment):
             super().cleanup()
         self.managed_generation = reply['generation']
         self.managed_environment = reply['environment']
-        endpoint = reply['ssh']
+        endpoint = dict(reply['ssh'])
+        host_key = endpoint.pop('host_key', None)
+        if os.environ.get('HERMES_PERSONAL_INSTANCE_ID') and not host_key:
+            raise RuntimeError('Manager did not supply a verified SSH host identity')
+        old_identity = getattr(self, '_host_identity_dir', None)
+        if old_identity is not None:
+            old_identity.cleanup()
+        self._host_identity_dir = None
+        self._known_hosts = None
+        if host_key:
+            if endpoint.get('port') != 2222 or endpoint.get('user') != 'worker':
+                raise RuntimeError('Invalid managed SSH endpoint')
+            ipaddress.ip_address(endpoint['host'])
+            if not isinstance(host_key, str) or len(host_key) > 1024 or not re.fullmatch(r'ssh-ed25519 [A-Za-z0-9+/=]+', host_key):
+                raise RuntimeError('Invalid managed SSH host identity')
+            base64.b64decode(host_key.split()[1], validate=True)
+            uuid.UUID(self.managed_environment)
+            if not re.fullmatch(r'[1-9][0-9]*', self.managed_generation):
+                raise RuntimeError('Invalid managed SSH generation')
+            self._host_identity_dir = tempfile.TemporaryDirectory(prefix='hermes-managed-ssh-')
+            self._known_hosts = Path(self._host_identity_dir.name) / 'known_hosts'
+            alias = 'hermes-managed-' + self.managed_environment + '-' + self.managed_generation
+            self._known_hosts.write_text(alias + ' ' + host_key + '\n')
+            self._known_hosts.chmod(0o600)
         deadline = time.monotonic() + 30
         while True:
             try:
@@ -265,7 +291,17 @@ class ManagedSSHEnvironment(SSHEnvironment):
         # IPs/NodePorts can be reused after recycle. Pin the lookup to this managed generation;
         # accept-new records the first key and rejects a changed key within that generation.
         alias = "hermes-managed-" + self.managed_environment + "-" + self.managed_generation
-        return super()._target_flags(port_flag) + ["-o", "HostKeyAlias=" + alias]
+        flags = super()._target_flags(port_flag) + ["-o", "HostKeyAlias=" + alias]
+        if getattr(self, '_known_hosts', None):
+            flags += ['-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + str(self._known_hosts), '-o', 'GlobalKnownHostsFile=/dev/null']
+        return flags
+
+    def _build_ssh_command(self, extra_args=None, send_env=()):
+        command = super()._build_ssh_command(extra_args, send_env)
+        if getattr(self, '_known_hosts', None):
+            # OpenSSH takes the first option: override the native default too.
+            command = ['StrictHostKeyChecking=yes' if arg == 'StrictHostKeyChecking=accept-new' else arg for arg in command]
+        return command
 
     def _snapshot_excluded_passthrough_names(self):
         # The built-in SSH transport only excludes these in multiplex mode. ACP and direct
@@ -277,6 +313,8 @@ class ManagedSSHEnvironment(SSHEnvironment):
     def _wrap_command(self, command, cwd):
         remote_home = (str(Path(self.multica_workdir).parent / 'hermes-home')
                        if self.multica_workdir else '/opt/data/profiles/' + self.settings['profile'])
+        if not self.multica_workdir and os.environ.get('HERMES_PERSONAL_INSTANCE_ID'):
+            remote_home = self._remote_home + '/.hermes'
         command = 'export HERMES_HOME=' + shlex.quote(remote_home) + '\n' + command
         if self.multica_workdir:
             identity = hashlib.sha256(self.managed_task_key.encode()).hexdigest()
@@ -319,6 +357,9 @@ class ManagedSSHEnvironment(SSHEnvironment):
                         log.warning('Execution session close failed; idle expiry will reclaim it')
                 with self.provider._guard:
                     self.provider._environments.discard(self)
+                identity = getattr(self, '_host_identity_dir', None)
+                if identity is not None:
+                    identity.cleanup()
 
 
 class Provider(TerminalEnvironmentProvider):
@@ -343,6 +384,17 @@ class Provider(TerminalEnvironmentProvider):
                         ca_file='/etc/runtime-manager/tls/ca.crt', profile="", mode="per_session",
                         ssh_key="/opt/ssh/id_ed25519", acquire_timeout_seconds=180, runtime_id="")
         settings = {key: self.ctx.get_config(key, value) for key, value in defaults.items()}
+        # The schema-driven dashboard saves this in the active profile's native
+        # config, so backend selection survives restarts without being authority.
+        try:
+            from hermes_cli.config import load_config
+        except ImportError:
+            load_config = None
+        if load_config is not None:
+            terminal = load_config().get('terminal', {})
+            if isinstance(terminal, dict) and 'runtime_id' in terminal:
+                value = terminal['runtime_id']
+                settings['runtime_id'] = '' if value is None else value
         # Existing native profiles preserve their config across image updates.
         # Upgrade the former built-in endpoint to the encrypted transport.
         if settings['manager_url'].rstrip('/') == 'http://runtime-manager:8090':
@@ -353,8 +405,15 @@ class Provider(TerminalEnvironmentProvider):
         # configuration still names the administrator-approved execution role.
         if session_profile in ('custom', 'default'):
             session_profile = ''
-        settings["profile"] = (session_profile
-                               or settings["profile"] or self.ctx.profile_name)
+        settings["profile"] = (settings["profile"] or session_profile or self.ctx.profile_name)
+        if os.environ.get('HERMES_PERSONAL_INSTANCE_ID'):
+            managed = json.loads(Path('/run/hermes/execution-ca/config.yaml').read_text())
+            connection = managed['plugins']['entries']['managed_execution']['settings']
+            for key in ('manager_url', 'token_file', 'ca_file', 'ssh_key'):
+                settings[key] = connection[key]
+            # Wire profile is the credential's service scope. Native profile
+            # isolation is carried by runtime.hermes_home and the selected ID.
+            settings['profile'] = 'default'
         if settings["mode"] not in ("per_session", "per_profile_on_demand", "per_profile_always_running"):
             raise ValueError("Invalid managed_execution mode")
         if not isinstance(settings['runtime_id'], str) or (settings['runtime_id']

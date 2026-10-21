@@ -12,8 +12,11 @@ discover upstream image releases; infrastructure must update the template's
 image digest. Updates use bounded process termination and can interrupt active
 agent runs.
 
-There is no automated backup or manager admin frontend. Terminal worker
-orchestration and combined routing/lifecycle integration remain incomplete.
+The [terminal backend guide](../../docs/personal-hermes/terminal-backends.md)
+describes dashboard/profile selection, scoped on-demand worker creation, pinned
+SSH access and retirement. Nonempty runtime service-egress resolution and wider
+routing/recovery integration remain incomplete. There is no automated backup or
+manager admin frontend.
 The manager is not installed by the 0.6.1 chart. The
 [implementation status](../../docs/personal-hermes/implementation.md) is the
 current capability/evidence index; the
@@ -307,8 +310,10 @@ unavailable application image; creating resources does not prove a running
 native instance or publish a route. Add `--native` after building the reviewed
 runtime with `uv run python -m tests.personal_hermes.native_runtime --build` to
 also run the two-user real-native commissioning acceptance test. That test
-verifies image/admin updates, Pod restart, removal/re-add and persistent state;
-it does not test real Keycloak login or terminal SSH.
+verifies image/admin updates, Pod restart, removal/re-add and persistent state.
+It also exercises native profile backend selection, the bundled plugin's HTTPS
+requests, allowed/denied runtimes, real SSH/file transfer, host-key rejection,
+PVC subpath isolation and worker retirement. It does not test real Keycloak login.
 
 ## Commissioning controller
 
@@ -372,9 +377,14 @@ The execution-policy foundation stores immutable runtime versions, owner-local
 storage/pull references and resolved desired policy generations with audited,
 idempotent optimistic mutations and independent fenced policy work. Applied
 generation advances only through the trusted admission/storage activation port,
-after prior-generation drain and exact Kubernetes readback. The scoped execution HTTP and durable lease implementation
-are described above; production terminal grants still require the unfinished worker/controller and
-authenticated SSH readiness integration.
+after prior-generation drain and exact Kubernetes readback. For `managed-ssh-v2`
+runtimes, the controller provisions an exact-UID worker and verifies authenticated
+SSH with the manager-provisioned host key before recording readiness. The plugin
+uses the lease endpoint with strict host-key verification and its existing
+instance client key. New profiles select `terminal.runtime_id` in the native
+dashboard; this is a request subject to the assignment's effective allowlist.
+Historical `managed-ssh-v1` catalog versions do not receive automatic readiness.
+The controller requires `/usr/bin/ssh` and private writable temporary storage.
 
 ## Retained lifecycle work
 
@@ -400,8 +410,9 @@ incarnation using the retained state. This native-only path does not wait for
 terminal readiness and refuses completion while non-retired execution
 environments remain.
 
-The API-managed combined lifecycle still needs terminal drain and completion
-integration. Native shutdown alone cannot complete that barrier or publish a
-route. Neither retained PVCs nor the fresh-install inventory implement backups
+Worker session close, policy/access/generation changes, idle/lease expiry and
+lost-Pod observations feed fenced exact-UID retirement. The full API-managed
+combined native lifecycle and routing acceptance still need integration. Native
+shutdown alone cannot publish a route. Neither retained PVCs nor the fresh-install inventory implement backups
 or full-data restore. See the implementation status for the consolidated
 remaining work.

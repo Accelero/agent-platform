@@ -94,8 +94,15 @@ fn limits(row: &sqlx::postgres::PgRow) -> Result<ExecutionLimits, Error> {
     v.validate()?;
     Ok(v)
 }
-fn reply(row: &sqlx::postgres::PgRow, lease: Uuid, ttl: i64) -> AcquireReply {
-    AcquireReply {
+async fn reply(
+    tx: &mut Tx<'_>,
+    row: &sqlx::postgres::PgRow,
+    lease: Uuid,
+    ttl: i64,
+) -> Result<AcquireReply, Error> {
+    let host_key: Option<String> = sqlx::query_scalar("SELECT host_key FROM manager.execution_worker_ready_receipts WHERE environment_id=$1 AND generation=$2")
+        .bind(row.get::<Uuid,_>("id")).bind(row.get::<i64,_>("generation")).fetch_optional(&mut **tx).await.map_err(db_error)?.flatten();
+    Ok(AcquireReply {
         environment: row.get("id"),
         generation: row.get::<i64, _>("generation").to_string(),
         lease,
@@ -104,8 +111,9 @@ fn reply(row: &sqlx::postgres::PgRow, lease: Uuid, ttl: i64) -> AcquireReply {
             host: row.get("ssh_host"),
             port: 2222,
             user: "worker".into(),
+            host_key,
         },
-    }
+    })
 }
 #[async_trait]
 impl ExecutionLeaseRepository for PgStore {
@@ -189,7 +197,19 @@ impl ExecutionLeaseRepository for PgStore {
             .map_err(|_| Error::Invalid)?,
         )
         .to_vec();
-        let current=sqlx::query("SELECT * FROM manager.execution_environments WHERE instance_id=$1 AND identity_digest=$2 FOR UPDATE").bind(client.instance_id).bind(&identity).fetch_optional(&mut *tx).await.map_err(db_error)?;
+        if let Some(previous) = &previous {
+            let retired: bool = sqlx::query_scalar(
+                "SELECT state='Retired' FROM manager.execution_environments WHERE id=$1",
+            )
+            .bind(previous.get::<Uuid, _>("environment_id"))
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db_error)?;
+            if retired {
+                return Err(Error::PreconditionFailed);
+            }
+        }
+        let current=sqlx::query("SELECT * FROM manager.execution_environments WHERE instance_id=$1 AND identity_digest=$2 AND state<>'Retired' FOR UPDATE").bind(client.instance_id).bind(&identity).fetch_optional(&mut *tx).await.map_err(db_error)?;
         let env = if let Some(row) = current {
             row
         } else {
@@ -233,7 +253,7 @@ impl ExecutionLeaseRepository for PgStore {
                 tx.commit().await.map_err(db_error)?;
                 return Err(Error::PreconditionFailed);
             }
-            let result = reply(&env, lease, ttl);
+            let result = reply(&mut tx, &env, lease, ttl).await?;
             tx.commit().await.map_err(db_error)?;
             return Ok(AcquireOutcome::Granted(result));
         }
@@ -280,7 +300,7 @@ impl ExecutionLeaseRepository for PgStore {
         .execute(&mut *tx)
         .await
         .map_err(db_error)?;
-        let result = reply(&env, lease, i64::from(bounds.ttl_seconds));
+        let result = reply(&mut tx, &env, lease, i64::from(bounds.ttl_seconds)).await?;
         tx.commit().await.map_err(db_error)?;
         Ok(AcquireOutcome::Granted(result))
     }
@@ -606,19 +626,52 @@ impl ExecutionEnvironmentRepository for PgStore {
         if ready.spec_digest != intent.spec_digest {
             return Err(Error::OwnershipConflict);
         }
+        if let Some(key) = &ready.host_key {
+            let public = ssh_key::PublicKey::from_openssh(key).map_err(|_| Error::Invalid)?;
+            if key.len() > 1024 || public.algorithm() != ssh_key::Algorithm::Ed25519 {
+                return Err(Error::Invalid);
+            }
+        }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_environment_claim(&mut tx, scope, &intent.claim).await?;
         let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM manager.execution_worker_start_intents WHERE environment_id=$1 AND generation=$2 AND pod_uid=$3 AND spec_digest=$4 AND observed_spec_digest=$5)").bind(intent.claim.environment_id).bind(intent.claim.generation).bind(&ready.pod_uid).bind(&ready.spec_digest).bind(&ready.observed_spec_digest).fetch_one(&mut *tx).await.map_err(db_error)?;
         if !valid {
             return Err(Error::OwnershipConflict);
         }
-        sqlx::query("INSERT INTO manager.execution_worker_ready_receipts(environment_id,generation,pod_uid,resource_version,spec_digest,observed_spec_digest,ssh_host)VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(environment_id,generation) DO NOTHING").bind(intent.claim.environment_id).bind(intent.claim.generation).bind(&ready.pod_uid).bind(&ready.resource_version).bind(&ready.spec_digest).bind(&ready.observed_spec_digest).bind(&ready.host).execute(&mut *tx).await.map_err(db_error)?;
-        let same:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM manager.execution_worker_ready_receipts WHERE environment_id=$1 AND generation=$2 AND pod_uid=$3 AND spec_digest=$4 AND observed_spec_digest=$5 AND ssh_host=$6)").bind(intent.claim.environment_id).bind(intent.claim.generation).bind(&ready.pod_uid).bind(&ready.spec_digest).bind(&ready.observed_spec_digest).bind(&ready.host).fetch_one(&mut *tx).await.map_err(db_error)?;
+        sqlx::query("INSERT INTO manager.execution_worker_ready_receipts(environment_id,generation,pod_uid,resource_version,spec_digest,observed_spec_digest,ssh_host,host_key)VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(environment_id,generation) DO NOTHING").bind(intent.claim.environment_id).bind(intent.claim.generation).bind(&ready.pod_uid).bind(&ready.resource_version).bind(&ready.spec_digest).bind(&ready.observed_spec_digest).bind(&ready.host).bind(&ready.host_key).execute(&mut *tx).await.map_err(db_error)?;
+        let same:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM manager.execution_worker_ready_receipts WHERE environment_id=$1 AND generation=$2 AND pod_uid=$3 AND spec_digest=$4 AND observed_spec_digest=$5 AND ssh_host=$6 AND host_key IS NOT DISTINCT FROM $7)").bind(intent.claim.environment_id).bind(intent.claim.generation).bind(&ready.pod_uid).bind(&ready.spec_digest).bind(&ready.observed_spec_digest).bind(&ready.host).bind(&ready.host_key).fetch_one(&mut *tx).await.map_err(db_error)?;
         if !same {
             return Err(Error::OwnershipConflict);
         }
         sqlx::query("UPDATE manager.execution_environments SET state='Ready',pod_uid=$2,resource_version=$3,spec_digest=$4,ssh_host=$5,lease_owner=NULL,lease_until=NULL WHERE id=$1").bind(intent.claim.environment_id).bind(&ready.pod_uid).bind(&ready.resource_version).bind(&ready.spec_digest).bind(&ready.host).execute(&mut *tx).await.map_err(db_error)?;
         tx.commit().await.map_err(db_error)?;
         Ok(())
+    }
+}
+
+impl PgStore {
+    pub async fn execution_bootstrap_material(
+        &self,
+        scope: &InstallationScope,
+        claim: &EnvironmentClaim,
+    ) -> Result<hermes_application::materials::MaterialRecord, Error> {
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        lock_environment_claim(&mut tx, scope, claim).await?;
+        let row = sqlx::query("SELECT * FROM manager.bootstrap_materials WHERE installation_id=$1 AND instance_id=$2 AND purpose='native-bootstrap-v1' AND epoch<=$3 AND creation_generation<=$4")
+            .bind(scope.id).bind(claim.instance_id).bind(scope.epoch).bind(claim.assignment_generation).fetch_one(&mut *tx).await.map_err(db_error)?;
+        let result = super::super::materials::record(&row)?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(result)
+    }
+    pub async fn defer_execution_environment(
+        &self,
+        scope: &InstallationScope,
+        claim: &EnvironmentClaim,
+    ) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        lock_environment_claim(&mut tx, scope, claim).await?;
+        sqlx::query("UPDATE manager.execution_environments SET lease_until=clock_timestamp()+interval '3 seconds' WHERE id=$1")
+            .bind(claim.environment_id).execute(&mut *tx).await.map_err(db_error)?;
+        tx.commit().await.map_err(db_error)
     }
 }

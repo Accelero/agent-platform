@@ -342,6 +342,7 @@ async fn ready_fixture(
             scope,
             &intent,
             &WorkerReady {
+                host_key: None,
                 pod_uid: binding.pod_uid,
                 resource_version: "10".into(),
                 spec_digest: intent.spec_digest.clone(),
@@ -364,6 +365,88 @@ fn granted(value: AcquireOutcome) -> AcquireReply {
         AcquireOutcome::Granted(reply) => reply,
         other => panic!("expected grant: {other:?}"),
     }
+}
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn native_readiness_does_not_drain_or_wait_for_terminal_workers(pool: PgPool) {
+    let (store, scope, client, policy) = prepared(&pool, false).await;
+    effective_fixture(&pool, &policy).await;
+    ready_fixture(&pool, &store, &scope, &client).await;
+    // Acquisition updates last_used_at while the read-only observer's fenced
+    // claim remains held. It must neither fail nor steal that observer claim.
+    let observation = store
+        .claim_ready_worker_observation(&scope, Uuid::new_v4())
+        .await
+        .unwrap()
+        .unwrap();
+    let unfenced = sqlx::query("UPDATE manager.execution_environments SET lease_until=lease_until+interval '1 second' WHERE id=$1")
+        .bind(observation.claim.environment_id).execute(&pool).await.unwrap_err();
+    assert_eq!(
+        unfenced
+            .as_database_error()
+            .and_then(|e| e.code())
+            .as_deref(),
+        Some("23514")
+    );
+    let lease = granted(
+        store
+            .acquire_execution_lease(&scope, &client, &request("acquire-a"))
+            .await
+            .unwrap(),
+    );
+    let mut pending = request("another-session");
+    pending.session = "session-b".into();
+    assert_eq!(
+        store
+            .acquire_execution_lease(&scope, &client, &pending)
+            .await
+            .unwrap(),
+        AcquireOutcome::Pending
+    );
+    // Reclaim the native operation through the normal fenced repository port.
+    sqlx::query("UPDATE manager.operations SET lease_until=clock_timestamp()-interval '1 second' WHERE state='Running'")
+        .execute(&pool).await.unwrap();
+    let claim = store
+        .claim(&scope, Uuid::new_v4(), 30)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        store.complete_native_commissioning(&scope, &claim).await,
+        Err(Error::Forbidden)
+    ));
+    sqlx::query("UPDATE manager.assignments SET infrastructure_managed=true")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut stale = claim.clone();
+    stale.fence -= 1;
+    assert!(matches!(
+        store.complete_native_commissioning(&scope, &stale).await,
+        Err(Error::StaleFence)
+    ));
+    store
+        .complete_native_commissioning(&scope, &claim)
+        .await
+        .unwrap();
+    let states: Vec<String> =
+        sqlx::query_scalar("SELECT state FROM manager.execution_environments ORDER BY state")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(states, vec!["Pending", "Ready"]);
+    let state: String = sqlx::query_scalar("SELECT state FROM manager.instances")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(state, "Ready");
+    store
+        .heartbeat_execution_lease(&scope, &client, &LeaseRequest { lease: lease.lease })
+        .await
+        .unwrap();
+    store
+        .mark_execution_worker_lost(&scope, &observation)
+        .await
+        .unwrap();
 }
 #[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
 async fn no_grant_without_effective_policy_and_recorded_bound_ready(pool: PgPool) {
@@ -427,6 +510,7 @@ async fn no_grant_without_effective_policy_and_recorded_bound_ready(pool: PgPool
                 &scope,
                 &intent,
                 &WorkerReady {
+                    host_key: None,
                     pod_uid: Uuid::new_v4().to_string(),
                     resource_version: "1".into(),
                     spec_digest: intent.spec_digest.clone(),
@@ -912,6 +996,7 @@ async fn restarted_worker_preserves_original_intent_and_fences_stale_completion(
         Err(Error::OwnershipConflict)
     ));
     let ready = WorkerReady {
+        host_key: None,
         pod_uid: binding.pod_uid,
         resource_version: "9".into(),
         spec_digest: recovered.spec_digest.clone(),
@@ -999,3 +1084,166 @@ async fn policy_quotas_bound_durable_pending_and_active_leases(pool: PgPool) {
 
 #[path = "execution_leases/activation.rs"]
 mod activation;
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn terminal_retirement_waits_for_children_fences_claims_and_preserves_request_tombstones(
+    pool: PgPool,
+) {
+    let (store, scope, client, policy) = prepared(&pool, false).await;
+    effective_fixture(&pool, &policy).await;
+    let original = ready_fixture(&pool, &store, &scope, &client).await;
+    let lease = granted(
+        store
+            .acquire_execution_lease(&scope, &client, &request("acquire-a"))
+            .await
+            .unwrap(),
+    );
+    store
+        .close_execution_session(
+            &scope,
+            &client,
+            &CloseSessionRequest {
+                profile: "default".into(),
+                session: "session-a".into(),
+                runtime_id: None,
+                runtime: request("unused").runtime,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        store
+            .claim_worker_retirement(&scope, Uuid::new_v4())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    store
+        .release_execution_lease(&scope, &client, &LeaseRequest { lease: lease.lease })
+        .await
+        .unwrap();
+    let old = store
+        .claim_worker_retirement(&scope, Uuid::new_v4())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(old.claim.environment_id, original.environment_id);
+    assert!(matches!(
+        store
+            .complete_worker_retirement(&scope, &old, Some("foreign-uid"))
+            .await,
+        Err(Error::OwnershipConflict)
+    ));
+    sqlx::query("UPDATE manager.execution_environments SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1")
+        .bind(original.environment_id).execute(&pool).await.unwrap();
+    let current = store
+        .claim_worker_retirement(&scope, Uuid::new_v4())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        store
+            .complete_worker_retirement(&scope, &old, old.pod_uid.as_deref())
+            .await,
+        Err(Error::StaleFence)
+    ));
+    // This SQL fixture invokes the trusted observed-absence commit. The real
+    // Kubernetes fixture separately verifies the exact UID disappeared.
+    let mut missing_intent = current.clone();
+    missing_intent.intent = None;
+    missing_intent.pod_uid = None;
+    assert!(matches!(
+        store
+            .complete_worker_retirement(&scope, &missing_intent, None)
+            .await,
+        Err(Error::RecoveryRequired)
+    ));
+    store
+        .complete_worker_retirement(&scope, &current, current.pod_uid.as_deref())
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .acquire_execution_lease(&scope, &client, &request("acquire-a"))
+            .await,
+        Err(Error::PreconditionFailed)
+    ));
+    assert_eq!(
+        store
+            .acquire_execution_lease(&scope, &client, &request("new-request"))
+            .await
+            .unwrap(),
+        AcquireOutcome::Pending
+    );
+    let next = store
+        .claim_execution_environment(&scope, Uuid::new_v4(), 30)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(next.environment_id, original.environment_id);
+    let absent: i64 = sqlx::query_scalar("SELECT count(*) FROM manager.execution_worker_absence")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(absent, 1);
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn ready_worker_observation_is_fenced_and_lost_endpoint_cannot_grant_again(pool: PgPool) {
+    let (store, scope, client, policy) = prepared(&pool, false).await;
+    effective_fixture(&pool, &policy).await;
+    ready_fixture(&pool, &store, &scope, &client).await;
+    let original = store
+        .claim_ready_worker_observation(&scope, Uuid::new_v4())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        store
+            .claim_ready_worker_observation(&scope, Uuid::new_v4())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    sqlx::query("UPDATE manager.execution_environments SET lease_until=clock_timestamp()-interval '1 second',fence=fence+1 WHERE id=$1")
+        .bind(original.claim.environment_id).execute(&pool).await.unwrap();
+    let current = store
+        .claim_ready_worker_observation(&scope, Uuid::new_v4())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        store.mark_execution_worker_lost(&scope, &original).await,
+        Err(Error::StaleFence)
+    ));
+    store
+        .mark_execution_worker_lost(&scope, &current)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .acquire_execution_lease(&scope, &client, &request("acquire-a"))
+            .await,
+        Err(Error::PreconditionFailed)
+    ));
+    let retirement = store
+        .claim_worker_retirement(&scope, Uuid::new_v4())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        retirement.claim.environment_id,
+        current.claim.environment_id
+    );
+    store
+        .complete_worker_retirement(&scope, &retirement, retirement.pod_uid.as_deref())
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .acquire_execution_lease(&scope, &client, &request("replacement-request"))
+            .await
+            .unwrap(),
+        AcquireOutcome::Pending
+    );
+}

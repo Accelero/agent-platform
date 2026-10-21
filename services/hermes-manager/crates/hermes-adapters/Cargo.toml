@@ -34,8 +34,6 @@ url.workspace = true
 tokio-rustls.workspace = true
 x509-parser.workspace = true
 zeroize.workspace = true
-
-[dev-dependencies]
 tempfile.workspace = true
 
 [lints]

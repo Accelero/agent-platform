@@ -30,6 +30,7 @@ use zeroize::Zeroizing;
 
 mod infrastructure;
 mod policy;
+mod workers;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -99,8 +100,9 @@ impl Controller {
             Box::pin(self.store.reconcile_infrastructure(&self.scope)).await? > 0;
         self.store.enqueue_due(&self.scope, 64).await?;
         let policy_work = Box::pin(self.policy_step()).await?;
+        let worker_work = Box::pin(self.worker_step()).await?;
         let Some(claim) = self.store.claim(&self.scope, self.worker, 30).await? else {
-            return Ok(policy_work || infrastructure_work);
+            return Ok(policy_work || worker_work || infrastructure_work);
         };
         let outcome = Box::pin(self.reconcile(&claim)).await;
         let schedule = match outcome {
@@ -419,13 +421,6 @@ impl Controller {
             .await?;
         self.store.renew(&self.scope, claim, 30).await?;
         self.probe.verify(&plan.assignment.namespace).await?;
-        if self
-            .store
-            .infrastructure_managed(&self.scope, claim)
-            .await?
-        {
-            return Ok(ConditionReason::NativeReady);
-        }
         use hermes_application::execution::ExecutionRepository;
         match self
             .store
@@ -438,7 +433,19 @@ impl Controller {
                     &bootstrap.ssh_public_key,
                     material.context.id,
                 )?;
-                for rendered in self.freeze(claim, "worker-keys", vec![authorized]).await? {
+                let host_keys = crate::execution_workloads::host_keys(
+                    &policy.desired,
+                    &bootstrap,
+                    material.context.id,
+                )?;
+                let network = crate::execution_workloads::network(
+                    &policy.desired,
+                    &self.config.control_namespace,
+                )?;
+                for rendered in self
+                    .freeze(claim, "worker-keys", vec![authorized, host_keys, network])
+                    .await?
+                {
                     self.store.renew(&self.scope, claim, 30).await?;
                     resources
                         .ensure(
@@ -452,6 +459,13 @@ impl Controller {
             }
             Err(Error::NotFound) => {}
             Err(error) => return Err(error),
+        }
+        if self
+            .store
+            .infrastructure_managed(&self.scope, claim)
+            .await?
+        {
+            return Ok(ConditionReason::NativeReady);
         }
         Ok(ConditionReason::ExecutionPolicyPending)
     }

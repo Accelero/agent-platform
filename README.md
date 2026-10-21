@@ -87,9 +87,12 @@ Kubernetes resource identities support recovery after manager crashes. This is
 separate from the legacy Python runtime-manager shipped by the existing chart.
 
 The administration API, browser authentication, terminal policy/lease primitives
-and router components exist in source. The manager admin frontend, complete
-terminal worker lifecycle, route publication and combined Keycloak/native/browser
-acceptance remain unfinished. There are no automated backups or implemented
+and router components exist in source. The
+[terminal backend integration](docs/personal-hermes/terminal-backends.md) adds
+profile dashboard selection, authorized on-demand worker creation, pinned SSH
+access and retirement. Runtime service-egress resolution, the manager admin
+frontend, route publication and combined Keycloak/native/browser acceptance
+remain unfinished. There are no automated backups or implemented
 full-data restore workflows. Image updates require infrastructure to change the
 template digest; Recreate updates can interrupt active agent work.
 

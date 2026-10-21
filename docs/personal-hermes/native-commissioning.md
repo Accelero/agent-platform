@@ -156,8 +156,11 @@ backup retention or implemented full-data restore/checkpoint workflow.
 Each instance includes the native Hermes dashboard for its owner. The manager
 has an administration API and browser-session authentication but no admin
 frontend. Terminal catalog/policy/lease and worker primitives exist, but this
-commissioning path does not create a working terminal backend. It also does not
-publish a route. Those features remain separate integration work.
+commissioning input does not grant terminal permissions by itself. Configure
+approved `managed-ssh-v2` runtime versions, storage and an assignment execution
+policy separately; the manager can then provision a backend requested through
+the profile's dashboard selection. See [terminal backends](terminal-backends.md).
+Native commissioning does not publish a route.
 
 ## Verification
 
