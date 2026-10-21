@@ -19,11 +19,14 @@ from pathlib import Path
 
 import kubernetes.client as kube
 import kubernetes.config
+import urllib3
 
 TIMEOUT = (5, 30)
 _DECODE_ERRORS = (ValueError, TypeError)
 _IDENTITY_ERRORS = (OSError, ValueError)
 _CONNECTION_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError)
+# Tuple constants keep the tools image's Python 3.11 except syntax.
+_NETWORK_ERRORS = (urllib3.exceptions.HTTPError, OSError)
 
 
 def native(config: dict, action: str, **values: object) -> dict:
@@ -269,6 +272,31 @@ def install(path: Path, value: dict, *, force: bool) -> None:
     temporary.replace(path)
 
 
+def wait_for_cluster(cluster: Cluster, deadline_seconds: float = 180) -> None:
+    """Wait until the Kubernetes API is reachable from this new Pod.
+
+    The node programs a Pod's network policy shortly after it starts; earlier
+    connections fail. Authorization and missing-object errors are not retried.
+    """
+    deadline = time.monotonic() + deadline_seconds
+    while True:
+        try:
+            cluster.core.read_namespaced_config_map(
+                cluster.config["recoveryGate"],
+                cluster.namespace,
+                _request_timeout=TIMEOUT,
+            )
+            return
+        except kube.ApiException as error:
+            if error.status not in (0, 502, 503, 504):
+                raise
+        except _NETWORK_ERRORS:
+            pass
+        if time.monotonic() >= deadline:
+            raise TimeoutError("The Kubernetes API did not become reachable.")
+        time.sleep(2)
+
+
 def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
     profile_name = config.get("profile", "")
     if profile_name and (
@@ -496,7 +524,9 @@ def main() -> int:
     try:
         kubernetes.config.load_incluster_config()
         config = json.loads(args.config.read_text())
-        print(enroll(config, Cluster(config), force=args.force))
+        cluster = Cluster(config)
+        wait_for_cluster(cluster)
+        print(enroll(config, cluster, force=args.force))
     except Exception:
         sys.stderr.write(
             "Platform bootstrap failed; private details suppressed. "

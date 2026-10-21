@@ -329,3 +329,46 @@ def test_runtime_only_bootstrap_registers_hermes_without_creating_an_agent(scena
     assert (Path(config["home"]) / ".multica/config.json").is_file()
     assert not (Path(config["home"]) / "profiles").exists()
     assert json.loads(stored["agent-onboarding"]["bootstrap.json"])["pending"] is False
+
+
+def test_cluster_wait_retries_until_the_pod_network_is_ready():
+    import urllib3
+
+    cluster = Mock()
+    cluster.config = {"recoveryGate": "agent-platform-recovery"}
+    cluster.namespace = "agents"
+    cluster.core.read_namespaced_config_map.side_effect = [
+        urllib3.exceptions.MaxRetryError(None, "/", None),
+        OSError("connection refused"),
+        {},
+    ]
+    with patch.object(bootstrap.time, "sleep") as sleep:
+        bootstrap.wait_for_cluster(cluster)
+    assert cluster.core.read_namespaced_config_map.call_count == 3
+    assert sleep.call_count == 2
+
+
+def test_cluster_wait_does_not_retry_authorization_errors():
+    import kubernetes.client as kube
+
+    cluster = Mock()
+    cluster.config = {"recoveryGate": "agent-platform-recovery"}
+    cluster.namespace = "agents"
+    cluster.core.read_namespaced_config_map.side_effect = kube.ApiException(status=403)
+    with patch.object(bootstrap.time, "sleep") as sleep:
+        with pytest.raises(kube.ApiException):
+            bootstrap.wait_for_cluster(cluster)
+    sleep.assert_not_called()
+
+
+def test_cluster_wait_has_a_deadline():
+    cluster = Mock()
+    cluster.config = {"recoveryGate": "agent-platform-recovery"}
+    cluster.namespace = "agents"
+    cluster.core.read_namespaced_config_map.side_effect = OSError("refused")
+    with (
+        patch.object(bootstrap.time, "monotonic", side_effect=[0, 1, 200]),
+        patch.object(bootstrap.time, "sleep"),
+        pytest.raises(TimeoutError, match="reachable"),
+    ):
+        bootstrap.wait_for_cluster(cluster)
