@@ -353,6 +353,11 @@ pub fn render(
     if !enabled.iter().any(|name| name == "managed_execution") {
         enabled.push(json!("managed_execution"));
     }
+    plugins
+        .as_object_mut()
+        .ok_or(Error::Invalid)?
+        .entry("disabled")
+        .or_insert_with(|| json!([]));
     let entries = plugins
         .as_object_mut()
         .ok_or(Error::Invalid)?
@@ -379,6 +384,7 @@ pub fn render(
     let mut trust = BTreeMap::from([
         ("ca.crt", config.execution_ca_pem.as_str()),
         ("config.yaml", managed.as_str()),
+        (".env", "TERMINAL_ENV=managed_execution\n"),
     ]);
     if let Some(ca) = &config.oidc_ca_pem {
         trust.insert("oidc-ca.crt", ca);

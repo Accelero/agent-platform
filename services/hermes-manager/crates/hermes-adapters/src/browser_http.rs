@@ -178,6 +178,19 @@ async fn logout(State(auth): State<Arc<BrowserAuth>>, headers: HeaderMap) -> Res
     response
 }
 
+async fn signed_out() -> Response {
+    let mut response = axum::response::Html(
+        "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Signed out · Hermes Manager</title><main><h1>Signed out</h1><p>Your manager session has ended.</p><a href=\"/auth/login\">Sign in with Keycloak</a></main></html>"
+    ).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        ),
+    );
+    response
+}
+
 pub fn router(auth: BrowserAuth) -> Router {
     let (login_path, callback_path, logout_path) = match auth.purpose() {
         Purpose::Administration => ("/auth/login", "/auth/oidc/callback", "/auth/logout"),
@@ -187,9 +200,14 @@ pub fn router(auth: BrowserAuth) -> Router {
             "/_platform/logout",
         ),
     };
-    Router::new()
+    let router = Router::new()
         .route(login_path, get(login))
         .route(callback_path, get(callback))
         .route(logout_path, post(logout))
-        .with_state(Arc::new(auth))
+        .with_state(Arc::new(auth.clone()));
+    if auth.purpose() == Purpose::Administration {
+        router.route("/auth/signed-out", get(signed_out))
+    } else {
+        router
+    }
 }

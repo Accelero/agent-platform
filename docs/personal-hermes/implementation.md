@@ -25,14 +25,14 @@ integration fixes and remaining work.
 | Native configuration and state | Separate home/workspace PVCs; missing-only initialization; create-once credentials; Hermes managed config overrides selected leaves while user config remains on the home PVC | No automatic storage-class migration, volume shrinking or permanent data purge |
 | Shutdown during updates | Kubernetes Recreate rollout; runtime forwards SIGTERM to gateway/dashboard, waits up to 20 seconds and then kills remaining children; Pod grace period is 45 seconds | No update handshake that waits for agent runs to finish or acknowledges a completed application checkpoint; active work can be interrupted |
 | Manager crash recovery | PostgreSQL action journal, leased/fenced claims, frozen renderings, authenticated resource provenance, exact UID/RV checks, uncertain-create recovery and periodic resync | Ownership/admission/manual-recovery faults remain blocked; a deleted or foreign resource is not blindly adopted or replaced; exhaustive crash testing at every external boundary remains open |
-| Administration | Versioned API, Keycloak access-token validation, browser OIDC sessions, CSRF, audit, optimistic mutations and execution configuration endpoints | No manager admin frontend, generated React client, owner-status/checkpoint UI or completed directory integration |
+| Administration | Versioned API, Keycloak access-token validation, browser OIDC sessions, CSRF, audit, optimistic mutations and execution configuration endpoints; protected React/TypeScript/Vite scaffold with generated contract types and read-only assignment/runtime/audit lists | Creation/lifecycle/template/policy editors, pagination controls, owner-status/checkpoint UI and directory integration remain open |
 | Terminal execution | Database runtime catalog and owner storage/subpaths; profile dashboard `terminal.runtime_id`; instance credential/allowlist enforcement; fenced on-demand v2 worker creation, authenticated pinned SSH readiness, scoped leases and exact-UID retirement/idle cleanup; verified two-owner SSH/file-transfer/denial/retirement integration | Nonempty runtime service-egress resolution, proactive prewarming, combined native/API/routing lifecycle and release acceptance remain open; v1 workers do not get automatic readiness |
 | Routing | Rust resolver/auth processes, Go/Yaegi plugin and isolated Traefik/WebSocket compatibility proofs | Native commissioning does not publish routes; full Keycloak/native/browser/proxy integration remains open |
 | Backup and recovery | Explicit fresh-install namespace/PV scan, schema/installation/epoch gates and retained ownership history | No scheduled backups, snapshot/copy jobs, backup retention, checkpoint coordinator or full data restore implementation; PVC retention is not a backup |
-| Distribution and adoption | Locked source builds and CI checks; reviewed native runtime test image | No released manager/router-auth images or personal-mode chart installation; existing-owner adoption and release acceptance remain open |
+| Distribution and adoption | Locked source builds and CI checks; reviewed native runtime test image; finite-context multi-stage local/CI manager/UI image build | No released manager/router-auth images or personal-mode chart installation; existing-owner adoption and release acceptance remain open |
 
 The per-user native Hermes dashboard is supplied by Hermes and runs in each
-instance. It is distinct from the unimplemented manager administration frontend.
+instance. It is distinct from the [manager dashboard scaffold](dashboard.md).
 Native `Ready` means the manager observed storage, the exact current workload,
 signed initialization and the native HTTP/auth gate. It does not mean a terminal
 backend is ready, a route was published or a real Keycloak browser login passed.
@@ -52,6 +52,14 @@ cleanup feed fenced retirement with exact UID/RV deletion and verified absence.
 Original requests/leases remain tombstones; a new request can create a fresh
 environment after retirement. Nonempty runtime service egress still blocks
 activation and combined product acceptance remains incomplete.
+
+Personal-mode terminal policy is protected by the read-only owner/policy mounts
+and reviewed hooks in the pinned Hermes image. The image-owned provider is
+required, cannot be shadowed by profile/project copies and remains selected
+through profile scopes and environment changes. Missing/invalid policy refuses
+terminal creation; built-in local/Docker/SSH selection is rejected. The profile's
+terminal type ID remains editable unless pinned by the administrator. These are
+Hermes configuration controls, not isolation from arbitrary Python plugins.
 
 The manager creates a distinct opaque execution credential for each instance,
 registers its hash before dispatching the bootstrap Secret and maps successful
@@ -119,11 +127,18 @@ restore a lost registry or payload.
 | `tests.personal_hermes.api_process` | Compiled API/router-auth listener/configuration gates, abrupt process termination and registry reopening | Full Kubernetes/execution lifecycle |
 | `tests.personal_hermes.router_compatibility` | Real pinned Traefik/Yaegi, two fixture backends on the same hostname/path, forged-header rejection and open-WebSocket revocation | Combined Rust/Keycloak/native login, uploads, cookie handling or production route publication |
 
-Latest verification snapshot: **168 standard Rust tests and 116 Python tests
-passed**, alongside workspace formatting/Clippy, Helm lint, privacy preflight and
-two explicit live Kubernetes tests and the complete extended native/profile/SSH
-acceptance fixture. The rebuilt native runtime smoke fixture also passed,
-including its non-root SSH client check. Regressions cover native readiness with
+Latest standard verification snapshot: **170 Rust tests and 128 Python tests
+passed**, alongside workspace formatting/Clippy, Helm lint and privacy preflight.
+The dashboard adds seven frontend client tests, four Chromium presentation tests,
+generated OpenAPI type checks, a production Vite build and a local/CI multi-stage
+container build. HTTPS/PostgreSQL tests cover protected pages/assets, OIDC admin
+role rejection and logout. The compiled-process fixture enables the real Vite
+assets and verifies the administration listener/configuration boundary.
+The earlier terminal integration also passed two explicit live Kubernetes tests
+and the complete extended native/profile/SSH acceptance fixture. The rebuilt
+native runtime smoke fixture checks protected terminal policy, profile
+selection, the image-owned plugin, connection settings and the non-root SSH
+client. Regressions cover native readiness with
 pending/active workers and acquisition while a readiness observer holds its
 claim, preserving the observer's fence and deadline. The three live
 Kubernetes/native Rust tests are ignored in the standard Cargo invocation and
@@ -189,7 +204,7 @@ containers. Keep fixture credentials out of logs and release inputs.
    lease tombstones. Finish policy retry/deadline/manual-recovery status.
 3. Complete route publication and real Keycloak/native/proxy browser acceptance,
    including HTTP mutations, uploads, cookies, identity changes and WebSockets.
-4. Implement the manager frontend and remaining owner/checkpoint contracts using
+4. Extend the manager scaffold with administration editors and remaining owner/checkpoint contracts using
    the existing administration authorization and CSRF boundary.
 5. Implement checkpoint/inventory/readback receipts, full data restore and
    explicit adoption; supply backup transport and scheduling from infrastructure.

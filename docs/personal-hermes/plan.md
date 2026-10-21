@@ -139,17 +139,17 @@ operations. No Kubernetes access is needed for these tests.
 
 ### 2. Build the integrated management interface
 
-- [ ] Implement manager administration login with a dedicated OIDC client and
+- [x] Implement manager administration login with a dedicated OIDC client and
   configured platform-administrator role. A personal Hermes assignment grants
   no platform-administration permission.
-- [ ] Implement the versioned administration API, authorization, CSRF protection,
+- [x] Implement the versioned administration API, authorization, CSRF protection,
   optimistic concurrency and actor-attributed audit events.
 - [ ] Add the built-in UI for identity lookup, assignment creation, enable,
   suspend, revoke, template selection, instance status and safe retry.
 - [ ] Add typed administration endpoints/UI for terminal-runtime catalog versions,
   per-assignment image/mount selection, storage bindings and policy activation
   status. Keep credential values and raw Kubernetes specs out of the browser.
-- [ ] Create the React/TypeScript Vite application and generate its typed API
+- [x] Create the React/TypeScript Vite application and generate its typed API
   client from the administration OpenAPI contract. Serve static assets with the
   Rust API/UI process, with same-origin browser sessions and CSRF protection.
   Keep API/authentication errors out of the SPA HTML fallback.
@@ -163,6 +163,10 @@ operations. No Kubernetes access is needed for these tests.
 Exit: the UI manages fixture assignments only through the administration API.
 UI/API contract tests and an API-only acceptance test demonstrate that the UI
 can later move to a separate service without changing the core use cases.
+
+The [dashboard scaffold](dashboard.md), protected asset serving and local/CI
+image pipeline now exist. Read-only assignment/runtime/audit lists are available;
+the full editing workflows and their acceptance above remain unfinished.
 
 ### 3. Implement commissioning and reconciliation
 

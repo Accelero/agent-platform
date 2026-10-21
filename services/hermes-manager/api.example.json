@@ -9,6 +9,7 @@
     "jwksUrl": "https://sso.example.org/realms/agents/protocol/openid-connect/certs"
   },
   "admin": {
+    "uiDirectory": "/usr/share/hermes-manager/ui",
     "listen": "0.0.0.0:8443",
     "tls": {
       "certificateFile": "/run/secrets/manager-admin/tls.crt",

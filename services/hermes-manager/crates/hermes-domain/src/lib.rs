@@ -240,7 +240,7 @@ mod tests {
     fn reject_invalid_or_ambiguous_identity_strings() {
         for issuer in [
             "http://sso.example.org",
-            "https://user@sso.example.org",
+            "https://user@example.org",
             "https://sso.example.org?x=1",
             "https://sso.example.org#fragment",
             " https://sso.example.org",

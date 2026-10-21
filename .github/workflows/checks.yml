@@ -41,7 +41,7 @@ jobs:
 
   hermes-manager:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: services/hermes-manager
@@ -69,6 +69,24 @@ jobs:
           python-version: '3.14'
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: services/hermes-manager/ui/.node-version
+          cache: npm
+          cache-dependency-path: services/hermes-manager/ui/package-lock.json
+      - name: Build and check the dashboard contract
+        working-directory: services/hermes-manager/ui
+        run: |
+          npm ci --ignore-scripts
+          npm run check:generated
+          npm run format:check
+          npm test
+          npm run build
+      - name: Test the dashboard in Chromium
+        working-directory: services/hermes-manager/ui
+        run: |
+          npx --no-install playwright install --with-deps chromium
+          npm run test:e2e
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
@@ -77,6 +95,26 @@ jobs:
         run: uv run python ../../tests/personal_hermes/api_process.py --postgres-container '${{ job.services.postgres.id }}'
       - name: Test resource ownership with a disposable Kubernetes API server
         run: uv run python ../../tests/personal_hermes/kubernetes.py --postgres-container '${{ job.services.postgres.id }}'
+
+  hermes-manager-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.13.0'
+          python-version: '3.14'
+      - run: uv sync --locked
+      - name: Build Rust and Vite from reviewed inputs without publication
+        run: uv run python -m agent_platform.manager_build
+      - name: Verify non-root runtime and production assets
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --entrypoint sh hermes-manager:local -c \
+            'test "$(id -u)" = 10001 && test -s /usr/share/hermes-manager/ui/index.html && test -x /usr/local/bin/hermes-manager && ! command -v node'
 
   hermes-router-compatibility:
     runs-on: ubuntu-latest

@@ -30,7 +30,9 @@ use crate::{
     session_crypto::Purpose,
 };
 
+mod dashboard;
 mod execution;
+pub use dashboard::DashboardAssets;
 
 struct AdminState {
     store: PgStore,
@@ -247,6 +249,20 @@ pub fn admin_router_with_browser(
     tokens: AccessTokenVerifier,
     browser: Option<BrowserAuth>,
 ) -> Result<Router, Error> {
+    admin_router_with_dashboard(store, scope, policy, tokens, browser, None)
+}
+
+pub fn admin_router_with_dashboard(
+    store: PgStore,
+    scope: InstallationScope,
+    policy: AdminPolicy,
+    tokens: AccessTokenVerifier,
+    browser: Option<BrowserAuth>,
+    dashboard: Option<DashboardAssets>,
+) -> Result<Router, Error> {
+    if dashboard.is_some() && browser.is_none() {
+        return Err(Error::Invalid);
+    }
     if browser
         .as_ref()
         .is_some_and(|auth| auth.purpose() != Purpose::Administration)
@@ -263,6 +279,11 @@ pub fn admin_router_with_browser(
         store,
         scope,
     });
+    let auth = AdminAuth {
+        tokens,
+        policy,
+        browser: browser.clone(),
+    };
     let protected = Router::new()
         .route("/api/v1/session", get(session))
         .route("/api/v1/identities", get(identities))
@@ -280,15 +301,12 @@ pub fn admin_router_with_browser(
         .route("/api/v1/operations/{id}", get(operation))
         .route("/api/v1/audit-events", get(audit))
         .merge(execution::routes())
-        .route_layer(middleware::from_fn_with_state(
-            AdminAuth {
-                tokens,
-                policy,
-                browser: browser.clone(),
-            },
-            admin_auth,
-        ))
+        .route_layer(middleware::from_fn_with_state(auth.clone(), admin_auth))
         .with_state(state);
+    let protected = match dashboard {
+        Some(assets) => protected.merge(dashboard::router(assets, auth)),
+        None => protected,
+    };
     let protected = match browser {
         Some(auth) => protected.merge(browser_http::router(auth)),
         None => protected,

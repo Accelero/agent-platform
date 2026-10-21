@@ -189,6 +189,18 @@ def main():
                 != 0
             ), "API accepted overlapping administration/route audiences"
             config["admin"]["audience"] = original_audience
+            # The manager serves production Vite assets itself; API-only mode
+            # remains the default when uiDirectory is absent.
+            ui = ROOT / "services/hermes-manager/ui/dist"
+            assert (ui / "index.html").is_file(), "Build the dashboard first"
+            config["admin"]["uiDirectory"] = str(ui)
+            browser_config = config["admin"].pop("browser")
+            config_file.write_text(json.dumps(config))
+            assert (
+                command([str(BINARY), "api", "--config", str(config_file)]).returncode
+                != 0
+            ), "Dashboard accepted startup without OIDC browser authentication"
+            config["admin"]["browser"] = browser_config
             config_file.write_text(json.dumps(config))
             process = subprocess.Popen(
                 [str(BINARY), "api", "--config", str(config_file)],
@@ -229,6 +241,12 @@ def main():
                 assert status == 401 and cache == "no-store"
                 assert json.loads(body) == {"error": "invalid_identity_evidence"}
                 assert get("/internal/v1/routes/resolve")[0] == 404
+                assert get("/")[0] == 303
+                assert get("/assignments")[0] == 303
+                asset = next((ui / "assets").glob("*.js"))
+                assert get("/assets/" + asset.name)[0] == 401
+                assert get("/auth/not-a-route")[0] == 404
+                assert get("/api/v1/not-a-route")[0] == 404
                 assert get("/execution/v1/environments")[0] == 404
                 assert get("/healthz", execution_port)[0] == 200
                 status, body, cache = get("/execution/v1/environments", execution_port)

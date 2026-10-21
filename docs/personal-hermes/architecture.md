@@ -105,7 +105,7 @@ no separate frontend service is required yet.
 
 ## Administration boundary and future panel extraction
 
-Source boundaries, with the planned frontend marked:
+Source boundaries:
 
 ```text
 contracts/hermes-manager/openapi.yaml
@@ -117,12 +117,12 @@ services/hermes-manager/
   crates/hermes-adapters/src/          # HTTP, PostgreSQL, directory and Kubernetes
   crates/hermes-manager/src/bin/       # API/UI and controller process roles
   crates/hermes-router-auth/src/       # OIDC sessions and ForwardAuth adapter
-  ui/                                 # planned; no frontend exists yet
+  ui/                                 # React/TypeScript/Vite scaffold
 plugins/hermes-route-resolver/          # thin Go/Yaegi middleware
 ```
 
-The Rust crates, API contracts and Go plugin exist in source. The frontend,
-directory integration and checkpoint adapters remain planned. The interface
+The Rust crates, API contracts, Go plugin and frontend scaffold exist in source.
+Administration editors, directory integration and checkpoint adapters remain planned. The interface
 names below illustrate the target boundaries; see the workspace for current
 traits and the implementation status for completed adapters. Domain code imports
 no HTTP, UI, Kubernetes or identity-provider SDK. Target application ports include
@@ -152,8 +152,10 @@ enable broad credentialed CORS to make a later panel work.
 
 ### Dashboard build and API communication
 
-This is the planned manager administration frontend. The current source has
-the API and browser-session authentication, but no frontend assets or UI serving.
+The manager now serves a protected frontend scaffold and read-only lists using
+the existing API and browser-session authentication. The
+[dashboard guide](dashboard.md) documents the build, Keycloak setup and remaining
+editors. The following architecture applies to further frontend work as well.
 
 Use React and TypeScript for the browser application, built with
 [Vite](https://vite.dev/guide/build.html). Node.js and the frontend package

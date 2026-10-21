@@ -31,6 +31,17 @@ impl TemplateDefinition {
         {
             return Err(Error::Invalid);
         }
+        if let Some(disabled) = self
+            .admin_config
+            .get("plugins")
+            .and_then(|p| p.get("disabled"))
+            && (!disabled.is_array()
+                || disabled
+                    .as_array()
+                    .is_some_and(|names| names.iter().any(|name| name == "managed_execution")))
+        {
+            return Err(Error::Invalid);
+        }
         if serde_json::to_vec(&self.admin_config)
             .map_err(|_| Error::Invalid)?
             .len()

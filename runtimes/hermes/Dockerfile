@@ -9,6 +9,8 @@ RUN groupadd --gid 1000 hermes-personal \
  && useradd --uid 1000 --gid 1000 --home-dir /opt/data --no-create-home --shell /bin/sh hermes-personal
 COPY runtimes/hermes/dashboard-owner.py runtimes/hermes/patch-dashboard-owner.py /usr/local/lib/
 RUN /opt/hermes/.venv/bin/python /usr/local/lib/patch-dashboard-owner.py
+COPY runtimes/hermes/terminal-policy.py runtimes/hermes/patch-terminal-policy.py /usr/local/lib/
+RUN /opt/hermes/.venv/bin/python /usr/local/lib/patch-terminal-policy.py
 COPY --from=multica /app/multica /usr/local/bin/multica
 COPY --from=multica /app/LICENSE /app/NOTICE /usr/local/share/multica/
 COPY runtimes/hermes/multica-run /etc/s6-overlay/s6-rc.d/multica/run

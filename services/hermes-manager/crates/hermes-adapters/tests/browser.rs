@@ -10,7 +10,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hermes_adapters::{
     auth::{AccessTokenVerifier, TokenPolicy, http_client, unix_time},
     browser_auth::{BrowserAuth, BrowserConfig},
-    http::admin_router_with_browser,
+    http::{DashboardAssets, admin_router_with_dashboard},
     oidc::{OidcConfig, OidcProvider},
     postgres::{FreshInventory, PgStore},
     router_auth::{RouterAuthConfig, routers},
@@ -193,6 +193,13 @@ impl Fixture {
         Self::for_purpose(pool, Purpose::Administration).await
     }
     async fn for_purpose(pool: &PgPool, purpose: Purpose) -> Self {
+        Self::with_dashboard(pool, purpose, None).await
+    }
+    async fn with_dashboard(
+        pool: &PgPool,
+        purpose: Purpose,
+        assets: Option<DashboardAssets>,
+    ) -> Self {
         let (client_id, audience, callback_path) = match purpose {
             Purpose::Administration => ("manager-admin", "manager-api", "/auth/oidc/callback"),
             Purpose::Router => ("hermes-router", "route-api", "/_platform/oidc/callback"),
@@ -310,8 +317,15 @@ impl Fixture {
         .unwrap();
         let (public, internal) = if purpose == Purpose::Administration {
             (
-                admin_router_with_browser(store, scope, policy, tokens, Some(auth.clone()))
-                    .unwrap(),
+                admin_router_with_dashboard(
+                    store,
+                    scope,
+                    policy,
+                    tokens,
+                    Some(auth.clone()),
+                    assets,
+                )
+                .unwrap(),
                 None,
             )
         } else {
@@ -417,8 +431,158 @@ fn cookies(browser: &str, session: &str) -> String {
 }
 
 #[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn dashboard_pages_assets_admin_role_logout_and_api_only_boundary(pool: PgPool) {
+    let directory = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(directory.path().join("assets"))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        directory.path().join("index.html"),
+        "<!doctype html><title>Dashboard fixture</title>",
+    )
+    .await
+    .unwrap();
+    tokio::fs::write(
+        directory.path().join("assets/app.js"),
+        "export const fixture = true;",
+    )
+    .await
+    .unwrap();
+    let assets = DashboardAssets::load(directory.path()).await.unwrap();
+    let f = Fixture::with_dashboard(&pool, Purpose::Administration, Some(assets)).await;
+    let root = f
+        .client
+        .get(format!("{}/", f.admin.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(root.status(), StatusCode::SEE_OTHER);
+    assert_eq!(root.headers()[header::LOCATION], "/auth/login?returnTo=%2F");
+    let script = f
+        .client
+        .get(format!("{}/assets/app.js", f.admin.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(script.status(), StatusCode::UNAUTHORIZED);
+    // A valid Keycloak-style login without the management client role cannot
+    // create an administration session or retrieve the dashboard.
+    *f.provider.fault.write().await = "role".into();
+    let (browser, authorization) = f.begin(None).await;
+    let callback = f.callback(&authorization).await;
+    assert_eq!(
+        f.complete(&browser, &callback).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    *f.provider.fault.write().await = String::new();
+    let (browser, session) = f.login().await;
+    for path in [
+        "/",
+        "/assignments",
+        "/terminal-runtimes",
+        "/activity",
+        "/assets/app.js",
+    ] {
+        let response = f
+            .client
+            .get(format!("{}{path}", f.admin.url))
+            .header(header::COOKIE, cookies(&browser, &session))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(
+            response.headers()[header::CONTENT_SECURITY_POLICY]
+                .to_str()
+                .unwrap()
+                .contains("frame-ancestors 'none'")
+        );
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            if path.starts_with("/assets/") {
+                "text/javascript; charset=utf-8"
+            } else {
+                "text/html; charset=utf-8"
+            }
+        );
+    }
+    for path in [
+        "/api/v1/missing",
+        "/auth/missing",
+        "/internal/missing",
+        "/unknown",
+        "/assets/missing.js",
+        "/assets/%2e%2e%2findex.html",
+    ] {
+        let response = f
+            .client
+            .get(format!("{}{path}", f.admin.url))
+            .header(header::COOKIE, cookies(&browser, &session))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+        assert!(
+            response.headers()[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("application/json")
+        );
+    }
+    let identity: Value = f.session(&browser, &session).await.json().await.unwrap();
+    let response = f
+        .client
+        .post(format!("{}/auth/logout", f.admin.url))
+        .header(header::COOKIE, cookies(&browser, &session))
+        .header(header::ORIGIN, "https://localhost")
+        .header("x-csrf-token", identity["csrfToken"].as_str().unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let signed_out = f
+        .client
+        .get(format!("{}/auth/signed-out", f.admin.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(signed_out.status(), StatusCode::OK);
+    assert_eq!(signed_out.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(!signed_out.headers().contains_key(header::LOCATION));
+    assert!(
+        signed_out
+            .text()
+            .await
+            .unwrap()
+            .contains("Your manager session has ended")
+    );
+    for path in ["/", "/assets/app.js"] {
+        assert_eq!(
+            f.client
+                .get(format!("{}{path}", f.admin.url))
+                .header(header::COOKIE, cookies(&browser, &session))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
 async fn browser_oidc_pkce_login_session_csrf_mutation_and_logout(pool: PgPool) {
     let f = Fixture::new(&pool).await;
+    assert_eq!(
+        f.client
+            .get(format!("{}/", f.admin.url))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
     let (browser, session) = f.login().await;
     assert_eq!(browser.len(), 64);
     assert_eq!(session.len(), 64);

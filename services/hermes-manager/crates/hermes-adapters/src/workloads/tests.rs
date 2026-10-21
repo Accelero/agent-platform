@@ -84,6 +84,12 @@ fn personal_workload_has_private_storage_scoped_credentials_and_always_running_n
     )
     .unwrap();
     let get = |purpose: &str| rendered.iter().find(|r| r.key == purpose).unwrap();
+    let trust = get("native-trust").manifest.value();
+    let managed: Value =
+        serde_json::from_str(trust["data"]["config.yaml"].as_str().unwrap()).unwrap();
+    assert_eq!(managed["terminal"]["backend"], "managed_execution");
+    assert_eq!(managed["plugins"]["disabled"], json!([]));
+    assert_eq!(trust["data"][".env"], "TERMINAL_ENV=managed_execution\n");
     for object in &rendered {
         assert_eq!(
             object.spec.namespace.as_deref(),
@@ -250,6 +256,21 @@ fn personal_workload_has_private_storage_scoped_credentials_and_always_running_n
     let context: Value = serde_json::from_str(&context).unwrap();
     assert_eq!(context["owner"]["subject"], "owner-a");
     assert_eq!(context["instanceId"], assignment.instance_id.to_string());
+}
+
+#[test]
+fn templates_cannot_disable_required_terminal_plugin() {
+    let (_, _, _, mut definition, _, _) = fixture();
+    for disabled in [json!(["managed_execution"]), json!("managed_execution")] {
+        definition
+            .admin_config
+            .insert("plugins".into(), json!({"disabled":disabled}));
+        assert!(definition.validate().is_err());
+    }
+    definition
+        .admin_config
+        .insert("plugins".into(), json!({"disabled":["optional-plugin"]}));
+    assert!(definition.validate().is_ok());
 }
 
 #[test]

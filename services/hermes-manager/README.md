@@ -15,8 +15,12 @@ agent runs.
 The [terminal backend guide](../../docs/personal-hermes/terminal-backends.md)
 describes dashboard/profile selection, scoped on-demand worker creation, pinned
 SSH access and retirement. Nonempty runtime service-egress resolution and wider
-routing/recovery integration remain incomplete. There is no automated backup or
-manager admin frontend.
+routing/recovery integration remain incomplete. Automated backups and complete
+manager administration editors remain open. The
+[dashboard scaffold](../../docs/personal-hermes/dashboard.md) serves a protected
+React/TypeScript/Vite overview and read-only administration lists, using the
+existing Keycloak OIDC session and administrator-role checks. Its local/CI
+multi-stage image pipeline is separate from tagged release publication.
 The manager is not installed by the 0.6.1 chart. The
 [implementation status](../../docs/personal-hermes/implementation.md) is the
 current capability/evidence index; the
@@ -60,6 +64,11 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked --lib
 ```
+
+Before running the compiled-process fixture below, build `ui/dist` using the
+locked frontend steps in the [dashboard guide](../../docs/personal-hermes/dashboard.md).
+For a complete local manager/UI container build from the repository root, use
+`uv run python -m agent_platform.manager_build`.
 
 The full test suite requires a disposable PostgreSQL 17 database and a test-only
 role that can create databases. SQLx creates isolated databases, runs the actual

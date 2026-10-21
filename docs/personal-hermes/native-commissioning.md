@@ -128,6 +128,15 @@ administrator override exposes the retained user value again, if present.
 `adminConfig` is stored in the database template and a ConfigMap; it is not a
 secret-delivery mechanism.
 
+Personal instances always pin `terminal.backend=managed_execution`, require the
+image-owned `managed_execution` plugin and protect its connection settings and
+plugin enable/disable lists. Templates that disable the required plugin are
+rejected. The fixed read-only owner/policy mounts identify personal mode even
+when a profile changes environment variables. Missing or invalid terminal policy
+blocks execution. Profile-specific terminal scopes and direct backend creation
+respect these controls; ordinary profiles can still select `terminal.runtime_id`
+unless the administrator pins it. See the [terminal guide](terminal-backends.md).
+
 ## Removal
 
 Delete the desired mapping:
@@ -154,8 +163,9 @@ corrupted storage. The manager has no automated backups, snapshot schedule,
 backup retention or implemented full-data restore/checkpoint workflow.
 
 Each instance includes the native Hermes dashboard for its owner. The manager
-has an administration API and browser-session authentication but no admin
-frontend. Terminal catalog/policy/lease and worker primitives exist, but this
+has an administration API, browser-session authentication and a protected
+[dashboard scaffold](dashboard.md), but its administration editors remain open.
+Terminal catalog/policy/lease and worker primitives exist, but this
 commissioning input does not grant terminal permissions by itself. Configure
 approved `managed-ssh-v2` runtime versions, storage and an assignment execution
 policy separately; the manager can then provision a backend requested through

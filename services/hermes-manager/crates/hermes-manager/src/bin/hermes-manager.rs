@@ -8,7 +8,7 @@ use hermes_adapters::{
     auth::{AccessTokenVerifier, TokenPolicy, http_client},
     auth_config::{SessionConfig, read},
     execution_http::execution_router,
-    http::{admin_router_with_browser, resolver_router},
+    http::{DashboardAssets, admin_router_with_dashboard, resolver_router},
     postgres::PgStore,
     server::{bind, serve_until, tls_config},
     session_crypto::Purpose,
@@ -57,6 +57,7 @@ struct Admin {
     management_client: String,
     administrator_role: String,
     browser: Option<SessionConfig>,
+    ui_directory: Option<PathBuf>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -183,12 +184,22 @@ async fn run() -> Result<(), Error> {
         None
     };
     let cleanup = browser.clone();
-    let admin = admin_router_with_browser(
+    let dashboard = match config.admin.ui_directory {
+        Some(path) => {
+            if browser.is_none() {
+                return Err(Error::Invalid);
+            }
+            Some(DashboardAssets::load(&path).await?)
+        }
+        None => None,
+    };
+    let admin = admin_router_with_dashboard(
         store.clone(),
         scope.clone(),
         admin_policy,
         admin_tokens,
         browser,
+        dashboard,
     )?;
     // Execution credentials are accepted only by this independently bound TLS
     // listener. The public administration and mTLS resolver routers stay scoped.

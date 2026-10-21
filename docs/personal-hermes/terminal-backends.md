@@ -69,6 +69,14 @@ The required `managed_execution` plugin is bundled in the image so newly created
 profiles can discover it. The managed configuration enables it and pins the
 manager URL, CA, execution token path and SSH client-key path independently of
 mutable profile settings. Additional enabled plugins are infrastructure inputs.
+Personal instances also protect `plugins.disabled` and always load this provider
+from the read-only image. A user/project copy cannot replace it. Profile YAML,
+profile terminal scopes and environment variables cannot select local, Docker,
+built-in SSH or another provider. The managed backend is `managed_execution`;
+that plugin obtains the manager-approved SSH endpoint and host identity.
+Missing or invalid admin policy blocks terminal creation rather than choosing a
+fallback. These are Hermes configuration controls, not a sandbox for arbitrary
+third-party Python plugins running inside the Hermes process.
 Native profile names do not expand the credential's service profile: the wire
 scope remains `default`; profile home/session/runtime identity separates worker
 environments within the authenticated instance.

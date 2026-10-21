@@ -27,6 +27,23 @@ def inputs(tmp_path):
     return root, tmp_path / "staged"
 
 
+def test_local_manager_context_is_checked_without_becoming_a_release_target(
+    inputs, monkeypatch, capsys
+):
+    root, target = inputs
+    manifest = json.loads((root / "release-policy.json").read_text())
+    manifest["development_contexts"] = {
+        "hermes-manager": {"root": ".", "files": ["operation.py"]}
+    }
+    (root / "release-policy.json").write_text(json.dumps(manifest))
+    monkeypatch.setattr(privacy, "ROOT", root)
+    assert privacy.main() == 0
+    assert set(privacy.stage_contexts(root, target)) == {"tools"}
+    (root / "operation.py").write_text("-----BEGIN PRIVATE KEY-----")
+    assert privacy.main() == 1
+    assert "BEGIN PRIVATE KEY" not in capsys.readouterr().err
+
+
 def test_untracked_private_prompts_and_credentials_never_enter_contexts(inputs):
     root, target = inputs
     private = root / "config/agents"

@@ -212,6 +212,8 @@ def main() -> int:
         chart_files(ROOT)
         for definition in reviewed["contexts"].values():
             context_files(ROOT, definition)
+        for definition in reviewed.get("development_contexts", {}).values():
+            context_files(ROOT, definition)
     except OSError, ValueError, KeyError, TypeError:
         sys.stderr.write(
             "Release privacy preflight failed; private details suppressed.\n"

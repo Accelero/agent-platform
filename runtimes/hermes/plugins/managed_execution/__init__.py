@@ -24,6 +24,11 @@ from tools.environments.ssh import SSHEnvironment
 log = logging.getLogger(__name__)
 
 
+def personal_instance():
+    return (Path('/run/hermes/owner/context.json').is_file()
+            or bool(os.environ.get('HERMES_PERSONAL_INSTANCE_ID')))
+
+
 def session_key():
     from gateway.session_context import get_session_env
     return get_session_env("HERMES_SESSION_KEY", "")
@@ -154,7 +159,7 @@ class ManagedSSHEnvironment(SSHEnvironment):
         self.managed_environment = reply['environment']
         endpoint = dict(reply['ssh'])
         host_key = endpoint.pop('host_key', None)
-        if os.environ.get('HERMES_PERSONAL_INSTANCE_ID') and not host_key:
+        if personal_instance() and not host_key:
             raise RuntimeError('Manager did not supply a verified SSH host identity')
         old_identity = getattr(self, '_host_identity_dir', None)
         if old_identity is not None:
@@ -313,7 +318,7 @@ class ManagedSSHEnvironment(SSHEnvironment):
     def _wrap_command(self, command, cwd):
         remote_home = (str(Path(self.multica_workdir).parent / 'hermes-home')
                        if self.multica_workdir else '/opt/data/profiles/' + self.settings['profile'])
-        if not self.multica_workdir and os.environ.get('HERMES_PERSONAL_INSTANCE_ID'):
+        if not self.multica_workdir and personal_instance():
             remote_home = self._remote_home + '/.hermes'
         command = 'export HERMES_HOME=' + shlex.quote(remote_home) + '\n' + command
         if self.multica_workdir:
@@ -406,7 +411,7 @@ class Provider(TerminalEnvironmentProvider):
         if session_profile in ('custom', 'default'):
             session_profile = ''
         settings["profile"] = (settings["profile"] or session_profile or self.ctx.profile_name)
-        if os.environ.get('HERMES_PERSONAL_INSTANCE_ID'):
+        if personal_instance():
             managed = json.loads(Path('/run/hermes/execution-ca/config.yaml').read_text())
             connection = managed['plugins']['entries']['managed_execution']['settings']
             for key in ('manager_url', 'token_file', 'ca_file', 'ssh_key'):

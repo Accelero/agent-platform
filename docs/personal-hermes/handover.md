@@ -1,4 +1,44 @@
-# Terminal backend handover — 2026-10-21
+# Manager implementation handover — 2026-10-21
+
+## Dashboard scaffold follow-up
+
+The manager serves a protected React/TypeScript/Vite overview and read-only
+assignment, terminal-runtime and audit lists. It uses generated OpenAPI types and
+the existing Rust Keycloak OIDC administrator-session boundary for both HTML and
+assets. `admin.uiDirectory` enables it; omitting the field preserves API-only
+mode. See the [dashboard guide](dashboard.md) for build/run and Keycloak setup.
+
+The local/CI multi-stage image build uses pinned Node/Rust/Debian stages and a
+finite, privacy-checked development context, and ships a non-root runtime without
+Node. CI checks generated types, formatting, frontend/browser tests, the Rust
+authentication boundary, compiled process and complete image build. The scaffold
+does not add administration editors, a chart deployment or GHCR publication.
+
+Verification: 170 Rust tests, 128 Python tests, 7 frontend client tests and 4
+Chromium presentation tests; workspace Clippy/formatting, Ruff, Helm lint and
+privacy preflight. The compiled manager serves real Vite assets with anonymous
+navigation redirected and assets denied; HTTPS/PostgreSQL protocol tests verify
+administrator-only access and logout. Protocol fixtures do not replace live
+Keycloak acceptance. The previous native image/SSH evidence below remains valid;
+the full cluster acceptance was not repeated for the dashboard scaffold.
+
+## Admin terminal policy follow-up
+
+The image adds protected personal-mode terminal policy. The manager pins
+the plugin enable/disable policy and connection settings; the Hermes image
+requires the bundled provider, rejects other terminal backends, applies managed
+settings to profile scopes and refuses terminal creation if policy is invalid.
+Changing profile environment variables does not remove personal mode because
+the read-only owner mount remains authoritative. Terminal type selection by
+`terminal.runtime_id` remains editable unless the admin pins it. See the
+[operator guide](terminal-backends.md) for the configuration boundary.
+
+Standard verification for this follow-up: 169 Rust tests, 127 Python tests,
+Clippy/formatting/Ruff, Helm lint and privacy preflight. The native image smoke
+also exercises conflicting profile YAML/environment settings, mandatory plugin
+loading, shadow rejection, protected credentials and restart. The earlier full
+Kubernetes/SSH acceptance below was not repeated for this configuration change.
+No publication or deployment is part of this follow-up.
 
 The continuation completed the previously unfinished terminal integration
 acceptance on `feat/personal-hermes-commissioning`. No release or deployment was
@@ -71,8 +111,8 @@ Run Cargo builds/tests sequentially against the shared target directory.
 
 Nonempty runtime Service/Endpoint egress, proactive always-running prewarming,
 full API-managed lifecycle completion and deployment/release packaging remain
-open. Routing, the manager administration frontend and coordinated backups remain
-outside this implementation. Real Keycloak browser login and full release
+open. Routing, complete manager administration editors and coordinated backups
+remain outside this implementation. Real Keycloak browser login and full release
 qualification are separate acceptance requirements.
 
 There is no pending SSH acceptance failure to resume; use the implementation
