@@ -176,6 +176,48 @@ def test_template_change_waits_for_active_work(execution):
     )
 
 
+def test_profile_worker_holds_concurrent_leases_of_all_sessions(execution):
+    first = acquire(execution, session="chat-a", request="a")
+    second = acquire(execution, session="chat-b", request="b")
+    assert first["environment"] == second["environment"]
+    assert first["lease"] != second["lease"]
+    # Backend ensure is idempotent per generation: one shared worker Pod.
+    assert first["generation"] == second["generation"]
+    execution.manager.release(first["lease"], reconcile=False)
+    execution.manager.maintain()
+    # The remaining lease keeps the shared worker.
+    execution.backend.remove.assert_not_called()
+
+
+def test_session_workers_are_unbounded_across_sessions_and_single_per_session(
+    execution,
+):
+    sessions = {
+        name: acquire(execution, mode="per_session", session=name, request=name)
+        for name in ("task-a", "task-b", "task-c")
+    }
+    assert len({lease["environment"] for lease in sessions.values()}) == len(sessions)
+    again = acquire(execution, mode="per_session", session="task-a", request="a-2")
+    assert again["environment"] == sessions["task-a"]["environment"]
+    assert again["generation"] == sessions["task-a"]["generation"]
+    assert execution.manager.db.execute("SELECT count(*) FROM environments").fetchone()[
+        0
+    ] == len(sessions)
+
+
+def test_serialized_exclusive_templates_allow_one_run_per_profile(execution):
+    from manager import Conflict
+
+    execution.config["templates"]["terminal"].update(
+        serialize_profile=True, exclusive=True
+    )
+    acquire(execution, session="chat-a", request="a")
+    with pytest.raises(Conflict, match="already executing"):
+        acquire(execution, session="chat-b", request="b")
+    with pytest.raises(Conflict, match="already executing"):
+        acquire(execution, mode="per_session", session="task", request="task")
+
+
 def test_helm_defaults_image_without_restricting_admission(tmp_path: Path):
     objects = render(
         tmp_path,
