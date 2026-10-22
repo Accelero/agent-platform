@@ -49,10 +49,7 @@
         "Dockerfile",
         "auth-boundary.patch",
         "auth-boundary_test.go",
-        "maintenance_linux_test.go",
-        "bootstrap/main.go",
-        "bootstrap/main_test.go",
-        "bootstrap/migrations.txt"
+        "maintenance_linux_test.go"
       ]
     },
     "multica-source": {

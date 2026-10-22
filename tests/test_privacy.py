@@ -184,7 +184,7 @@ def test_privacy_failure_prevents_all_build_and_publication_commands(tmp_path):
         patch.object(release, "run") as run,
     ):
         with pytest.raises(privacy.PrivacyError):
-            release.build("0.4.1", "a" * 40, publish=True)
+            release.build("0.1.0", "a" * 40, publish=True)
     run.assert_not_called()
 
 

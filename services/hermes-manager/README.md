@@ -19,11 +19,9 @@ routing/recovery integration remain incomplete. Automated backups remain open.
 The [dashboard](../../docs/personal-hermes/dashboard.md) includes searchable
 administration views, typed commands, form/JSON/YAML template drafts, immutable
 publication, explicit application and durable bulk results. Keycloak authenticates
-identities; PostgreSQL grants define administrators. Its local/CI multi-stage
-image pipeline now also supplies the opt-in sixth release target.
-The [stack guide](../../docs/personal-hermes/dashboard-stack.md) records the
-installed libraries, schema coverage and production CSP verification.
-The source v0.7.0 chart supports opt-in API/dashboard, controller and router-auth
+identities; PostgreSQL grants define administrators. The same multi-stage image
+pipeline is the `hermes-manager` release target, and the guide also records the
+stack conventions. The chart supports API/dashboard, controller and router-auth
 roles; see its [local Docker/k3d guide](../../charts/agent-platform/README.md#rust-manager-and-dashboard). The
 [implementation status](../../docs/personal-hermes/implementation.md) is the
 current capability/evidence index; the
@@ -386,8 +384,7 @@ the shutdown and persistence limits are described in the native commissioning
 guide. Periodic resync and transient infrastructure retry use durable SQL work.
 The API-managed combined path still waits for effective execution policy, and
 full terminal/native/routing lifecycle acceptance remains open. Coordinated
-recovery and adoption are unfinished; there is no upgrade path from the removed
-0.6.x shared-Hermes deployment.
+recovery is unfinished.
 
 The execution-policy foundation stores immutable runtime versions, owner-local
 storage/pull references and resolved desired policy generations with audited,

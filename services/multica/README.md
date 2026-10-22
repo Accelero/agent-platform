@@ -27,20 +27,3 @@ runtime images, then pins its digest in the application chart. Native login file
 The build runs the focused auth and maintenance Go tests without live service
 credentials. Application login, email delivery and model dispatch are separate
 deployment acceptance checks.
-
-## Offline service bootstrap
-
-`bootstrap/` builds `/usr/local/bin/multica-bootstrap` against the same pinned
-native auth, generated database queries and issue-status initializer. The tools
-image receives this static binary through its Bake dependency, alongside the
-generic Python Job orchestrator. This administrator capability has no HTTP route
-and does not change the normal login or human-token authorization boundary.
-
-The command reads bounded JSON on stdin and the database URL from its environment.
-It generates distinct native PATs, atomically initializes an empty installation's
-user, owner membership, workspace, seven built-in statuses and token hashes, and
-records stable IDs in a small platform journal. Raw tokens only pass through the
-privileged Job's memory and its runtime Secret. The journal does not add foreign
-keys that would prevent ordinary user/workspace deletion. An explicit repair can
-reuse the journal's owner or verify the saved owner's native token hash and
-workspace membership. It never assigns another user's runtime to the seed email.

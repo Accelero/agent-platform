@@ -1,24 +1,21 @@
 # Personal Hermes implementation status
 
 Status as of 2026-10-22 on `feat/personal-hermes-commissioning`. This is the
-current source implementation and evidence index. This branch is a Rust-only
-rewrite: the chart installs only the manager roles (plus an optional, unintegrated
-Multica board). The earlier shared Hermes Deployment, Python runtime manager and
-`tools` image are removed. No deployment or release qualification is implied by
-these tests.
+current source implementation and evidence index. The platform is in development
+with no release yet; the chart installs the manager roles (plus an optional,
+unintegrated Multica board). No deployment qualification is implied by these
+tests.
 
-The [specification](specification.md), [architecture](architecture.md) and
-[delivery plan](plan.md) describe the full target product. Use this page for what
+The [specification](specification.md) and [architecture](architecture.md)
+describe the full target product. Use this page for what
 exists now, the [manager README](../../services/hermes-manager/README.md) for
 process configuration and authentication, and the
 [native commissioning guide](native-commissioning.md) for the infrastructure
 input contract and per-user deployment behavior.
 The [terminal backend guide](terminal-backends.md) covers profile selection,
 scoped worker provisioning, SSH identity and cleanup.
-The [dashboard feature specification](dashboard-features.md) and
-[stack guide](dashboard-stack.md) describe the implemented administration workflows.
-The [dashboard guide](dashboard.md) records PostgreSQL grant bootstrap, schema
-coverage and the tested production serving boundary.
+The [dashboard guide](dashboard.md) covers the administration workflows,
+PostgreSQL grant bootstrap, stack conventions and frontend checks.
 The [execution contract](../../contracts/hermes-manager/execution.openapi.yaml)
 is the plugin–manager wire interface; plugin requests are tested against it.
 
@@ -35,7 +32,7 @@ is the plugin–manager wire interface; plugin requests are tested against it.
 | Terminal execution | Database runtime catalog and owner storage/subpaths; profile dashboard `terminal.runtime_id`; instance credential/allowlist enforcement; fenced on-demand v2 worker creation, authenticated pinned SSH readiness, scoped leases and exact-UID retirement/idle cleanup; verified two-owner SSH/file-transfer/denial/retirement integration | Nonempty runtime service-egress resolution, proactive prewarming, combined native/API/routing lifecycle and release acceptance remain open; v1 workers do not get automatic readiness |
 | Routing | Rust resolver/auth processes, Go/Yaegi plugin and isolated Traefik/WebSocket compatibility proofs | Native commissioning does not publish routes; full Keycloak/native/browser/proxy integration remains open |
 | Backup and recovery | Explicit fresh-install namespace/PV scan, schema/installation/epoch gates and retained ownership history | No scheduled backups, snapshot/copy jobs, backup retention, checkpoint coordinator or full data restore implementation; PVC retention is not a backup |
-| Distribution and adoption | Locked source builds and CI checks; reviewed native runtime test image; finite-context multi-stage local/CI manager/UI image build | Opt-in source chart installation is locally tested; no published manager image release; existing-owner adoption and release acceptance remain open |
+| Distribution | Locked source builds and CI checks; reviewed native runtime test image; finite-context multi-stage local/CI manager/UI image build; tag-driven release pipeline | Chart installation is locally tested; nothing is released yet; the first full-featured MVP build will be released as 0.1.0 |
 
 The per-user native Hermes dashboard is supplied by Hermes and runs in each
 instance. It is distinct from the [manager dashboard](dashboard.md).
@@ -133,7 +130,7 @@ restore a lost registry or payload.
 | `tests.personal_hermes.api_process` | Compiled API/router-auth listener/configuration gates, abrupt process termination and registry reopening | Full Kubernetes/execution lifecycle |
 | `tests.personal_hermes.router_compatibility` | Real pinned Traefik/Yaegi, two fixture backends on the same hostname/path, forged-header rejection and open-WebSocket revocation | Combined Rust/Keycloak/native login, uploads, cookie handling or production route publication |
 
-Latest standard verification snapshot: **185 Rust tests and 87 Python tests
+Latest standard verification snapshot: **185 Rust tests and 88 Python tests
 passed**, alongside workspace formatting/Clippy, Helm lint and privacy preflight.
 The dashboard adds seven frontend client tests, four Chromium presentation tests,
 generated OpenAPI type checks, a production Vite build and a local/CI multi-stage
@@ -212,8 +209,8 @@ containers. Keep fixture credentials out of logs and release inputs.
    including HTTP mutations, uploads, cookies, identity changes and WebSockets.
 4. Add owner-status and checkpoint contracts to the dashboard using the existing
    administration authorization and CSRF boundary.
-5. Implement checkpoint/inventory/readback receipts, full data restore and
-   explicit adoption; supply backup transport and scheduling from infrastructure.
-6. Publish the first manager release and complete release acceptance. Updating
-   source is separate from deployment/publication.
+5. Implement checkpoint/inventory/readback receipts and full data restore;
+   supply backup transport and scheduling from infrastructure.
+6. Cut the first release (0.1.0) once the MVP is complete, and run release
+   acceptance. Updating source is separate from deployment/publication.
 7. Add board integration for personal instances (deferred).

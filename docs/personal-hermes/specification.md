@@ -1,9 +1,9 @@
 # Personal Hermes specification
 
-Status: proposed requirements for a future release. Release 0.6.1 does not
-implement these services, APIs or values. The [architecture](architecture.md)
-selects the component design; the [plan](plan.md) defines delivery gates.
-These are target requirements rather than a feature inventory. See the
+Status: target requirements for the personal Hermes platform, which is in
+development and has no release yet. The [architecture](architecture.md) selects
+the component design. These are target requirements rather than a feature
+inventory. See the
 [implementation status](implementation.md) for completed source behavior and
 remaining gaps, and [native commissioning](native-commissioning.md) for the
 implemented infrastructure-to-manager contract.
@@ -95,7 +95,7 @@ assignment's default/allowed runtime versions, storage bindings, resources and
 desired/effective policy status. Configure the Hermes application image through
 its approved instance template independently of the terminal worker image.
 
-The [dashboard feature specification](dashboard-features.md) expands this into
+The [dashboard guide](dashboard.md) expands this into
 searchable/filterable data tables, template details and synchronized form/raw
 editors, template-managed Hermes `adminConfig`, explicit user/template assignment
 and an editable administrator list. PostgreSQL grants are the accepted and
@@ -238,7 +238,8 @@ manager recovery; their application execution receipts remain authoritative.
 ## API contracts
 
 The implementation must supply OpenAPI and typed request/response contracts.
-Endpoints below are proposed API v1, not routes supported by release 0.6.1.
+Endpoints below are API v1. The OpenAPI files in `contracts/hermes-manager/`
+are authoritative for the implemented subset.
 
 | Boundary | Proposed endpoints | Caller and behavior |
 | --- | --- | --- |
@@ -570,22 +571,13 @@ Different assignments may select different image versions, mounts and access.
 
 ### Hermes selection and manager authority
 
-Today, release 0.6.1's chart renders
-`runtimeManager.config.templates.<name>.image`, falling back to
-`images.agent-runtime`, into the legacy execution manager's mounted configuration.
-The execution API binds a client to a deployment/profile and selects that
-profile's single approved template. Its lease request accepts no image or
-template override; Hermes's `managed_execution` provider does not use native
-`image` or `container_config` arguments to choose a worker.
-
-Personal mode replaces that service with the shared Rust manager and PostgreSQL
-execution policy. The native dashboard must expose profile-scoped
-`terminal.runtime_id`; the plugin forwards that backend ID as `runtime_id` in
-lease/session-close requests. Empty uses the assignment's default. Hermes owners
-can select a requested type, while the manager enforces its effective allowlist
-and resolves the exact image/mount policy. Arbitrary image references and mount
-specs remain invalid lease fields. This exists in branch source as described in
-the terminal guide; it is not functionality shipped by release 0.6.1.
+The native dashboard exposes profile-scoped `terminal.runtime_id`; the plugin
+forwards that backend ID as `runtime_id` in lease and session-close requests.
+Empty uses the assignment's default. Hermes owners can select a requested type,
+while the manager enforces its effective allowlist and resolves the exact
+image/mount policy. Lease requests carry no image, template, mount or caller
+scope fields. The [terminal backend guide](terminal-backends.md) describes the
+implementation.
 
 The manager must supply the verified SSH endpoint and server public key only
 after authenticated worker readiness. The plugin uses its mounted per-instance
@@ -596,18 +588,16 @@ leases stay bound to their granted backend/generation when profile settings
 change; newly acquired environments use the new selection.
 
 The authenticated execution API resolves `runtime_id` within the exact client's
-deployment/profile policy, using the server-selected template and version. A
+instance policy, using the server-selected runtime version. A
 runtime name belonging to another owner is denied. Include runtime identity and
 effective policy generation in environment/cache identities; closing a session
 cannot retire another runtime's environment. Multiple Hermes profiles of one
 owner remain distinct from cross-owner authorization.
 
 The shared controller must render terminal worker specs and the exact admission
-policy from one PostgreSQL effective policy generation. Port the legacy
-single-template API's authorization/lease invariants to Rust, extend the Hermes
-adapter for approved selection and preserve clients that omit `runtime_id`.
-Do not keep static manager YAML or a per-owner SQLite database as a second source
-of truth, and do not forward an agent-provided Pod spec.
+policy from one PostgreSQL effective policy generation. Requests that omit
+`runtime_id` use the assignment's default. There is no static manager YAML or
+per-owner database as a second source of truth, and no agent-provided Pod spec.
 
 Image/mount changes create an audited desired generation and an operation.
 Validate image compatibility, owner binding, claim/Secret identities and
@@ -684,16 +674,15 @@ alongside retained homes must block automatic provisioning.
 
 The platform provides lifecycle/inventory contracts and generic validation.
 External storage, encryption keys, transport and deployment-specific backup Jobs
-remain deployment-owned. Personal mode must not be adopted by a consumer whose
-checkpoint integration still backs up only a static singleton dataset list.
+remain deployment-owned. A deployment must not run personal instances while its
+checkpoint integration backs up only a static dataset list.
 
-Proposed chart configuration groups are `hermesInstances`, `hermesManager` and
-`hermesRouter`. They must cover enable/mode, existing database and Secret refs,
-OIDC clients/administrator permission, template/storage/capacity policy, optional
-directory reader, internal mTLS, recovery gate and router/admin ingress. These
-names are a design contract to implement, not installable 0.6.1 values. Do not put
-per-user assignments or inline model credentials into Helm values. Bootstrap
-administrators are identity-provider roles, not a second user-password database.
+The chart's `hermesManager` section deploys the API/dashboard, controller and
+router-auth roles with existing database and Secret references, installation
+identity and per-listener ingress peers. Routing roles and a recovery gate are
+still to be added. Do not put per-user assignments or inline model credentials
+into Helm values; assignments live in PostgreSQL. Administrators are authorized
+by PostgreSQL grants on Keycloak identities, not a second user-password database.
 
 ## Acceptance matrix
 
@@ -735,10 +724,9 @@ administrators are identity-provider roles, not a second user-password database.
 | UI import/dependency boundary | Presentation cannot import database, directory or Kubernetes adapters |
 | Recovery with registry and both users' data | Stable owners/instance IDs restored, new UID bindings verified, stale sessions invalidated |
 | Missing registry, partial snapshot or wrong installation receipt | Provisioning/teardown blocked; no automatic adoption or replacement |
-| Existing singleton adoption | Explicit owner binding and checked storage migration; original board connection is not copied to other people |
 
 Run isolated contract/domain tests, real PostgreSQL concurrency/migration tests
 and disposable local Kubernetes/OIDC/browser tests as appropriate. Generic
 acceptance uses fixture identities and model stubs; it must not require a paid
 GPU, private model account, public invitation or destructive live stack. Record
-actual results and untested cases before a release claims these requirements.
+actual results and untested cases before claiming these requirements are met.

@@ -26,8 +26,9 @@ plugin–manager wire interface is the
 
 ## Artifacts
 
-Source version **0.7.0** (unreleased). Released 0.6.x charts shipped the earlier
-shared-Hermes platform and are not upgradable to this design.
+The platform is in development and nothing is released yet. Source versions stay
+at the `0.0.0` placeholder; the first full-featured MVP build will be released
+as `0.1.0` through the release pipeline below.
 
 | Image | Role |
 | --- | --- |
@@ -74,7 +75,7 @@ listed in the [verification commands](docs/personal-hermes/implementation.md#ver
 For an explicit local build without publishing:
 
 ```bash
-uv run python -m agent_platform.release --version 0.7.0 --revision "$(git rev-parse HEAD)"
+uv run python -m agent_platform.release --version 0.1.0 --revision "$(git rev-parse HEAD)"
 ```
 
 Outputs are under ignored `.local/releases/`. Source defaults retain local `dev`
@@ -83,9 +84,11 @@ See [AGENTS.md](AGENTS.md) for repository guidance.
 
 ## Release process
 
-1. Review passing checks and bump chart/project versions together. Let the trusted
-   main cache workflow finish before tagging to reuse its build layers.
-2. Push an explicit immutable tag such as `v0.7.0`.
+1. Review passing checks and set the chart (`version`, `appVersion`) and
+   `pyproject.toml` versions to the release version together; the workflow
+   rejects a tag that does not match them. Let the trusted main cache workflow
+   finish before tagging to reuse its build layers.
+2. Push an explicit immutable tag such as `v0.1.0`.
 3. GitHub Actions builds, tests and publishes the versioned images, renders and
    tests the chart with their exact digests, and publishes the chart last.
 4. The workflow creates a GitHub Release with that chart archive and an

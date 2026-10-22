@@ -3,8 +3,8 @@ info:
   title: Personal Hermes manager administration API
   version: 0.1.0
   description: >-
-    Versioned administration boundary under development, not part of release
-    0.6.1. The API authenticates Keycloak access
+    Versioned administration boundary, in development. The API authenticates
+    Keycloak access
     tokens for the configured management audience, authorized client and
     installation-scoped PostgreSQL administrator grant. Keycloak role claims and personal assignments, realm membership,
     service certificates and asserted headers grant no administrator permission.

@@ -3,7 +3,7 @@ info:
   title: Personal Hermes manager routing API
   version: 0.1.0
   description: >-
-    Proposed contract, not implemented by agent-platform release 0.6.1.
+    Contract for the target routing design, in development.
     A restricted Traefik middleware plugin resolves a verified OIDC identity
     to its currently enabled, commissioned personal Hermes destination.
     The API is internal and performs no assignment or infrastructure mutations.

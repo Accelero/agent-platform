@@ -176,17 +176,6 @@ def build(
     )
     run(
         [
-            sys.executable,
-            "-m",
-            "agent_platform.bootstrap_check",
-            "--backend",
-            images["multica-backend"],
-        ],
-        cwd=ROOT,
-        timeout=420,
-    )
-    run(
-        [
             "docker",
             "run",
             "--rm",

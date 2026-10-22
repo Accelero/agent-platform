@@ -68,7 +68,7 @@ uv run python -m agent_platform.manager_build
 helm lint charts/agent-platform
 helm package charts/agent-platform --destination .local/charts
 uv run python -m tests.personal_hermes.dashboard_chart \
-  --chart .local/charts/agent-platform-0.7.0.tgz --image hermes-manager:local
+  --chart .local/charts/agent-platform-0.0.0.tgz --image hermes-manager:local
 ```
 
 The fixture needs Docker, Helm, OpenSSL and k3d v5.9.0. It creates a disposable
@@ -95,9 +95,5 @@ Personal Hermes instances have no board integration yet.
 The release pipeline tests images, injects exact image digests into a staging
 chart, renders the manager example and publishes that `.tgz` to GHCR and GitHub
 Releases. Select the chart's SemVer version or OCI digest and deploy it with its
-own image defaults. Manager roles are single-replica Recreate Deployments.
-
-The 0.7.0 chart removes the shared Hermes Deployment, its gateways, the Python
-runtime manager, sandbox namespace, bootstrap Jobs, optional browser/search/memory
-services and the `tools` image. There is no in-place upgrade from a 0.6.x
-installation.
+own image defaults. Manager roles are single-replica Recreate Deployments. Source
+charts carry the `0.0.0` development placeholder until a release sets the version.

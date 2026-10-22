@@ -45,7 +45,9 @@ Review the staged diff and `git diff --check` before committing.
 
 ## Releases
 
-A release requires an explicit `vMAJOR.MINOR.PATCH` tag. The GitHub-hosted release
+Nothing is released yet. Source chart and project versions stay at the `0.0.0`
+placeholder; the first MVP release will be 0.1.0. Do not add release numbers to
+documentation. A release requires an explicit `vMAJOR.MINOR.PATCH` tag. The GitHub-hosted release
 workflow validates, builds and publishes matching images and their self-contained chart.
 Do not overwrite an existing release version. Keep source/version OCI labels and
 upstream license notices. Publish the chart only after matching images pass validation.

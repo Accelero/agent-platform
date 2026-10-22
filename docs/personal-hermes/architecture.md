@@ -1,13 +1,39 @@
 # Personal Hermes architecture
 
-Status: target architecture for the Rust-only personal Hermes platform. The
-legacy 0.6.x shared Hermes Deployment and Python runtime manager have been
-removed from this branch. Parts now exist in source: see the [implementation status](implementation.md) for the
-current boundary and the [native commissioning guide](native-commissioning.md)
-for implemented infrastructure templates, database mappings and update/removal
-behavior. The UI, complete terminal lifecycle, routing and checkpoint sections
-below describe the intended product, not completed features. See also the
-[specification](specification.md) and [delivery plan](plan.md).
+Status: target architecture for the personal Hermes platform, in development
+with no release yet. Commissioning, terminal backends and the dashboard exist in
+source; see the [implementation status](implementation.md). Routing and
+checkpoint sections describe the intended product, not completed features. The
+[specification](specification.md) lists the required behavior.
+
+## Product decisions
+
+- One Rust manager owns assignments, Hermes commissioning, terminal runtime
+  policy and worker lifecycle, with one PostgreSQL control model. Its API/UI and
+  controller are process roles of the same product; only the controller holds
+  Kubernetes credentials. There are no per-Hermes managers.
+- Recovery never depends on graceful shutdown: commit results and pending work
+  before acknowledging, persist each external action's intent before dispatch,
+  then verify and commit its observed result.
+- Keycloak authenticates people. An explicit PostgreSQL assignment decides
+  whether a person gets a personal instance; group membership alone does not.
+  Enabling an assignment commissions the instance proactively.
+- Each owner gets a namespace, retained home/workspace storage, native session
+  keys and an execution credential. Each enabled Hermes gateway keeps running at
+  one replica so native cron works without browser traffic; terminal workers
+  are created on demand.
+- Users create Hermes profiles and select an approved terminal runtime per
+  profile. The manager owns runtime images, owner mounts and the allowlist; the
+  Hermes image is an independent instance-template choice.
+- The React/TypeScript dashboard and any later admin panel use only the
+  versioned administration API; the browser never reaches PostgreSQL or
+  Kubernetes.
+- One common Hermes hostname routes by verified OIDC issuer/subject through
+  Traefik, a Rust ForwardAuth adapter and a thin Go/Yaegi plugin that asks the
+  manager for the destination (target design).
+- Out of scope for the first implementation: team instances, board enrollment,
+  cross-owner impersonation, token exchange, arbitrary Kubernetes templates and
+  agent-supplied image or mount specifications.
 
 ## Ownership and sources of truth
 
@@ -42,7 +68,7 @@ Use an official, pinned Traefik Proxy image with multi-layer routing, a separate
 Rust ForwardAuth/OIDC adapter and a thin route-resolution middleware plugin.
 The plugin queries the Rust manager for the destination after authentication.
 This choice requires a local compatibility spike, including active WebSocket
-revocation; the documented revocation bound remains a release gate. The platform
+revocation; meeting the documented revocation bound is an acceptance gate. The platform
 must not assume the Kubernetes distribution's bundled proxy supports the
 required version.
 
@@ -117,12 +143,12 @@ services/hermes-manager/
   crates/hermes-adapters/src/          # HTTP, PostgreSQL, directory and Kubernetes
   crates/hermes-manager/src/bin/       # API/UI and controller process roles
   crates/hermes-router-auth/src/       # OIDC sessions and ForwardAuth adapter
-  ui/                                 # React/TypeScript/Vite scaffold
+  ui/                                 # React/TypeScript/Vite dashboard
 plugins/hermes-route-resolver/          # thin Go/Yaegi middleware
 ```
 
-The Rust crates, API contracts, Go plugin and frontend scaffold exist in source.
-Administration editors, directory integration and checkpoint adapters remain planned. The interface
+The Rust crates, API contracts, Go plugin and dashboard exist in source,
+including the read-only directory adapter. Checkpoint adapters remain planned. The interface
 names below illustrate the target boundaries; see the workspace for current
 traits and the implementation status for completed adapters. Domain code imports
 no HTTP, UI, Kubernetes or identity-provider SDK. Target application ports include
@@ -152,17 +178,9 @@ enable broad credentialed CORS to make a later panel work.
 
 ### Dashboard build and API communication
 
-The manager now serves a protected frontend scaffold and read-only lists using
-the existing API and browser-session authentication. The
-[dashboard guide](dashboard.md) documents the build, Keycloak setup and remaining
-editors. The following architecture applies to further frontend work as well.
-
-The [dashboard stack](dashboard-stack.md) specifies React/TypeScript/Vite with
-planned TanStack Router/Table/Query, React Hook Form, Monaco, shared JSON Schema
-validation and Radix primitives. It separates installed packages from planned
-work and documents the Rust asset/CSP, schema-version and API integration needed
-for the editors. The [feature specification](dashboard-features.md) defines their
-user-facing behavior.
+The [dashboard guide](dashboard.md) documents the implemented features, build,
+Keycloak setup and stack conventions. The following architecture applies to
+further frontend work.
 
 Use React and TypeScript for the browser application, built with
 [Vite](https://vite.dev/guide/build.html). Node.js and the frontend package
@@ -339,9 +357,8 @@ a routine UI impersonation feature.
 
 ## Unified terminal lifecycle and database model
 
-The Rust manager owns terminal execution; the legacy Python `runtime-manager`
-has been removed. It keeps that design's lease, idempotency, parent/delegate
-joining, scope isolation, idle/recycle and draining behavior.
+The Rust manager owns terminal execution: leases, idempotency, parent/delegate
+joining, scope isolation, idle/recycle and draining.
 
 Keep one desired Hermes gateway replica running for every enabled assignment,
 including while its browser is closed and all terminal workers are idle. Native
@@ -446,10 +463,8 @@ forwarded only with a valid platform session and resolvable owner. Missing,
 expired or switched platform sessions abort the native callback and require a
 fresh flow; a callback code or its query parameters never select a backend.
 
-The native adapter must verify the expected owner on login, every session check
-and refresh. Release 0.6.1's generic native OIDC configuration is not evidence
-that this owner pin exists. Add it as part of this work and test it independently
-of routing. Give instances distinct persisted native session keys.
+The native adapter verifies the expected owner on login, every session check
+and refresh, tested independently of routing. Give instances distinct persisted native session keys.
 
 Store platform tokens and session records server-side with dedicated database
 permissions and referenced encryption keys. Keep opaque Secure/HttpOnly host-only
@@ -573,8 +588,8 @@ The coordinated checkpoint/restore flow below is planned. Current source has
 an explicit fresh-install scanner and ownership/epoch gates, but no automated
 backups or full-data restore implementation. Retained PVCs are not backup copies.
 
-Dynamic instances invalidate a fixed backup dataset/Secret list. Before adoption,
-the deployment integration must consume a versioned inventory containing all
+Dynamic instances invalidate a fixed backup dataset/Secret list. Before running
+personal instances, the deployment integration must consume a versioned inventory containing all
 instance IDs, owner keys, namespace/resource UID bindings, PVC datasets, selected
 Secrets, template/image digests, terminal-runtime/storage policy and execution
 environment/lease state from the shared manager database.
@@ -601,19 +616,14 @@ must finish its coordinated checkpoint before removing the control plane or VM.
 
 ## Chart and release ownership
 
-Helm installs the manager API/UI, controller, router, shared policies and
+Helm installs the manager API/UI, controller, router-auth, shared policies and
 installation-level configuration. The controller creates per-owner objects from
-reviewed templates shipped with that same release. Chart and service code share
-the typed template/policy contract; infrastructure consumers must not generate
-manager configuration or one Pulumi resource per user.
+reviewed templates. Chart and service code share the typed template/policy
+contract; infrastructure consumers must not generate manager configuration or one
+Pulumi resource per user, and there is no Helm release per user.
 
-The feature is opt-in. Keep the current singleton chart path until explicit
-adoption succeeds, reject simultaneous direct singleton/router exposure at the
-same hostname, and pin all new images by digest with the existing release set.
-Personal mode installs only the shared Rust manager for both commissioning and
-terminal lifecycle; it must not install legacy or per-owner runtime-manager
-Deployments. Custom terminal image digests are approved database policy, separate
-from the release-pinned Hermes/manager/router software images.
-Do not create a Helm release per user or install software by downloading and
-executing deployment scripts. Database/schema and backup-inventory compatibility
-must be reviewed along with the image/chart upgrade.
+The release pipeline pins all software images (Hermes, worker, manager) by
+digest in the chart. Custom terminal image digests are approved database policy,
+separate from those software images. Nothing installs software by downloading
+and executing deployment scripts. Review database schema and backup-inventory
+compatibility together with each image/chart change.
