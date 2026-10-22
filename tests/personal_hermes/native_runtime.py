@@ -69,7 +69,6 @@ def main():
             "manager_url": "https://manager.example.org/execution",
             "token_file": "/run/hermes/credentials/execution-client-token",
             "ca_file": "/run/hermes/execution-ca/ca.crt",
-            "profile": "default",
             "mode": "per_session",
             "ssh_key": "/run/hermes/credentials/id_ed25519",
             "acquire_timeout_seconds": 180,
@@ -281,7 +280,7 @@ try:
     for key in ['manager_url','token_file','ca_file','ssh_key']:
         assert settings[key]==connection[key]
     assert settings['runtime_id']=='python-tools'
-    assert settings['profile']=='default'
+    assert settings['mode']=='per_session' and 'profile' not in settings
 finally:
     os.environ['HERMES_HOME']='/opt/data'
 response=urllib.request.urlopen('http://127.0.0.1:9119/api/health',timeout=3)

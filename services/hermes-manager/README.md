@@ -152,9 +152,9 @@ CSRF and current PostgreSQL grant revocation.
 
 The optional execution TLS listener implements the separate
 [native protocol contract](../../contracts/hermes-manager/execution.openapi.yaml).
-It accepts only the exact instance's registered opaque execution credential and
-profile; JWTs and browser cookies grant no execution access. Native credentials
-grant no administration or router access. Acquisitions return pending while
+It accepts only the exact instance's registered opaque execution credential;
+requests carry no caller-selected scope. JWTs and browser cookies grant no
+execution access. Native credentials grant no administration or router access. Acquisitions return pending while
 applied policy or trusted worker readiness is missing, and disabling an
 assignment invalidates its execution credential immediately. The execution HTTPS
 tests use actual encrypted bootstrap/client registration and desired policy;

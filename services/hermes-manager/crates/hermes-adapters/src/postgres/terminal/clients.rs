@@ -3,9 +3,7 @@ use async_trait::async_trait;
 use hermes_application::{
     Error, InstallationScope, OperationClaim,
     materials::MaterialContext,
-    terminal::clients::{
-        ExecutionClient, ExecutionClientRepository, ExecutionTokenHash, NATIVE_EXECUTION_PROFILE,
-    },
+    terminal::clients::{ExecutionClient, ExecutionClientRepository, ExecutionTokenHash},
 };
 use sqlx::Row;
 use uuid::Uuid;
@@ -16,7 +14,6 @@ fn client(row: &sqlx::postgres::PgRow) -> ExecutionClient {
         installation_id: row.get("installation_id"),
         instance_id: row.get("instance_id"),
         epoch: row.get("authorization_epoch"),
-        profile: row.get("profile"),
     }
 }
 #[async_trait]
@@ -27,11 +24,9 @@ impl ExecutionClientRepository for PgStore {
         claim: &OperationClaim,
         material: &MaterialContext,
         token_hash: ExecutionTokenHash,
-        profile: &str,
     ) -> Result<ExecutionClient, Error> {
         material.validate()?;
-        if profile != NATIVE_EXECUTION_PROFILE
-            || material.purpose != "native-bootstrap-v1"
+        if material.purpose != "native-bootstrap-v1"
             || material.installation_id != scope.id
             || material.instance_id != claim.instance_id
             || material.epoch > scope.epoch
@@ -46,8 +41,8 @@ impl ExecutionClientRepository for PgStore {
         if !valid {
             return Err(Error::Forbidden);
         }
-        sqlx::query("INSERT INTO manager.execution_clients(id,installation_id,instance_id,material_id,token_hash,profile,authorization_epoch) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(instance_id) DO NOTHING")
-            .bind(Uuid::new_v4()).bind(scope.id).bind(claim.instance_id).bind(material.id).bind(token_hash.bytes().as_slice()).bind(profile).bind(scope.epoch).execute(&mut *tx).await.map_err(db_error)?;
+        sqlx::query("INSERT INTO manager.execution_clients(id,installation_id,instance_id,material_id,token_hash,authorization_epoch) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(instance_id) DO NOTHING")
+            .bind(Uuid::new_v4()).bind(scope.id).bind(claim.instance_id).bind(material.id).bind(token_hash.bytes().as_slice()).bind(scope.epoch).execute(&mut *tx).await.map_err(db_error)?;
         let row =
             sqlx::query("SELECT *, revoked_at IS NOT NULL AS revoked FROM manager.execution_clients WHERE instance_id=$1 FOR UPDATE")
                 .bind(claim.instance_id)
@@ -57,7 +52,6 @@ impl ExecutionClientRepository for PgStore {
         if row.get::<Uuid, _>("installation_id") != scope.id
             || row.get::<Uuid, _>("material_id") != material.id
             || row.get::<Vec<u8>, _>("token_hash").as_slice() != token_hash.bytes()
-            || row.get::<String, _>("profile") != profile
         {
             return Err(Error::OwnershipConflict);
         }

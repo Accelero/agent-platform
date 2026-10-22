@@ -8,7 +8,7 @@ use hermes_adapters::{
 use hermes_application::{
     AdminPolicy, AssignmentCommand, Assignments, Error, InstallationScope, OperationClaim,
     OperationQueue, VerifiedPrincipal,
-    terminal::clients::{ExecutionClientRepository, ExecutionTokenHash, NATIVE_EXECUTION_PROFILE},
+    terminal::clients::{ExecutionClientRepository, ExecutionTokenHash},
 };
 use hermes_domain::{Access, Identity, TemplateVersion};
 use sqlx::PgPool;
@@ -129,7 +129,6 @@ async fn prepared(
             &claim,
             &material.context,
             ExecutionTokenHash::from_token(&bootstrap.execution_client_token).unwrap(),
-            NATIVE_EXECUTION_PROFILE,
         )
         .await
         .unwrap();
@@ -276,7 +275,6 @@ async fn effective_fixture(pool: &PgPool, p: &ResolvedPolicy) {
 }
 fn request(key: &str) -> AcquireRequest {
     AcquireRequest {
-        profile: "default".into(),
         session: "session-a".into(),
         mode: LifetimeMode::PerSession,
         request: key.into(),
@@ -740,7 +738,6 @@ async fn live_parent_join_release_independence_close_scope_and_epoch_fence(pool:
         Err(Error::Forbidden)
     ));
     let wrong = CloseSessionRequest {
-        profile: "default".into(),
         session: "session-a".into(),
         runtime_id: Some("foreign".into()),
         runtime: request("x").runtime,
@@ -1106,7 +1103,6 @@ async fn terminal_retirement_waits_for_children_fences_claims_and_preserves_requ
             &scope,
             &client,
             &CloseSessionRequest {
-                profile: "default".into(),
                 session: "session-a".into(),
                 runtime_id: None,
                 runtime: request("unused").runtime,

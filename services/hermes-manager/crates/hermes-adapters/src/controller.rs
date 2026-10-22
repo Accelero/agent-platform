@@ -16,7 +16,7 @@ use hermes_application::{
     native_stop::NativeStopRepository,
     resources::{OwnedResource, ResourceReconciler, ResourceRepository},
     resync::PeriodicResync,
-    terminal::clients::{ExecutionClientRepository, ExecutionTokenHash, NATIVE_EXECUTION_PROFILE},
+    terminal::clients::{ExecutionClientRepository, ExecutionTokenHash},
 };
 use hermes_domain::{
     Access,
@@ -213,7 +213,6 @@ impl Controller {
                 claim,
                 &material.context,
                 ExecutionTokenHash::from_token(&bootstrap.execution_client_token)?,
-                NATIVE_EXECUTION_PROFILE,
             )
             .await?;
         let resources =

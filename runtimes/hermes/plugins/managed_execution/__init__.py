@@ -68,8 +68,7 @@ class Client:
 
     def acquire(self, session, parent_lease=None):
         # Idempotent retry protects against a lost response after the manager grants a lease.
-        payload = {key: self.settings[key] for key in ("profile", "mode")}
-        payload.update(session=session, request=uuid.uuid4().hex)
+        payload = {'session': session, 'mode': self.settings['mode'], 'request': uuid.uuid4().hex}
         if self.settings.get('runtime_id'):
             payload['runtime_id'] = self.settings['runtime_id']
         if self.runtime:
@@ -314,8 +313,7 @@ class ManagedSSHEnvironment(SSHEnvironment):
                 self._release_lease()
                 if self.settings['mode'] == 'per_session':
                     try:
-                        body = {'profile': self.settings['profile'],
-                                'session': self.session, 'runtime': self.runtime}
+                        body = {'session': self.session, 'runtime': self.runtime}
                         if self.settings.get('runtime_id'):
                             body['runtime_id'] = self.settings['runtime_id']
                         self.client.call('/v1/sessions/close', body, timeout=15)
@@ -345,17 +343,16 @@ class Provider(TerminalEnvironmentProvider):
         self._creation_locks = weakref.WeakValueDictionary()
 
     def settings(self):
-        """Connection settings come only from the manager's managed configuration;
-        profiles choose a lifetime mode and an approved runtime_id."""
+        """Connection and lifetime settings come only from the manager's managed
+        configuration; profiles choose an approved runtime_id."""
         managed = json.loads(MANAGED_CONFIG.read_text())
-        connection = managed['plugins']['entries']['managed_execution']['settings']
-        settings = {key: connection[key] for key in ('manager_url', 'token_file', 'ca_file', 'ssh_key')}
+        policy = managed['plugins']['entries']['managed_execution']['settings']
+        settings = {key: policy[key] for key in ('manager_url', 'token_file', 'ca_file', 'ssh_key')}
+        # The credential identifies the instance. Native profile isolation is
+        # carried by runtime.hermes_home, the session and runtime_id.
         settings.update(
-            # The wire profile is the credential's fixed service scope. Native
-            # profile isolation is carried by runtime.hermes_home and runtime_id.
-            profile='default',
-            mode=self.ctx.get_config('mode', 'per_profile_on_demand'),
-            acquire_timeout_seconds=self.ctx.get_config('acquire_timeout_seconds', 180),
+            mode=policy.get('mode', 'per_session'),
+            acquire_timeout_seconds=policy.get('acquire_timeout_seconds', 180),
             runtime_id=self.ctx.get_config('runtime_id', ''),
         )
         # The schema-driven dashboard saves the selection in the active profile's

@@ -4,8 +4,8 @@ info:
   version: 0.1.0
   description: >-
     Separate internal TLS listener used by the personal Hermes managed_execution plugin.
-    A native opaque bearer credential resolves one installation, current epoch,
-    enabled instance and exact profile. It grants no administration or route
+    A native opaque bearer credential resolves one installation, current epoch
+    and enabled instance; requests carry no caller-selected scope. It grants no administration or route
     resolution permission. OIDC JWTs and browser cookies do not authenticate here.
     Each request rechecks current authorization. Request bodies and headers are
     each limited to 16 KiB, and every response is no-store. Query parameters,
@@ -151,7 +151,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Forbidden:
-      description: Exact profile/runtime/lease ownership requirement denied
+      description: Runtime or lease ownership requirement denied
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -199,9 +199,8 @@ components:
     AcquireRequest:
       type: object
       additionalProperties: false
-      required: [profile, session, mode, request]
+      required: [session, mode, request]
       properties:
-        profile: { type: string, const: default }
         session: { $ref: '#/components/schemas/Identifier' }
         mode: { $ref: '#/components/schemas/LifetimeMode' }
         request: { $ref: '#/components/schemas/Identifier' }
@@ -220,9 +219,8 @@ components:
     CloseSessionRequest:
       type: object
       additionalProperties: false
-      required: [profile, session]
+      required: [session]
       properties:
-        profile: { type: string, const: default }
         session: { $ref: '#/components/schemas/Identifier' }
         runtime_id: { $ref: '#/components/schemas/RuntimeId' }
         runtime:
@@ -272,10 +270,9 @@ components:
     EnvironmentSummary:
       type: object
       additionalProperties: false
-      required: [id, profile, session, mode, generation, stale, provisioned, leases, runtime_id]
+      required: [id, session, mode, generation, stale, provisioned, leases, runtime_id]
       properties:
         id: { type: string, format: uuid }
-        profile: { type: string, const: default }
         session: { type: string, maxLength: 256, description: Empty for profile-scoped lifetime modes }
         mode: { $ref: '#/components/schemas/LifetimeMode' }
         generation: { type: string, pattern: '^[1-9][0-9]*$' }

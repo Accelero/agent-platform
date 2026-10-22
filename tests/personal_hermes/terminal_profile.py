@@ -59,7 +59,6 @@ def main():
             )
         )
         assert provider.settings()["runtime_id"] == runtime_id
-        assert provider.settings()["profile"] == "default"
         if denied == "1":
             try:
                 provider.create_environment(

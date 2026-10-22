@@ -56,7 +56,6 @@ def plugin(monkeypatch, tmp_path):
 
 def settings(**changes):
     return {
-        "profile": "default",
         "mode": "per_session",
         "acquire_timeout_seconds": 30,
         **changes,
@@ -96,7 +95,7 @@ def test_absent_selector_keeps_legacy_request_compatible(plugin, monkeypatch):
 def test_factory_cache_separates_runtime_and_session_close_targets_selection(
     plugin, monkeypatch
 ):
-    config = {"profile": "default", "runtime_id": "python-tools"}
+    config = {"runtime_id": "python-tools"}
     context = SimpleNamespace(
         get_config=lambda key, default: config.get(key, default), profile_name="default"
     )
@@ -147,7 +146,6 @@ def test_session_close_preserves_selected_runtime_context(plugin):
         (
             "/v1/sessions/close",
             {
-                "profile": "default",
                 "session": "conversation",
                 "runtime": environment.runtime,
                 "runtime_id": "python-tools",
@@ -156,9 +154,7 @@ def test_session_close_preserves_selected_runtime_context(plugin):
     ]
 
 
-def test_dashboard_profile_selection_overrides_plugin_default_without_changing_scope(
-    plugin, monkeypatch
-):
+def test_dashboard_profile_selection_overrides_plugin_default(plugin, monkeypatch):
     config = sys.modules["hermes_cli.config"]
 
     current = {"terminal": {"runtime_id": "python-tools"}}
@@ -168,7 +164,7 @@ def test_dashboard_profile_selection_overrides_plugin_default_without_changing_s
     monkeypatch.setattr(
         session_context, "get_session_env", lambda key, default: "research"
     )
-    values = {"profile": "default", "runtime_id": "fallback-tools"}
+    values = {"runtime_id": "fallback-tools"}
     provider = plugin.Provider(
         SimpleNamespace(
             get_config=lambda key, default: values.get(key, default),
@@ -176,7 +172,6 @@ def test_dashboard_profile_selection_overrides_plugin_default_without_changing_s
         )
     )
     assert provider.settings()["runtime_id"] == "python-tools"
-    assert provider.settings()["profile"] == "default"
     current["terminal"]["runtime_id"] = "shell-tools"
     assert provider.settings()["runtime_id"] == "shell-tools"
     current["terminal"]["runtime_id"] = ""
@@ -265,3 +260,23 @@ def test_lease_and_session_requests_match_the_execution_contract(plugin):
     assert [path for path, _ in requests] == list(schemas)
     for path, body in requests:
         conforms(schemas[path], path, body)
+
+
+def test_lifetime_mode_comes_only_from_the_managed_configuration(plugin):
+    """Session close retires per-session workers; a profile cannot switch a
+    personal instance to profile-lifetime workers that only retire when idle."""
+    managed = json.loads(plugin.MANAGED_CONFIG.read_text())
+    settings = managed["plugins"]["entries"]["managed_execution"]["settings"]
+    profile = {"mode": "per_profile_always_running", "acquire_timeout_seconds": 1}
+    provider = plugin.Provider(
+        SimpleNamespace(
+            get_config=lambda key, default: profile.get(key, default),
+            profile_name="research",
+        )
+    )
+    assert provider.settings()["mode"] == "per_session"
+    assert provider.settings()["acquire_timeout_seconds"] == 180
+    settings.update(mode="per_profile_on_demand", acquire_timeout_seconds=30)
+    plugin.MANAGED_CONFIG.write_text(json.dumps(managed))
+    assert provider.settings()["mode"] == "per_profile_on_demand"
+    assert provider.settings()["acquire_timeout_seconds"] == 30

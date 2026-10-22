@@ -30,8 +30,8 @@ async fn lock_client(
         .execute(&mut **tx)
         .await
         .map_err(db_error)?;
-    let row=sqlx::query("SELECT i.*,a.access,i.drain_completed_at IS NOT NULL AS drain_complete FROM manager.execution_clients c JOIN manager.instances i ON i.id=c.instance_id JOIN manager.assignments a ON a.id=i.assignment_id WHERE c.id=$1 AND c.instance_id=$2 AND c.installation_id=$3 AND a.installation_id=$3 AND c.authorization_epoch=$4 AND c.profile=$5 AND c.revoked_at IS NULL AND a.access='enabled' FOR UPDATE OF i,a")
- .bind(client.id).bind(client.instance_id).bind(scope.id).bind(scope.epoch).bind(&client.profile).fetch_optional(&mut **tx).await.map_err(db_error)?.ok_or(Error::Forbidden)?;
+    let row=sqlx::query("SELECT i.*,a.access,i.drain_completed_at IS NOT NULL AS drain_complete FROM manager.execution_clients c JOIN manager.instances i ON i.id=c.instance_id JOIN manager.assignments a ON a.id=i.assignment_id WHERE c.id=$1 AND c.instance_id=$2 AND c.installation_id=$3 AND a.installation_id=$3 AND c.authorization_epoch=$4 AND c.revoked_at IS NULL AND a.access='enabled' FOR UPDATE OF i,a")
+ .bind(client.id).bind(client.instance_id).bind(scope.id).bind(scope.epoch).fetch_optional(&mut **tx).await.map_err(db_error)?.ok_or(Error::Forbidden)?;
     if client.installation_id != scope.id || client.epoch != scope.epoch {
         return Err(Error::Forbidden);
     }
@@ -124,9 +124,6 @@ impl ExecutionLeaseRepository for PgStore {
         request: &AcquireRequest,
     ) -> Result<AcquireOutcome, Error> {
         request.validate()?;
-        if request.profile != client.profile {
-            return Err(Error::Forbidden);
-        }
         let digest = request.digest()?;
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         let owner = lock_client(&mut tx, scope, client).await?;
@@ -183,7 +180,6 @@ impl ExecutionLeaseRepository for PgStore {
         let identity = Sha256::digest(
             serde_json::to_vec(&json!([
                 client.instance_id,
-                request.profile,
                 mode(request.mode),
                 if request.mode == LifetimeMode::PerSession {
                     request.session.as_str()
@@ -220,8 +216,8 @@ impl ExecutionLeaseRepository for PgStore {
                 return Err(Error::Unavailable);
             }
             let id = Uuid::new_v4();
-            sqlx::query("INSERT INTO manager.execution_environments(id,installation_id,instance_id,identity_digest,epoch,assignment_generation,policy_generation,policy_digest,runtime_id,profile,session,mode,limits,invocation,pod_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *")
- .bind(id).bind(scope.id).bind(client.instance_id).bind(identity).bind(scope.epoch).bind(owner.get::<i64,_>("desired_generation")).bind(approved.generation).bind(approved.digest()?).bind(runtime_id).bind(&request.profile).bind(if request.mode==LifetimeMode::PerSession{request.session.as_str()}else{""}).bind(mode(request.mode)).bind(serde_json::to_value(&runtime.limits).map_err(|_|Error::Invalid)?).bind(serde_json::to_value(&request.runtime).map_err(|_|Error::Invalid)?).bind(worker_pod_name(id,1)?).fetch_one(&mut *tx).await.map_err(db_error)?
+            sqlx::query("INSERT INTO manager.execution_environments(id,installation_id,instance_id,identity_digest,epoch,assignment_generation,policy_generation,policy_digest,runtime_id,session,mode,limits,invocation,pod_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *")
+ .bind(id).bind(scope.id).bind(client.instance_id).bind(identity).bind(scope.epoch).bind(owner.get::<i64,_>("desired_generation")).bind(approved.generation).bind(approved.digest()?).bind(runtime_id).bind(if request.mode==LifetimeMode::PerSession{request.session.as_str()}else{""}).bind(mode(request.mode)).bind(serde_json::to_value(&runtime.limits).map_err(|_|Error::Invalid)?).bind(serde_json::to_value(&request.runtime).map_err(|_|Error::Invalid)?).bind(worker_pod_name(id,1)?).fetch_one(&mut *tx).await.map_err(db_error)?
         };
         if env.get::<i64, _>("epoch") != scope.epoch
             || env.get::<i64, _>("assignment_generation")
@@ -286,7 +282,7 @@ impl ExecutionLeaseRepository for PgStore {
             return Ok(AcquireOutcome::Pending);
         }
         if bounds.serialize_profile {
-            let other:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM manager.execution_environments WHERE instance_id=$1 AND id<>$2 AND state<>'Retired' AND profile=$3 AND (pod_uid IS NOT NULL OR state='Provisioning'))").bind(client.instance_id).bind(env_id).bind(&request.profile).fetch_one(&mut *tx).await.map_err(db_error)?;
+            let other:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM manager.execution_environments WHERE instance_id=$1 AND id<>$2 AND state<>'Retired' AND (pod_uid IS NOT NULL OR state='Provisioning'))").bind(client.instance_id).bind(env_id).fetch_one(&mut *tx).await.map_err(db_error)?;
             if other {
                 tx.commit().await.map_err(db_error)?;
                 return Ok(AcquireOutcome::Pending);
@@ -378,9 +374,6 @@ impl ExecutionLeaseRepository for PgStore {
         request: &CloseSessionRequest,
     ) -> Result<CloseReply, Error> {
         request.validate()?;
-        if request.profile != client.profile {
-            return Err(Error::Forbidden);
-        }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_client(&mut tx, scope, client).await?;
         let Some((p, _)) = policy(&mut tx, scope, client.instance_id).await? else {
@@ -397,7 +390,7 @@ impl ExecutionLeaseRepository for PgStore {
         {
             return Err(Error::Forbidden);
         }
-        sqlx::query("UPDATE manager.execution_environments SET state='Draining',drain_deadline=COALESCE(drain_deadline,clock_timestamp()+interval '5 minutes'),lease_owner=NULL,lease_until=NULL WHERE instance_id=$1 AND profile=$2 AND session=$3 AND mode='per_session' AND runtime_id=$4 AND invocation=$5 AND state NOT IN('Draining','Retired')").bind(client.instance_id).bind(&request.profile).bind(&request.session).bind(runtime).bind(serde_json::to_value(&request.runtime).map_err(|_|Error::Invalid)?).execute(&mut *tx).await.map_err(db_error)?;
+        sqlx::query("UPDATE manager.execution_environments SET state='Draining',drain_deadline=COALESCE(drain_deadline,clock_timestamp()+interval '5 minutes'),lease_owner=NULL,lease_until=NULL WHERE instance_id=$1 AND session=$2 AND mode='per_session' AND runtime_id=$3 AND invocation=$4 AND state NOT IN('Draining','Retired')").bind(client.instance_id).bind(&request.session).bind(runtime).bind(serde_json::to_value(&request.runtime).map_err(|_|Error::Invalid)?).execute(&mut *tx).await.map_err(db_error)?;
         tx.commit().await.map_err(db_error)?;
         Ok(CloseReply { closed: true })
     }
@@ -414,7 +407,6 @@ impl ExecutionLeaseRepository for PgStore {
             .map(|r| {
                 Ok(EnvironmentSummary {
                     id: r.get("id"),
-                    profile: r.get("profile"),
                     session: r.get("session"),
                     mode: serde_json::from_value(json!(r.get::<String, _>("mode")))
                         .map_err(|_| Error::RecoveryRequired)?,
@@ -514,7 +506,7 @@ impl ExecutionEnvironmentRepository for PgStore {
             .execute(&mut *tx)
             .await
             .map_err(db_error)?;
-        let candidate:Option<Uuid>=sqlx::query_scalar("SELECT e.id FROM manager.execution_environments e JOIN manager.instances i ON i.id=e.instance_id JOIN manager.assignments a ON a.id=i.assignment_id JOIN manager.execution_policy_status s ON s.instance_id=i.id WHERE e.installation_id=$1 AND e.epoch=$2 AND e.state IN('Pending','Provisioning') AND (e.lease_until IS NULL OR e.lease_until<=clock_timestamp()) AND a.access='enabled' AND i.desired_generation=e.assignment_generation AND (i.drain_generation IS NULL OR i.drain_completed_at IS NOT NULL) AND s.applied_generation=e.policy_generation AND s.desired_generation=e.policy_generation AND s.epoch=$2 AND manager.execution_namespace_open(e.instance_id,$2,e.assignment_generation,i.namespace_uid) AND (NOT COALESCE((e.limits->>'serializeProfile')::boolean,false) OR NOT EXISTS(SELECT 1 FROM manager.execution_environments other WHERE other.instance_id=e.instance_id AND other.id<>e.id AND other.profile=e.profile AND other.state<>'Retired' AND (other.pod_uid IS NOT NULL OR other.state='Provisioning'))) AND EXISTS(SELECT 1 FROM manager.execution_effective_policy_receipts r WHERE r.instance_id=e.instance_id AND r.generation=e.policy_generation AND r.epoch=e.epoch AND r.content_digest=e.policy_digest) ORDER BY e.created_at,e.id LIMIT 1 FOR UPDATE OF i,a,e SKIP LOCKED").bind(scope.id).bind(scope.epoch).fetch_optional(&mut *tx).await.map_err(db_error)?;
+        let candidate:Option<Uuid>=sqlx::query_scalar("SELECT e.id FROM manager.execution_environments e JOIN manager.instances i ON i.id=e.instance_id JOIN manager.assignments a ON a.id=i.assignment_id JOIN manager.execution_policy_status s ON s.instance_id=i.id WHERE e.installation_id=$1 AND e.epoch=$2 AND e.state IN('Pending','Provisioning') AND (e.lease_until IS NULL OR e.lease_until<=clock_timestamp()) AND a.access='enabled' AND i.desired_generation=e.assignment_generation AND (i.drain_generation IS NULL OR i.drain_completed_at IS NOT NULL) AND s.applied_generation=e.policy_generation AND s.desired_generation=e.policy_generation AND s.epoch=$2 AND manager.execution_namespace_open(e.instance_id,$2,e.assignment_generation,i.namespace_uid) AND (NOT COALESCE((e.limits->>'serializeProfile')::boolean,false) OR NOT EXISTS(SELECT 1 FROM manager.execution_environments other WHERE other.instance_id=e.instance_id AND other.id<>e.id AND other.state<>'Retired' AND (other.pod_uid IS NOT NULL OR other.state='Provisioning'))) AND EXISTS(SELECT 1 FROM manager.execution_effective_policy_receipts r WHERE r.instance_id=e.instance_id AND r.generation=e.policy_generation AND r.epoch=e.epoch AND r.content_digest=e.policy_digest) ORDER BY e.created_at,e.id LIMIT 1 FOR UPDATE OF i,a,e SKIP LOCKED").bind(scope.id).bind(scope.epoch).fetch_optional(&mut *tx).await.map_err(db_error)?;
         let Some(id) = candidate else {
             tx.commit().await.map_err(db_error)?;
             return Ok(None);

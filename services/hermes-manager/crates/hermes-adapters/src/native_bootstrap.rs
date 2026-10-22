@@ -77,7 +77,7 @@ impl NativeBootstrap {
             template,
             native_config: json!({
                 "terminal":{"backend":"managed_execution","cwd":"/workspace","ssh_key":"/run/hermes/credentials/id_ed25519"},
-                "plugins":{"enabled":["managed_execution"],"entries":{"managed_execution":{"settings":{"manager_url":execution_url,"token_file":"/run/hermes/credentials/execution-client-token","ca_file":"/run/hermes/execution-ca/ca.crt","profile":"default","mode":"per_session","ssh_key":"/run/hermes/credentials/id_ed25519","acquire_timeout_seconds":180}}}},
+                "plugins":{"enabled":["managed_execution"],"entries":{"managed_execution":{"settings":{"manager_url":execution_url,"token_file":"/run/hermes/credentials/execution-client-token","ca_file":"/run/hermes/execution-ca/ca.crt","mode":"per_session","ssh_key":"/run/hermes/credentials/id_ed25519","acquire_timeout_seconds":180}}}},
             }),
         })
     }

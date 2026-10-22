@@ -11,7 +11,6 @@ import yaml
 
 # Fields the execution contract accepts on acquire; the manager rejects others.
 ACQUIRE_FIELDS = {
-    "profile",
     "session",
     "mode",
     "request",
@@ -110,7 +109,6 @@ def main() -> None:
                 for endpoint, payload in calls[before:]:
                     if endpoint.endswith("/acquire"):
                         assert set(payload) <= ACQUIRE_FIELDS, set(payload)
-                        assert payload["profile"] == "default"
                         assert payload.get("runtime_id", "") == runtime_id
                 assert (
                     provider.create_environment(

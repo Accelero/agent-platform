@@ -78,9 +78,8 @@ that plugin obtains the manager-approved SSH endpoint and host identity.
 Missing or invalid admin policy blocks terminal creation rather than choosing a
 fallback. These are Hermes configuration controls, not a sandbox for arbitrary
 third-party Python plugins running inside the Hermes process.
-Native profile names do not expand the credential's service profile: the wire
-scope remains `default`; profile home/session/runtime identity separates worker
-environments within the authenticated instance.
+Native profile names never widen the credential: profile home, session and
+runtime identity separate worker environments within the authenticated instance.
 
 Changes apply when an environment is acquired; active commands and leases stay
 bound to the runtime/generation already granted. Provider transport caching
@@ -95,21 +94,23 @@ unknown fields, so the plugin sends exactly these requests under the managed
 
 | Plugin step | Request | Body |
 | --- | --- | --- |
-| A command needs a terminal | `POST /execution/v1/leases/acquire` | `profile` (always `default`), `session`, `mode`, `request` (idempotency ID), optional `runtime_id`, `parent_lease`, `runtime` |
+| A command needs a terminal | `POST /execution/v1/leases/acquire` | `session`, `mode`, `request` (idempotency ID), optional `runtime_id`, `parent_lease`, `runtime` |
 | While the lease is in use | `POST /execution/v1/leases/heartbeat` | `lease` |
 | Turn ends or SSH setup fails | `POST /execution/v1/leases/release` | `lease` |
-| Per-session environment closes | `POST /execution/v1/sessions/close` | `profile`, `session`, optional `runtime_id`, `runtime` |
+| Per-session environment closes | `POST /execution/v1/sessions/close` | `session`, optional `runtime_id`, `runtime` |
 
-- **Connection.** `manager_url`, `token_file`, `ca_file` and `ssh_key` come only
-  from the managed configuration that the manager writes into
-  `/run/hermes/execution-ca/config.yaml`. Profiles cannot change them. Outside
-  a personal instance the provider reports itself unavailable.
-- **Selection.** Profiles choose `terminal.runtime_id` (dashboard) and the
-  lifetime `mode`. They cannot request an image, template, mount or Pod field;
-  the contract has no such fields.
-- **Identity.** The opaque bearer credential identifies the instance. Native
-  profile isolation travels in `runtime.hermes_home` and `runtime_id`, while
-  the wire `profile` stays the credential's fixed `default` scope.
+- **Connection and lifetime.** `manager_url`, `token_file`, `ca_file`,
+  `ssh_key`, `mode` and `acquire_timeout_seconds` come only from the managed
+  configuration that the manager writes into `/run/hermes/execution-ca/config.yaml`.
+  Profiles cannot change them. The manager uses `per_session`, so closing a
+  conversation retires its worker. Outside a personal instance the provider
+  reports itself unavailable.
+- **Selection.** Profiles choose only `terminal.runtime_id` (dashboard). They
+  cannot request an image, template, mount or Pod field; the contract has no
+  such fields.
+- **Identity.** The opaque bearer credential alone identifies the instance;
+  requests carry no caller-selected scope. Native profile isolation travels in
+  `runtime.hermes_home`, `session` and `runtime_id`.
 - **Retries.** A `409` (environment pending) or `503` is retried with the same
   `request` ID until `acquire_timeout_seconds`. Any other status fails the
   terminal call without fallback.

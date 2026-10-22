@@ -8,7 +8,7 @@ use hermes_adapters::{
 use hermes_application::{
     AdminPolicy, AssignmentCommand, Assignments, Error, InstallationScope, OperationClaim,
     OperationQueue, VerifiedPrincipal,
-    terminal::clients::{ExecutionClientRepository, ExecutionTokenHash, NATIVE_EXECUTION_PROFILE},
+    terminal::clients::{ExecutionClientRepository, ExecutionTokenHash},
 };
 use hermes_domain::{Access, Identity, TemplateVersion};
 use sqlx::PgPool;
@@ -119,23 +119,11 @@ async fn scoped_clients_are_create_once_and_live_authorized(pool: PgPool) {
         .unwrap();
     let token = || ExecutionTokenHash::from_token(&bootstrap.execution_client_token).unwrap();
     let first = store
-        .register_under_current_claim(
-            &scope,
-            &claim,
-            &material.context,
-            token(),
-            NATIVE_EXECUTION_PROFILE,
-        )
+        .register_under_current_claim(&scope, &claim, &material.context, token())
         .await
         .unwrap();
     let second = store
-        .register_under_current_claim(
-            &scope,
-            &claim,
-            &material.context,
-            token(),
-            NATIVE_EXECUTION_PROFILE,
-        )
+        .register_under_current_claim(&scope, &claim, &material.context, token())
         .await
         .unwrap();
     assert_eq!(first, second);
@@ -152,17 +140,10 @@ async fn scoped_clients_are_create_once_and_live_authorized(pool: PgPool) {
                 &scope,
                 &claim,
                 &material.context,
-                ExecutionTokenHash::from_token(&"b".repeat(64)).unwrap(),
-                NATIVE_EXECUTION_PROFILE
+                ExecutionTokenHash::from_token(&"b".repeat(64)).unwrap()
             )
             .await,
         Err(Error::OwnershipConflict)
-    ));
-    assert!(matches!(
-        store
-            .register_under_current_claim(&scope, &claim, &material.context, token(), "foreign")
-            .await,
-        Err(Error::Invalid)
     ));
     assert!(matches!(
         store
@@ -212,13 +193,7 @@ async fn scoped_clients_are_create_once_and_live_authorized(pool: PgPool) {
         .unwrap();
     assert!(matches!(
         store
-            .register_under_current_claim(
-                &scope,
-                &claim_b,
-                &material.context,
-                token(),
-                NATIVE_EXECUTION_PROFILE
-            )
+            .register_under_current_claim(&scope, &claim_b, &material.context, token())
             .await,
         Err(Error::Invalid)
     ));
@@ -228,13 +203,12 @@ async fn scoped_clients_are_create_once_and_live_authorized(pool: PgPool) {
             &claim_b,
             &material_b.context,
             ExecutionTokenHash::from_token(&bootstrap_b.execution_client_token).unwrap(),
-            NATIVE_EXECUTION_PROFILE,
         )
         .await
         .unwrap();
     assert_ne!(client_b.instance_id, first.instance_id);
     assert!(
-        sqlx::query("UPDATE manager.execution_clients SET profile='other' WHERE id=$1")
+        sqlx::query("UPDATE manager.execution_clients SET token_hash=decode(repeat('ab',32),'hex') WHERE id=$1")
             .bind(first.id)
             .execute(&pool)
             .await

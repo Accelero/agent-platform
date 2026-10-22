@@ -1,11 +1,9 @@
-//! Credentials resolve a single immutable instance and explicit profile.
+//! Credentials resolve a single immutable instance.
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{Error, InstallationScope, OperationClaim, materials::MaterialContext};
-
-pub const NATIVE_EXECUTION_PROFILE: &str = "default";
 
 /// Deliberately no Debug/Serialize. Raw bearer credentials never cross this
 /// persistence port and never belong in an audit, input JSON, or SQL output.
@@ -34,21 +32,19 @@ pub struct ExecutionClient {
     pub installation_id: Uuid,
     pub instance_id: Uuid,
     pub epoch: i64,
-    pub profile: String,
 }
 
 #[async_trait]
 pub trait ExecutionClientRepository: Send + Sync {
     /// Bind the existing encrypted native bootstrap intent to an independent
     /// hashed execution credential before exposing that credential to Hermes.
-    /// Reconciliation never replaces the credential or expands its profiles.
+    /// Reconciliation never replaces the credential or widens its instance.
     async fn register_under_current_claim(
         &self,
         scope: &InstallationScope,
         claim: &OperationClaim,
         material: &MaterialContext,
         token_hash: ExecutionTokenHash,
-        profile: &str,
     ) -> Result<ExecutionClient, Error>;
     async fn authenticate_execution_client(
         &self,

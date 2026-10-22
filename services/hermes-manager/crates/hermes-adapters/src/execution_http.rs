@@ -1,5 +1,5 @@
 //! Dedicated execution transport. Opaque native client credentials authorize
-//! one database-scoped instance/profile, never administration or route lookup.
+//! one database-scoped instance, never administration or route lookup.
 use std::{sync::Arc, time::Duration};
 
 use axum::{

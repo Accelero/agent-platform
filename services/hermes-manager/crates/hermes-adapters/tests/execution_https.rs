@@ -20,7 +20,7 @@ use hermes_application::{
         AssignmentExecution, ExecutionAdministration, ExecutionCommand, RuntimeDefinition,
     },
     routing::RoutePolicy,
-    terminal::clients::{ExecutionClientRepository, ExecutionTokenHash, NATIVE_EXECUTION_PROFILE},
+    terminal::clients::{ExecutionClientRepository, ExecutionTokenHash},
 };
 use hermes_domain::{Access, Identity, TemplateVersion};
 use jsonwebtoken::{Algorithm, Header, encode};
@@ -158,7 +158,6 @@ impl Fixture {
                     &claim,
                     &material.context,
                     ExecutionTokenHash::from_token(&bootstrap.execution_client_token).unwrap(),
-                    NATIVE_EXECUTION_PROFILE,
                 )
                 .await
                 .unwrap();
@@ -302,7 +301,7 @@ impl Fixture {
     }
 }
 fn acquire_body() -> Value {
-    json!({"profile":"default","session":"native-session","mode":"per_session","request":"request-one","runtime_id":"python-tools","runtime":{"hermes_home":"/var/lib/hermes","workdir":"/workspace"}})
+    json!({"session":"native-session","mode":"per_session","request":"request-one","runtime_id":"python-tools","runtime":{"hermes_home":"/var/lib/hermes","workdir":"/workspace"}})
 }
 
 #[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
@@ -446,9 +445,10 @@ async fn pending_policy_never_grants_and_current_disable_immediately_denies_nati
             json!([])
         );
     }
+    // No caller-supplied scope exists; the credential alone selects the instance.
     let mut foreign = request.clone();
-    foreign["profile"] = json!("foreign");
-    assert_eq!(f.acquire(0, &foreign).await.status(), 403);
+    foreign["profile"] = json!("default");
+    assert_eq!(f.acquire(0, &foreign).await.status(), 422);
     foreign = request.clone();
     foreign["runtime_id"] = json!("not-approved");
     assert_eq!(f.acquire(0, &foreign).await.status(), 403);
@@ -521,11 +521,11 @@ async fn native_protocol_rejects_unknown_duplicate_and_oversized_requests(pool: 
     context["runtime"]["workdir"] = json!("relative/path");
     assert_eq!(f.acquire(0, &context).await.status(), 422);
     let duplicate = request.to_string().replacen(
-        "\"profile\":\"default\"",
-        "\"profile\":\"default\",\"profile\":\"foreign\"",
+        "\"session\":\"native-session\"",
+        "\"session\":\"native-session\",\"session\":\"foreign\"",
         1,
     );
-    let oversized = format!("{{\"profile\":\"{}\"}}", "x".repeat(16 * 1024));
+    let oversized = format!("{{\"session\":\"{}\"}}", "x".repeat(16 * 1024));
     let response = f
         .client
         .get(format!("{}/execution/v1/environments", f.execution.url))
@@ -590,7 +590,7 @@ async fn native_protocol_rejects_unknown_duplicate_and_oversized_requests(pool: 
         .client
         .post(format!("{}/execution/v1/sessions/close", f.execution.url))
         .bearer_auth(&f.owners[0].token)
-        .json(&json!({"profile":"foreign","session":"native-session"}))
+        .json(&json!({"session":"native-session","runtime_id":"not-approved"}))
         .send()
         .await
         .unwrap();
@@ -607,7 +607,7 @@ async fn seed_historical_pending_inventory(pool: &PgPool, f: &Fixture, owner: us
     sqlx::query("INSERT INTO manager.execution_effective_policy_receipts(instance_id,generation,epoch,content_digest) VALUES($1,$2,$3,$4)")
         .bind(instance).bind(generation).bind(f.scope.epoch).bind(&digest).execute(pool).await.unwrap();
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO manager.execution_environments(id,installation_id,instance_id,identity_digest,epoch,assignment_generation,policy_generation,policy_digest,runtime_id,profile,session,mode,limits,invocation,pod_name,pod_uid,ssh_host) VALUES($1,$2,$3,$4,$5,1,$6,$7,'python-tools','default',$8,'per_session',$9,$10,$11,$12,$13)")
+    sqlx::query("INSERT INTO manager.execution_environments(id,installation_id,instance_id,identity_digest,epoch,assignment_generation,policy_generation,policy_digest,runtime_id,session,mode,limits,invocation,pod_name,pod_uid,ssh_host) VALUES($1,$2,$3,$4,$5,1,$6,$7,'python-tools',$8,'per_session',$9,$10,$11,$12,$13)")
         .bind(id).bind(f.scope.id).bind(instance).bind(vec![u8::try_from(owner+1).unwrap();32]).bind(f.scope.epoch).bind(generation).bind(digest)
         .bind(format!("historical-session-{owner}"))
         .bind(serde_json::to_value(hermes_application::terminal::leases::ExecutionLimits::default()).unwrap())
@@ -641,7 +641,6 @@ async fn historical_environment_inventory_is_redacted_and_scoped_to_authenticate
         let rows = inventory.as_array().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["id"], id.to_string());
-        assert_eq!(rows[0]["profile"], "default");
         assert_eq!(rows[0]["runtime_id"], "python-tools");
         assert_eq!(rows[0]["session"], format!("historical-session-{owner}"));
         assert_eq!(rows[0]["leases"], 0);
@@ -655,7 +654,6 @@ async fn historical_environment_inventory_is_redacted_and_scoped_to_authenticate
             fields,
             BTreeSet::from([
                 "id",
-                "profile",
                 "session",
                 "mode",
                 "generation",

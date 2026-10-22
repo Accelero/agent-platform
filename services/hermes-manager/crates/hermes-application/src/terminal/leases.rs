@@ -36,7 +36,6 @@ pub enum LifetimeMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AcquireRequest {
-    pub profile: String,
     pub session: String,
     pub mode: LifetimeMode,
     pub request: String,
@@ -49,7 +48,6 @@ pub struct AcquireRequest {
 }
 impl AcquireRequest {
     pub fn validate(&self) -> Result<(), Error> {
-        identifier(&self.profile)?;
         identifier(&self.session)?;
         identifier(&self.request)?;
         if let Some(id) = &self.runtime_id {
@@ -76,7 +74,6 @@ pub struct LeaseRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloseSessionRequest {
-    pub profile: String,
     pub session: String,
     #[serde(default)]
     pub runtime_id: Option<String>,
@@ -85,7 +82,6 @@ pub struct CloseSessionRequest {
 }
 impl CloseSessionRequest {
     pub fn validate(&self) -> Result<(), Error> {
-        identifier(&self.profile)?;
         identifier(&self.session)?;
         if let Some(id) = &self.runtime_id {
             hermes_domain::validate_name(id)?;
@@ -132,7 +128,6 @@ pub struct CloseReply {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EnvironmentSummary {
     pub id: Uuid,
-    pub profile: String,
     pub session: String,
     pub mode: LifetimeMode,
     pub generation: String,
@@ -302,13 +297,13 @@ mod tests {
     use super::*;
     #[test]
     fn strict_native_contract_and_bounded_metadata() {
-        let base =
-            r#"{"profile":"default","session":"session","mode":"per_session","request":"request"}"#;
+        let base = r#"{"session":"session","mode":"per_session","request":"request"}"#;
         let request: AcquireRequest = serde_json::from_str(base).unwrap();
         request.validate().unwrap();
         for extra in [
             r#", "image":"attacker""#,
-            r#", "profile":"foreign""#,
+            // The credential alone selects the instance; no caller scope field exists.
+            r#", "profile":"default""#,
             r#", "runtime":{"hermes_home":"/x","workdir":"/y","mount":"/host"}"#,
         ] {
             let body = format!("{}{}{}", &base[..base.len() - 1], extra, "}");

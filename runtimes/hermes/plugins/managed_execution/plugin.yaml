@@ -4,17 +4,14 @@ kind: backend
 description: Manager-provisioned SSH terminal environments for personal Hermes instances.
 provides_hooks: [pre_llm_call, on_session_end, on_session_finalize, on_session_reset]
 config_schema:
-  template: {type: str, default: '', description: Named manager template; empty uses the manager default}
-  image: {type: str, default: '', description: Terminal container image; empty uses the deployment default}
-  manager_url: {type: str, default: '', description: Manager execution HTTPS URL; personal instances read it from the managed configuration}
-  ca_file: {type: str, default: '', description: Trusted manager certificate; personal instances read it from the managed configuration}
-  token_file: {type: str, default: '', description: Instance execution credential file; personal instances read it from the managed configuration}
-  profile: {type: str, default: '', description: Execution API scope; personal instances use default independently of the native profile name}
-  runtime_id: {type: str, default: '', description: Backend default; the active profile dashboard terminal.runtime_id setting takes precedence}
+  manager_url: {type: str, default: '', description: Manager execution HTTPS URL; read only from the manager's managed configuration}
+  ca_file: {type: str, default: '', description: Trusted manager certificate; read only from the manager's managed configuration}
+  token_file: {type: str, default: '', description: Instance execution credential file; read only from the manager's managed configuration}
+  ssh_key: {type: str, default: '', description: SSH client key; read only from the manager's managed configuration}
+  runtime_id: {type: str, default: '', description: Backend default; the active profile's dashboard terminal.runtime_id setting takes precedence}
   mode:
     type: str
-    default: per_profile_on_demand
+    default: per_session
     choices: [per_session, per_profile_on_demand, per_profile_always_running]
-    description: Environment lifetime
-  ssh_key: {type: str, default: /opt/ssh/id_ed25519, description: SSH client key; personal instances read it from the managed configuration}
-  acquire_timeout_seconds: {type: int, default: 180, description: Maximum wait for provisioning or a draining environment}
+    description: Environment lifetime; read only from the manager's managed configuration
+  acquire_timeout_seconds: {type: int, default: 180, description: Maximum provisioning wait; read only from the manager's managed configuration}

@@ -166,7 +166,16 @@ pub(super) async fn verify(
         if live == 0 {
             break;
         }
-        assert!(Instant::now() < deadline, "released worker did not retire");
+        if Instant::now() >= deadline {
+            // Synthetic fixture data only: report where retirement stalled.
+            let states: Vec<(String, String, Option<String>, bool)> = sqlx::query_as(
+                "SELECT e.mode,e.state,e.pod_uid,EXISTS(SELECT 1 FROM manager.execution_leases l WHERE l.environment_id=e.id AND l.state='Active') FROM manager.execution_environments e WHERE e.state<>'Retired' ORDER BY e.created_at",
+            )
+            .fetch_all(pool)
+            .await
+            .unwrap();
+            panic!("released worker did not retire: {states:?}");
+        }
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
     let states: (i64, i64) = sqlx::query_as("SELECT count(*),count(*) FILTER(WHERE host_key LIKE 'ssh-ed25519 %') FROM manager.execution_worker_ready_receipts").fetch_one(pool).await.unwrap();
