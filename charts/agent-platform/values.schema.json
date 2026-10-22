@@ -26,7 +26,22 @@
       ]
     },
     "imagePullSecrets": {
-      "type": "array"
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+          }
+        }
+      }
     },
     "configMaps": {
       "type": "object",
@@ -41,7 +56,8 @@
           "enum": [
             "runtime-manager-config",
             "multica-gateway-config",
-            "hermes-gateway-config"
+            "hermes-gateway-config",
+            "hermes-defaults"
           ]
         }
       }
@@ -433,6 +449,10 @@
                   ]
                 }
               }
+            },
+            "default_template": {
+              "type": "string",
+              "minLength": 1
             }
           },
           "additionalProperties": false
@@ -445,6 +465,58 @@
         "required": [
           "roles"
         ]
+      },
+      "properties": {
+        "imagePullSecrets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 253,
+                "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+              }
+            }
+          }
+        },
+        "namespace": {
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+        },
+        "registryCredentials": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\s@]+$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "username",
+              "password"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "username": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^:\\x00]+$"
+              },
+              "password": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
       }
     },
     "multica": {
@@ -473,21 +545,12 @@
       "type": "object",
       "required": [
         "dashboardUsername",
-        "maxConcurrentTasks",
-        "providerSecret",
-        "providerKeys"
+        "maxConcurrentTasks"
       ],
       "properties": {
         "maxConcurrentTasks": {
           "type": "integer",
           "minimum": 1
-        },
-        "providerKeys": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
         },
         "dashboardAuth": {
           "type": "object",
@@ -579,6 +642,24 @@
               }
             }
           ]
+        },
+        "config": {
+          "type": "object"
+        },
+        "profiles": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "not": {
+              "enum": [
+                "default",
+                "custom"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
         }
       }
     },
@@ -587,6 +668,12 @@
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "createAgent": {
+          "type": "boolean"
+        },
+        "runtimeVisibility": {
+          "enum": ["private", "public"]
         },
         "workspace": {
           "type": "object",
@@ -608,6 +695,16 @@
             "items": {
               "type": "string"
             }
+          }
+        },
+        "profile": {
+          "type": "string",
+          "pattern": "^([A-Za-z0-9][A-Za-z0-9_-]{0,63})?$",
+          "not": {
+            "enum": [
+              "default",
+              "custom"
+            ]
           }
         }
       }

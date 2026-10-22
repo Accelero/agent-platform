@@ -177,6 +177,22 @@ def build(
             "none",
             "--interactive",
             "--entrypoint",
+            "/opt/hermes/.venv/bin/python",
+            images["hermes"],
+            "-",
+        ],
+        data=(ROOT / "tests/hermes_execution_smoke.py").read_bytes(),
+        timeout=180,
+    )
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--interactive",
+            "--entrypoint",
             "python",
             images["runtime-manager"],
             "-",

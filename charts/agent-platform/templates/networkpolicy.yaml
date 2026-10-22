@@ -71,7 +71,7 @@ spec:
         {{- end }}
 {{- end }}
 {{- end }}
-{{- if .Values.sandbox.namespace }}
+{{- if .Values.sandbox.enabled }}
 {{- range $name, $rule := .Values.networkPolicy.sandboxIngress }}
 {{- if (index $.Values.workloads $name).enabled }}
 ---
@@ -90,7 +90,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ $.Values.sandbox.namespace }}
+              kubernetes.io/metadata.name: {{ (include "agent-platform.executionNamespace" $) }}
           podSelector:
             matchExpressions:
               - key: hermes.stack/role

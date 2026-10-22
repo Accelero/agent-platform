@@ -18,6 +18,8 @@
   {{- $_ := set $backend "volumes" (append (default list $backend.volumes) (dict "name" "postgres-ca" "mountPath" "/etc/postgres" "source" (dict "secret" (dict "secretName" .)))) -}}
 {{- end -}}
 {{- $hermes := index $workloads "hermes" -}}
+{{- $_ := set $hermes "volumes" (append (default list $hermes.volumes) (dict "name" "hermes-defaults" "mountPath" "/etc/hermes-defaults" "readOnly" true "source" (dict "configMap" (dict "name" "hermes-defaults")))) -}}
+
 {{- $env = list -}}
 {{- range $hermes.env -}}
   {{- if not (has .name (list "MULTICA_APP_URL" "HERMES_DASHBOARD_BASIC_AUTH_USERNAME" "MULTICA_DAEMON_MAX_CONCURRENT_TASKS" "FIRECRAWL_API_URL" "SEARXNG_URL" "CAMOFOX_URL")) -}}{{- $env = append $env . -}}{{- end -}}
@@ -35,9 +37,6 @@
 {{- $secrets := list -}}
 {{- range $hermes.secretEnv -}}
   {{- if or (ne .name "CAMOFOX_API_KEY") (index $workloads "camofox").enabled -}}{{- $secrets = append $secrets . -}}{{- end -}}
-{{- end -}}
-{{- range $key := .Values.hermes.providerKeys -}}
-  {{- $secrets = append $secrets (dict "name" $key "key" $key "secretName" $.Values.hermes.providerSecret) -}}
 {{- end -}}
 {{- $_ := set $hermes "secretEnv" $secrets -}}
 {{- $_ := include "agent-platform.dashboard" (dict "root" . "workload" $hermes) -}}

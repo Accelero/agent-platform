@@ -85,6 +85,8 @@ class KubernetesBackend:
                       "resources": spec.get("resources", {"requests": {"cpu": "100m", "memory": "128Mi"},
                                                            "limits": {"cpu": "2", "memory": "4Gi"}}),
                       "readinessProbe": {"tcpSocket": {"port": 2222}, "periodSeconds": 2}}]}}
+            if self.config.get("image_pull_secrets"):
+                pod["spec"]["imagePullSecrets"] = self.config["image_pull_secrets"]
             if spec.get("node_selector"):
                 pod["spec"]["nodeSelector"] = spec["node_selector"]
             if spec.get("host_aliases"):

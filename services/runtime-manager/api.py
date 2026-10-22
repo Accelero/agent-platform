@@ -1,4 +1,4 @@
-"""Authenticated scope API; clients never submit worker specifications."""
+"""Authenticated scope API; trusted clients select named templates and optional images."""
 import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -41,16 +41,14 @@ class ExecutionAPI:
             raise ValueError('Client credentials must have at least 32 characters')
         if len(set(credentials.values())) != len(credentials):
             raise ValueError('Client credentials must be distinct')
+        if manager.config.get('default_template', 'hermes') not in manager.config['templates']:
+            raise ValueError('Default terminal template is not configured')
         self.tokens = {name: hashlib.sha256(token.encode()).digest() for name, token in credentials.items()}
         deployments = []
         for client in self.clients.values():
             deployment = client['deployment']
-            profiles = manager.config['deployments'][deployment]['profiles']
-            if '*' in profiles or not profiles:
-                raise ValueError('Clients require explicit approved profiles')
-            for profile in profiles.values():
-                if len(profile['templates']) != 1 or profile['templates'][0] not in manager.config['templates']:
-                    raise ValueError('Each profile must select one administrator-defined template')
+            if deployment not in manager.config.get('deployments', {}):
+                raise ValueError('Client deployment is not configured')
             deployments.append(deployment)
         if len(set(deployments)) != len(deployments):
             raise ValueError('Each client must have its own deployment scope')
@@ -69,7 +67,7 @@ class ExecutionAPI:
         if path == '/v1/environments' and payload is None:
             return self.manager.status(deployment=deployment)
         fields = {
-            '/v1/leases/acquire': ({'profile', 'session', 'mode', 'request'}, {'runtime', 'parent_lease'}),
+            '/v1/leases/acquire': ({'profile', 'session', 'mode', 'request'}, {'runtime', 'parent_lease', 'image', 'template'}),
             '/v1/leases/heartbeat': ({'lease'}, set()),
             '/v1/leases/release': ({'lease'}, set()),
             '/v1/sessions/close': ({'profile', 'session'}, {'runtime'}),
@@ -85,9 +83,6 @@ class ExecutionAPI:
                 return self.manager.heartbeat(lease, deployment=deployment)
             return self.manager.release(lease, deployment=deployment, reconcile=False)
         profile, session = identifier(payload['profile']), identifier(payload['session'])
-        allowed = self.manager.config['deployments'][deployment]['profiles'].get(profile)
-        if not allowed:
-            raise Forbidden('Profile is not approved for this client')
         if path == '/v1/sessions/close':
             runtime = payload.get('runtime')
             if runtime is not None and not isinstance(runtime, dict):
@@ -100,7 +95,8 @@ class ExecutionAPI:
         if 'parent_lease' in payload:
             identifier(payload['parent_lease'])
         # Idempotency keys are local to the authenticated client.
-        selected = dict(payload, deployment=deployment, template=allowed['templates'][0],
+        template = identifier(payload.get('template', self.manager.config.get('default_template', 'hermes')))
+        selected = dict(payload, deployment=deployment, template=template,
                         request=hashlib.sha256(json.dumps([deployment, request]).encode()).hexdigest())
         return self.manager.acquire(selected)
 

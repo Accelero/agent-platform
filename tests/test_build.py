@@ -87,3 +87,22 @@ def test_release_workflow_uses_the_shared_cache_configuration():
     )
     assert "--publish --github-cache" in commands
     assert release.TARGETS == build.TARGETS
+
+
+@pytest.mark.parametrize(
+    ("pattern", "version"),
+    [
+        ("services/tools/platform_bootstrap/*.py", (3, 11)),
+        ("runtimes/hermes/*.py", (3, 13)),
+        ("runtimes/hermes/plugins/managed_execution/*.py", (3, 13)),
+        ("services/runtime-manager/*.py", (3, 12)),
+    ],
+)
+def test_image_code_parses_on_its_image_python(pattern, version):
+    """Code runs on each image's interpreter, not the 3.14 used for development."""
+    import ast
+
+    files = sorted(build.ROOT.glob(pattern))
+    assert files
+    for path in files:
+        ast.parse(path.read_text(), filename=str(path), feature_version=version)

@@ -1,8 +1,11 @@
 name: managed_execution
-version: 2.1.0
+version: 2.5.0
+kind: backend
 description: Infrastructure-provisioned SSH environments with conversation and profile lifetimes.
 provides_hooks: [pre_llm_call, on_session_end, on_session_finalize, on_session_reset]
 config_schema:
+  template: {type: str, default: '', description: Named manager template; empty uses the manager default}
+  image: {type: str, default: '', description: Terminal container image; empty uses the deployment default}
   manager_url: {type: str, default: 'https://runtime-manager:8090', description: Manager HTTPS API URL}
   ca_file: {type: str, default: /etc/runtime-manager/tls/ca.crt, description: Trusted manager certificate}
   token_file: {type: str, default: /run/secrets/runtime-manager-token, description: Controller-only API credential file}
@@ -10,7 +13,7 @@ config_schema:
   runtime_id: {type: str, default: '', description: Legacy backend default; the active profile dashboard terminal.runtime_id setting takes precedence}
   mode:
     type: str
-    default: per_session
+    default: per_profile_on_demand
     choices: [per_session, per_profile_on_demand, per_profile_always_running]
     description: Environment lifetime
   ssh_key: {type: str, default: /opt/ssh/id_ed25519, description: SSH client key on the controller}

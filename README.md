@@ -1,11 +1,11 @@
 # Agent platform
 
-A Kubernetes application containing the Multica board, Hermes personal assistant,
+A Kubernetes application containing the Multica board, generic Hermes controller,
 HTTPS runtime manager and isolated agent runtimes. One versioned Helm chart owns
 service wiring, gateway configuration and runtime isolation. Images and charts
 are built on GitHub-hosted runners independently of deployment tooling.
 
-The application chart is the deployment artifact. **0.6.1** is the current
+The application chart is the deployment artifact. **0.6.9** is the current
 release. GHCR deployment packages support anonymous public pulls once their
 package visibility is public. Source and package visibility are managed separately.
 
@@ -13,12 +13,12 @@ package visibility is public. Source and package visibility are managed separate
 
 | Artifact | Versioned reference |
 | --- | --- |
-| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.6.1` |
-| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.6.1` |
-| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.6.1` |
-| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.6.1` |
-| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/tools:0.6.1` |
-| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.6.1` |
+| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.6.9` |
+| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.6.9` |
+| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.6.9` |
+| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.6.9` |
+| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/tools:0.6.9` |
+| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.6.9` |
 
 The packaged chart pins all five images by manifest digest in `values.yaml`.
 The upstream Multica frontend also uses its reviewed digest. Containers remain
@@ -26,7 +26,7 @@ registry downloads; their filesystem layers are not embedded in the chart.
 Image `latest` tags are convenient for inspection. Deployments select one chart
 version or digest and use that chart's image defaults for a coherent application.
 
-The GitHub Release attaches the same `agent-platform-0.6.1.tgz` that is published
+The GitHub Release attaches the same `agent-platform-0.6.9.tgz` that is published
 to GHCR, plus an optional informational `artifacts.json`. Consumers need only the
 chart. There is no configuration ZIP or custom release container package in this
 release architecture. Obsolete `execution-manager`, `worker` and `release`
@@ -34,12 +34,22 @@ packages are retired.
 Earlier releases that reference those package names are no longer deployable.
 Superseded agent-runtime 0.2.0 through 0.4.0 and tools 0.4.0 images were also
 retired after the [0.4.1 release qualification](docs/releases/0.4.1.md).
-Release 0.6.1 restores normal dashboard HTTP methods, chat WebSocket forwarding
-and native authentication routes. It includes chart-owned OIDC with validated settings,
-public PKCE or a referenced client Secret, and automatic Basic-auth removal.
-It retains first-deployment bootstrap, explicit enrollment repair Jobs and the
-Hermes credential-mount correction. The chart gives the Hermes
-pod filesystem group 1000 so its non-root process can read the group-restricted
+Release 0.6.9 enrolls fresh installations without stopping writers and names
+the failed step when bootstrap fails.
+Release 0.6.8 defaults managed execution to one on-demand worker per profile;
+Multica tasks keep session-scoped workers.
+Release 0.6.7 lets the bootstrap Job wait for API access on fresh Pods.
+Release 0.6.6 forwards Multica task variables to task workers for every Hermes
+profile. Release 0.6.5 adds runtime-only bootstrap (`bootstrap.createAgent: false`) and
+public runtime visibility (`bootstrap.runtimeVisibility`). Release 0.6.4 enforces managed SSH execution as an administrator policy for every
+Hermes profile, including profiles created later in the dashboard, and can give
+each profile its own persistent workspace subdirectory. Model/provider selection
+and model credentials remain native Hermes onboarding. The chart has no dedicated model-provider Secret/key fields;
+API-key providers can use native environment variables or generic workload Secret
+references. A fresh deployment needs administrator model setup. It retains normal
+dashboard transport, chart-owned OIDC, first-deployment bootstrap, explicit
+enrollment repair Jobs and the Hermes credential-mount correction. The chart gives
+the Hermes pod filesystem group 1000 so its non-root process can read the group-restricted
 runtime-manager token, CA and SSH key with mode 0440.
 
 ## Configuration and installation
@@ -52,17 +62,18 @@ creates short-lived agent-runtime Pods when an agent needs command execution.
 
 ```bash
 helm install agents oci://ghcr.io/accelero/agent-platform/charts/agent-platform \
-  --version 0.6.1 --namespace agents --values values.yaml
+  --version 0.6.9 --namespace agents --values values.yaml
 ```
 
 See the [chart interface and configuration example](charts/agent-platform/README.md).
-Release 0.6.1 adds [first-class Hermes dashboard OIDC
+The chart supports [first-class Hermes dashboard OIDC
 values](charts/agent-platform/README.md#hermes-dashboard-oidc), with validated
 settings, public PKCE or a referenced client Secret, and automatic removal of
 Basic-auth settings. The [OIDC overlay](examples/oidc/values.yaml) shows the inputs.
 The [lightweight example](examples/lightweight/values.yaml) enables the six core
 Deployments. Provision its database, retained PVCs, named Secrets and initialized
-native Hermes state before installation. Controllers are disabled in defaults
+native Hermes storage before installation. The chart initializes missing native
+configs, without a persona or model login. Controllers are disabled in defaults
 until those inputs are ready. Optional browser, memory and additional agent
 services remain disabled unless deliberately configured with supported images.
 
@@ -76,7 +87,19 @@ project their own reviewed backup/seed/restore scripts and mount persistent data
 An alternative tools image can provide these dependencies; publishing them once
 keeps backup and recovery independent of package installation at runtime.
 
-## Personal Hermes manager development
+Release 0.6.3 removes the personal-assistant execution preset. Profiles
+select any Helm-defined terminal template by name and may override its image
+without stack updates or image allowlists. The chart defaults to its own
+release-pinned Ubuntu worker, including Multica CLI and checkout support.
+Deployments may replace template default images and configure optional file
+Secret mounts. Profile `.env` values can be explicitly forwarded into commands.
+Private worker registries accept registry-keyed `sandbox.registryCredentials`
+objects or existing `sandbox.imagePullSecrets`; kubelet consumes all configured
+logins without exposing them inside worker containers.
+See [native profiles and terminal workers](charts/agent-platform/README.md#native-profiles-and-terminal-workers)
+and the [two-profile example](examples/terminal-backends/values.yaml).
+
+## Personal Hermes manager
 
 The new [Rust manager](services/hermes-manager/README.md) commissions per-user
 Hermes instances from infrastructure-owned database templates and user mappings.
@@ -120,7 +143,7 @@ helm lint charts/agent-platform
 For an explicit local build without publishing:
 
 ```bash
-uv run python -m agent_platform.release --version 0.6.1 --revision "$(git rev-parse HEAD)"
+uv run python -m agent_platform.release --version 0.6.3 --revision "$(git rev-parse HEAD)"
 ```
 
 Outputs are under ignored `.local/releases/`. Source defaults retain local `dev`
@@ -131,7 +154,7 @@ See [AGENTS.md](AGENTS.md) for repository guidance.
 
 1. Review passing checks and bump chart/project versions together. Let the trusted
    main cache workflow finish before tagging to reuse its build layers.
-2. Push an explicit immutable tag such as `v0.6.1`.
+2. Push an explicit immutable tag such as `v0.6.3`.
 3. GitHub Actions builds/tests and publishes five versioned images, renders/tests
    the chart with their exact digests, and packages it. Image convenience tags are
    updated before the OCI chart is published. The chart is published last so a new

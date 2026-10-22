@@ -1,15 +1,21 @@
 {{/* Derive the native manager config and admission allowlist from one input. */}}
 {{- define "agent-platform.runtime" -}}
 {{- $settings := .Values.runtimeManager -}}
+{{- if eq (include "agent-platform.executionNamespace" .) .Release.Namespace -}}
+  {{- fail "Workers require a dedicated execution namespace, separate from the application namespace" -}}
+{{- end -}}
 {{- if and (index .Values.workloads "runtime-manager").enabled (not .Values.sandbox.enabled) -}}
   {{- fail "The runtime manager requires sandbox admission and network policies" -}}
 {{- end -}}
 {{- $config := deepCopy $settings.config -}}
+{{- if not (hasKey $config.templates (default "hermes" $config.default_template)) -}}
+  {{- fail "runtimeManager.config.default_template must name a configured template" -}}
+{{- end -}}
 {{- if or (hasKey $config "docker") (and (hasKey $config "backend") (ne $config.backend "kubernetes")) -}}
   {{- fail "runtimeManager.config supports only the Kubernetes backend" -}}
 {{- end -}}
 {{- $_ := set $config "backend" "kubernetes" -}}
-{{- $_ := set $config "kubernetes" (dict "namespace" .Values.sandbox.namespace) -}}
+{{- $_ := set $config "kubernetes" (dict "namespace" (include "agent-platform.executionNamespace" .) "image_pull_secrets" (include "agent-platform.workerPullSecrets" . | fromJsonArray)) -}}
 {{- $clients := dict -}}
 {{- range $name, $client := $settings.clients -}}
   {{- $_ := set $clients $name (dict "deployment" $client.deployment "token_file" (printf "/run/runtime-manager-auth/%s" $name)) -}}
@@ -90,16 +96,20 @@
   {{- with $scope := $template.profile_workspace -}}
     {{- $segment := "\\.*[A-Za-z0-9_-][A-Za-z0-9_.-]{0,255}" -}}
     {{- $subdir := printf "%s(?:/%s)*" $segment $segment -}}
+    {{- /* A {profile} token selects a separate subdirectory for every Hermes profile. */ -}}
+    {{- $profile := "[A-Za-z0-9][A-Za-z0-9_-]{0,63}" -}}
+    {{- $subpath := regexQuoteMeta $scope.kubernetes_subpath | replace "\\{profile\\}" $profile -}}
     {{- range $root := list $scope.mount_path $scope.controller_root -}}
+      {{- $quoted := regexQuoteMeta (trimSuffix "/" $root) | replace "\\{profile\\}" $profile -}}
       {{- $mounts = append $mounts (dict
         "claim" $scope.kubernetes_claim
-        "subPathPattern" (printf "^%s$" (regexQuoteMeta $scope.kubernetes_subpath))
-        "mountPathPattern" (printf "^%s$" (regexQuoteMeta $root))
+        "subPathPattern" (printf "^%s$" $subpath)
+        "mountPathPattern" (printf "^%s$" $quoted)
         "readOnly" false) -}}
       {{- $mounts = append $mounts (dict
         "claim" $scope.kubernetes_claim
-        "subPathPattern" (printf "^%s/%s$" (regexQuoteMeta $scope.kubernetes_subpath) $subdir)
-        "mountPathPattern" (printf "^%s/%s$" (regexQuoteMeta (trimSuffix "/" $root)) $subdir)
+        "subPathPattern" (printf "^%s/%s$" $subpath $subdir)
+        "mountPathPattern" (printf "^%s/%s$" $quoted $subdir)
         "readOnly" false) -}}
     {{- end -}}
   {{- end -}}
@@ -128,7 +138,7 @@
     {{- end -}}
     {{- if ne (len $paths) 3 -}}{{- fail "Runtime task, home and history storage require three separate selected claims" -}}{{- end -}}
   {{- end -}}
-  {{- $_ := set $roles $role (dict "images" (list $image) "mounts" $mounts "environment" (default dict $spec.environment)) -}}
+  {{- $_ := set $roles $role (dict "mounts" $mounts "environment" (default dict $spec.environment)) -}}
 {{- end -}}
 {{- dict "config" $config "roles" $roles | toJson -}}
 {{- end -}}

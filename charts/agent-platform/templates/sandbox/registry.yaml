@@ -1,0 +1,16 @@
+{{- if and .Values.sandbox.enabled .Values.sandbox.registryCredentials }}
+{{- $auths := dict -}}
+{{- range $registry, $credentials := .Values.sandbox.registryCredentials -}}
+  {{- $_ := set $auths $registry (dict "auth" (printf "%s:%s" $credentials.username $credentials.password | b64enc)) -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "agent-platform.registrySecretName" . }}
+  namespace: {{ include "agent-platform.executionNamespace" . }}
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: {{ dict "auths" $auths | toJson | b64enc | quote }}
+{{- end }}

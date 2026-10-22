@@ -34,6 +34,9 @@ spec:
   template:
     metadata:
       annotations:
+        {{- if eq $name "hermes" }}
+        checksum/hermes-defaults: {{ dict "config" $.Values.hermes.config "profiles" $.Values.hermes.profiles | toJson | sha256sum }}
+        {{- end }}
         checksum/application: {{ include "agent-platform.workloads" $ | sha256sum }}
         {{- if eq $name "runtime-manager" }}
         checksum/runtime: {{ include "agent-platform.runtime" $ | sha256sum }}

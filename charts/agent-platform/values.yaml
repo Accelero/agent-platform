@@ -92,30 +92,6 @@ persistence:
     size: 5Gi
     accessModes:
     - ReadWriteOnce
-  hermes-workspaces:
-    enabled: false
-    existingClaim: hermes-workspaces
-    size: 5Gi
-    accessModes:
-    - ReadWriteOnce
-  identity-personal-assistant:
-    enabled: false
-    existingClaim: identity-personal-assistant
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  skills-personal-assistant:
-    enabled: false
-    existingClaim: skills-personal-assistant
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
-  personal-native-skills:
-    enabled: false
-    existingClaim: skills-personal-assistant
-    size: 1Gi
-    accessModes:
-    - ReadWriteOnce
 configMaps:
   searxng-settings:
     settings.yml: "use_default_settings: true\nserver:\n  # Supplied privately through\
@@ -629,15 +605,6 @@ workloads:
       mountPath: /opt/data
     - name: hermes-tasks
       mountPath: /opt/data/.multica/workspaces
-    - name: hermes-workspaces
-      mountPath: /opt/data/workspaces
-    - name: identity-personal-assistant
-      mountPath: /opt/data/profiles/personal-assistant/identity
-    - name: skills-personal-assistant
-      mountPath: /opt/platform/skills
-      readOnly: true
-    - name: personal-native-skills
-      mountPath: /opt/data/profiles/personal-assistant/skills
     volumes:
     - name: manager-token
       mountPath: /run/secrets
@@ -785,9 +752,6 @@ workloads:
     - name: hermes-tasks
       mountPath: /opt/hermes-workspaces
       readOnly: true
-    - name: hermes-workspaces
-      mountPath: /opt/hermes-profile-workspaces
-      readOnly: true
     volumes:
     - name: manager-token
       mountPath: /run/runtime-manager-auth
@@ -920,12 +884,12 @@ networkPolicy:
   sandboxIngress:
     multica-backend:
       roles:
-      - personal-assistant
+      - hermes
       ports:
       - 8080
     hermes:
       roles:
-      - personal-assistant
+      - hermes
       ports:
       - 19515
   ingress:
@@ -968,11 +932,15 @@ networkPolicy:
 sandbox:
   enabled: true
   policyIdentity: agent-sandbox
-  namespace: agent-execution
+  # Empty derives <application namespace>-execution.
+  namespace: ''
   createNamespace: true
   managerServiceAccount: runtime-manager
   workerServiceAccount: sandbox-worker
   imagePullSecrets: []
+  # Registry-keyed username/password objects. Password may be a registry token.
+  # Omit this when using externally managed imagePullSecrets instead.
+  registryCredentials: {}
   podSecurityVersion: v1.30
   quota:
     pods: '1'
@@ -1017,17 +985,13 @@ runtimeManager:
   config:
     lease_ttl_seconds: 120
     maintenance_interval_seconds: 10
+    default_template: hermes
     deployments:
-      hermes-stack:
-        profiles:
-          personal-assistant:
-            templates:
-            - personal-assistant
-            modes:
-            - per_session
-            - per_profile_on_demand
+      hermes-stack: {}
     templates:
-      personal-assistant:
+      hermes:
+        # The release pins images.agent-runtime as the default image.
+        # Trusted Hermes profiles may select any template and override its image.
         session_idle_seconds: 60
         on_demand_idle_seconds: 60
         recycle:
@@ -1039,11 +1003,8 @@ runtimeManager:
           controller_root: /opt/data/.multica/workspaces
           read_only: false
           kubernetes_claim: hermes-tasks
-          identity_kubernetes_claim: identity-personal-assistant
         kubernetes:
-          role: personal-assistant
-          uid: 1000
-          gid: 1000
+          role: hermes
           volumes:
           - name: ssh-public
             secret:
@@ -1052,33 +1013,16 @@ runtimeManager:
               - key: hermes
                 path: worker
               defaultMode: 292
-          - name: identity-personal-assistant
-            persistentVolumeClaim:
-              claimName: identity-personal-assistant
-          - name: profile-login
-            secret:
-              secretName: profile-personal-assistant
-              items:
-              - key: config.json
-                path: config.json
-              defaultMode: 292
-          - name: skills-personal-assistant
-            persistentVolumeClaim:
-              claimName: skills-personal-assistant
+          - name: workspace
+            emptyDir: {}
           volume_mounts:
           - name: ssh-public
             mountPath: /etc/ssh/authorized_keys/worker
             subPath: worker
             readOnly: true
-          - name: identity-personal-assistant
-            mountPath: /opt/data/profiles/personal-assistant
+          - name: workspace
+            mountPath: /workspace
             readOnly: false
-          - name: profile-login
-            mountPath: /home/worker/.multica
-            readOnly: true
-          - name: skills-personal-assistant
-            mountPath: /opt/platform/skills
-            readOnly: true
           environment:
             MULTICA_CHECKOUT_UPSTREAM: http://hermes:19515
             MULTICA_CHECKOUT_BIND: 127.0.0.1
@@ -1090,14 +1034,6 @@ runtimeManager:
             limits:
               cpu: '1'
               memory: 1Gi
-        profile_workspace:
-          kubernetes_claim: hermes-workspaces
-          kubernetes_subpath: personal-assistant
-          mount_path: /workspace
-          controller_root: /opt/data/workspaces/personal-assistant
-          validation_root: /opt/hermes-profile-workspaces
-        serialize_profile: true
-        exclusive: true
 multica:
   publicUrl: http://localhost:3010
   ownerEmail: ''
@@ -1107,6 +1043,20 @@ multica:
   mailSecret: multica-mail
   mailKeys: []
 hermes:
+  # Initial native config only. Existing config files are preserved on upgrades.
+  config:
+    terminal:
+      backend: managed_execution
+      cwd: /workspace
+      container_persistent: false
+    plugins:
+      enabled: [managed_execution]
+      entries:
+        managed_execution:
+          settings:
+            profile: default
+  # Named native profiles, each merged over config on first initialization.
+  profiles: {}
   dashboardUsername: admin
   dashboardAuth:
     mode: basic
@@ -1120,8 +1070,6 @@ hermes:
         name: ''
         key: client-secret
   maxConcurrentTasks: 1
-  providerSecret: hermes-provider-credentials
-  providerKeys: []
 # Bootstrap is opt-in. Deployment values must supply recovery and lifecycle hooks.
 bootstrap:
   enabled: false
@@ -1131,15 +1079,20 @@ bootstrap:
   recoveryGate: agent-platform-recovery
   leaseName: agent-state-operation
   onboardingSecret: agent-onboarding
-  profileSecret: profile-personal-assistant
+  profile: ''
+  profileSecret: hermes-task-login
   serverUrl: http://multica-backend:8080
+  # false registers only the Hermes runtime; users create Multica agents themselves.
+  createAgent: true
+  # public lets every member of the workspace bind agents to the Hermes runtime.
+  runtimeVisibility: private
   agentSeedFile: ''
   workspace:
     name: Research
     slug: research
     issuePrefix: RES
   agent:
-    name: Personal Assistant
+    name: Hermes
     description: ''
     permission_mode: private
     max_concurrent_tasks: 1

@@ -6,6 +6,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -18,14 +19,24 @@ from pathlib import Path
 
 import kubernetes.client as kube
 import kubernetes.config
+import urllib3
 
 TIMEOUT = (5, 30)
 _DECODE_ERRORS = (ValueError, TypeError)
 _IDENTITY_ERRORS = (OSError, ValueError)
 _CONNECTION_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError)
+# Tuple constants keep the tools image's Python 3.11 except syntax.
+_NETWORK_ERRORS = (urllib3.exceptions.HTTPError, OSError)
+# The step a failure is reported against; names carry no private data.
+_STEP = {"name": "start"}
+
+
+def step(name: str) -> None:
+    _STEP["name"] = name
 
 
 def native(config: dict, action: str, **values: object) -> dict:
+    step("native " + action)
     env = dict(os.environ)
     url = config["databaseUrl"]
     for key, value in env.items():
@@ -203,9 +214,11 @@ class Cluster:
 
 
 def hook(config: dict, name: str) -> None:
+    step(name + " hook")
     command = config["lifecycle"][name]
     result = subprocess.run(command, capture_output=True, timeout=600)
     if result.returncode:
+        step(f"{name} hook (exit {result.returncode})")
         raise RuntimeError("Recovery lifecycle command failed; state retained.")
 
 
@@ -224,10 +237,13 @@ class Board:
             urllib.request.ProxyHandler({}), NoRedirect()
         )
 
-    def request(self, path: str, payload: dict | None = None) -> dict | list:
+    def request(
+        self, path: str, payload: dict | None = None, method: str | None = None
+    ) -> dict | list:
         request = urllib.request.Request(
             self.url + path,
             data=None if payload is None else json.dumps(payload).encode(),
+            method=method,
             headers={
                 "Authorization": "Bearer " + self.token,
                 "X-Workspace-ID": self.workspace,
@@ -265,7 +281,39 @@ def install(path: Path, value: dict, *, force: bool) -> None:
     temporary.replace(path)
 
 
+def wait_for_cluster(cluster: Cluster, deadline_seconds: float = 180) -> None:
+    """Wait until the Kubernetes API is reachable from this new Pod.
+
+    The node programs a Pod's network policy shortly after it starts; earlier
+    connections fail. Authorization and missing-object errors are not retried.
+    """
+    deadline = time.monotonic() + deadline_seconds
+    while True:
+        try:
+            cluster.core.read_namespaced_config_map(
+                cluster.config["recoveryGate"],
+                cluster.namespace,
+                _request_timeout=TIMEOUT,
+            )
+            return
+        except kube.ApiException as error:
+            if error.status not in (0, 502, 503, 504):
+                raise
+        except _NETWORK_ERRORS:
+            pass
+        if time.monotonic() >= deadline:
+            raise TimeoutError("The Kubernetes API did not become reachable.")
+        time.sleep(2)
+
+
 def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
+    profile_name = config.get("profile", "")
+    if profile_name and (
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", profile_name)
+        or profile_name in {"default", "custom"}
+    ):
+        raise ValueError("Invalid bootstrap profile")
+    step("recovery gate")
     with cluster.lock():
         fresh = cluster.recovery()
         deadline = time.monotonic() + 180
@@ -320,7 +368,9 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
                     "token", ""
                 ),
                 "workspace": previous.get("workspace_id", ""),
-                "replicas": cluster.replicas(),
+                # Only repair touches live state; first enrollment needs no cutoff.
+                "cold": force,
+                **({"replicas": cluster.replicas()} if force else {}),
             }
             cluster.save(
                 config["onboardingSecret"], {"bootstrap.json": json.dumps(journal)}
@@ -328,6 +378,14 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
         elif force:
             # Resume the pending credential pair rather than orphaning a new pair.
             journal["force"] = True
+        # Journals from releases without this field already stopped writers.
+        cold = journal.get("cold", True) or journal["force"]
+        if cold and "replicas" not in journal:
+            journal["replicas"] = cluster.replicas()
+            journal["cold"] = True
+            cluster.save(
+                config["onboardingSecret"], {"bootstrap.json": json.dumps(journal)}
+            )
         if journal["force"] and status["state"] != "empty":
             # Native Multica would regenerate a missing/corrupt daemon ID. Refuse
             # before mutation rather than create a replacement runtime by accident.
@@ -338,7 +396,8 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
                 raise RuntimeError(
                     "Restore the original native daemon identity before repair."
                 ) from error
-        hook(config, "before")
+        if cold:
+            hook(config, "before")
         identity = native(
             config,
             "ensure",
@@ -374,17 +433,15 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
         daemon.setdefault("runtime_name", "Hermes container")
         daemon.setdefault("max_concurrent_tasks", 1)
         home = Path(config["home"])
-        # The before hook has fenced dispatch, drained work and stopped writers.
+        step("login files")
+        # Repair runs after the before hook stopped writers. On first enrollment
+        # the daemon service waits for this atomically replaced file.
         install(home / ".multica/config.json", daemon, force=journal["force"])
-        install(
-            home / "profiles/personal-assistant/.multica/config.json",
-            profile,
-            force=journal["force"],
-        )
+        if profile_name:
+            profile_path = home / "profiles" / profile_name / ".multica/config.json"
+            install(profile_path, profile, force=journal["force"])
+            profile = json.loads(profile_path.read_text())
         daemon = json.loads((home / ".multica/config.json").read_text())
-        profile = json.loads(
-            (home / "profiles/personal-assistant/.multica/config.json").read_text()
-        )
         cluster.save(
             config["onboardingSecret"],
             {"daemon.json": json.dumps(daemon), "profile.json": json.dumps(profile)},
@@ -394,8 +451,10 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
             {"config.json": json.dumps(profile)},
             config["executionNamespace"],
         )
-        cluster.scale("multica-backend", 1)
-        cluster.scale("hermes", 1)
+        if cold:
+            cluster.scale("multica-backend", 1)
+            cluster.scale("hermes", 1)
+        step("runtime reconnect")
         board = Board(config, journal["profile"], workspace)
         deadline = time.monotonic() + 180
         while True:
@@ -418,6 +477,17 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
             if time.monotonic() >= deadline:
                 raise RuntimeError("Hermes did not reconnect within its deadline.")
             time.sleep(2)
+        step("runtime settings")
+        # Public lets every workspace member bind agents to the shared Hermes runtime.
+        visibility = config.get("runtimeVisibility", "private")
+        if visibility not in {"private", "public"}:
+            raise ValueError("Invalid runtime visibility")
+        if matches[0].get("visibility", "private") != visibility:
+            board.request(
+                "/api/runtimes/" + matches[0]["id"],
+                {"visibility": visibility},
+                method="PATCH",
+            )
         agents = collection(board.request("/api/agents"), "agents")
         existing = [
             item
@@ -425,7 +495,8 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
             if item.get("runtime_id") == matches[0]["id"]
             and not item.get("archived_at")
         ]
-        if not existing:
+        # Runtime-only installations leave agent creation to Multica users.
+        if not existing and config.get("createAgent", True):
             seed = dict(config["agent"])
             if config.get("agentSeedFile"):
                 seed = json.loads(Path(config["agentSeedFile"]).read_text())
@@ -434,7 +505,7 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
                 {
                     **seed,
                     "runtime_id": matches[0]["id"],
-                    "custom_args": ["-p", "personal-assistant"],
+                    "custom_args": ["-p", profile_name] if profile_name else [],
                 },
             )
         native(
@@ -447,9 +518,10 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
             daemon=journal["daemon"],
             profile=journal["profile"],
         )
-        hook(config, "after")
-        for name, count in journal["replicas"].items():
-            cluster.scale(name, count)
+        if cold:
+            hook(config, "after")
+            for name, count in journal["replicas"].items():
+                cluster.scale(name, count)
         # A restored checkpoint with this journal only needs checkpoint completion,
         # never credential installation or dispatch resumption.
         journal["mutation_complete"] = True
@@ -479,10 +551,14 @@ def main() -> int:
     try:
         kubernetes.config.load_incluster_config()
         config = json.loads(args.config.read_text())
-        print(enroll(config, Cluster(config), force=args.force))
-    except Exception:
+        cluster = Cluster(config)
+        step("cluster access")
+        wait_for_cluster(cluster)
+        print(enroll(config, cluster, force=args.force))
+    except Exception as error:
         sys.stderr.write(
-            "Platform bootstrap failed; private details suppressed. "
+            f"Platform bootstrap failed during {_STEP['name']} "
+            f"({type(error).__name__}); private details suppressed. "
             "State retained for retry.\n"
         )
         return 1

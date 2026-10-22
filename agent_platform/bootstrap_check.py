@@ -187,7 +187,7 @@ def check(
                 "runtime_id": runtime,
                 "permission_mode": "private",
                 "max_concurrent_tasks": 1,
-                "custom_args": ["-p", "personal-assistant"],
+                "custom_args": [],
             },
         )
         native("complete", user=first["user"], workspace=first["workspace"])

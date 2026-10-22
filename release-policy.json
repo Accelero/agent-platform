@@ -20,7 +20,8 @@
     "values.schema.json",
     "values.yaml",
     "templates/bootstrap.yaml",
-    "templates/_bootstrap.tpl"
+    "templates/_bootstrap.tpl",
+    "templates/sandbox/registry.yaml"
   ],
   "contexts": {
     "hermes": {
@@ -41,6 +42,7 @@
         "runtimes/hermes/runtime-init.py",
         "runtimes/hermes/personal-init.py",
         "runtimes/hermes/personal-run.py",
+        "runtimes/hermes/patch-terminal-scope.py",
         "runtimes/hermes/assistant-init",
         "runtimes/agent-runtime/multica-checkout-proxy.py",
         "config/managed-execution/config.yaml"
