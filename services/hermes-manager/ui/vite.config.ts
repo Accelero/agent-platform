@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
 
@@ -11,6 +11,7 @@ if (Boolean(certificate) !== Boolean(privateKey)) {
 export default defineConfig({
   plugins: [react()],
   build: { sourcemap: false },
+  test: { include: ["src/**/*.test.{ts,tsx}"] },
   server: {
     strictPort: true,
     https:

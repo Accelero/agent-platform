@@ -70,7 +70,7 @@ impl AdministrationReader for PgStore {
     async fn instance(&self, scope: &InstallationScope, id: Uuid) -> Result<AssignmentView, Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         gate(&mut tx, scope).await?;
-        let row = sqlx::query("SELECT a.id,k.issuer,k.subject,a.access,a.template_id,a.template_version,a.version,i.id AS instance_id,i.namespace,i.desired_generation,i.observed_generation,i.state FROM manager.assignments a JOIN manager.identities k ON k.id=a.identity_id JOIN manager.instances i ON i.assignment_id=a.id WHERE a.installation_id=$1 AND i.id=$2")
+        let row = sqlx::query("SELECT a.id,a.infrastructure_managed,k.issuer,k.subject,a.access,a.template_id,a.template_version,a.version,i.id AS instance_id,i.namespace,i.desired_generation,i.observed_generation,i.state FROM manager.assignments a JOIN manager.identities k ON k.id=a.identity_id JOIN manager.instances i ON i.assignment_id=a.id WHERE a.installation_id=$1 AND i.id=$2")
             .bind(scope.id).bind(id).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or(Error::NotFound)?;
         let result = assignment_view(row)?;
         tx.commit().await.map_err(db_error)?;
@@ -80,7 +80,7 @@ impl AdministrationReader for PgStore {
     async fn operation(&self, scope: &InstallationScope, id: Uuid) -> Result<OperationView, Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         gate(&mut tx, scope).await?;
-        let row = sqlx::query("SELECT id,instance_id,kind,generation,state,attempt,extract(epoch from next_attempt_at)::bigint AS next_attempt_at FROM manager.operations WHERE installation_id=$1 AND id=$2")
+        let row = sqlx::query("SELECT id,instance_id,kind,generation,state,attempt,extract(epoch from next_attempt_at)::bigint AS next_attempt_at FROM manager.operations WHERE installation_id=$1 AND id=$2 UNION ALL SELECT id,NULL::uuid AS instance_id,kind,1 AS generation,state,0 AS attempt,0::bigint AS next_attempt_at FROM manager.dashboard_operations WHERE installation_id=$1 AND id=$2")
             .bind(scope.id).bind(id).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or(Error::NotFound)?;
         let result = OperationView {
             id: row.get("id"),
@@ -104,11 +104,13 @@ impl AdministrationReader for PgStore {
         let limit = validate_limit(limit)?;
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         gate(&mut tx, scope).await?;
-        let rows = sqlx::query("SELECT id,actor_issuer,actor_subject,action,assignment_id,operation_id,request_id,version,extract(epoch from occurred_at)::bigint AS occurred_at FROM manager.audit_events WHERE installation_id=$1 AND ($2::uuid IS NULL OR id>$2) ORDER BY id LIMIT $3")
+        let rows = sqlx::query("SELECT id,actor_issuer,actor_subject,action,assignment_id,coalesce(operation_id,entity_operation_id) AS operation_id,entity_type,entity_id,request_id,version,extract(epoch from occurred_at)::bigint AS occurred_at FROM manager.audit_events WHERE installation_id=$1 AND ($2::uuid IS NULL OR id>$2) ORDER BY id LIMIT $3")
             .bind(scope.id).bind(after).bind(limit).fetch_all(&mut *tx).await.map_err(db_error)?;
         let result = rows
             .iter()
             .map(|row| AuditView {
+                entity_type: row.get("entity_type"),
+                entity_id: row.get("entity_id"),
                 id: row.get("id"),
                 actor: Identity {
                     issuer: row.get("actor_issuer"),

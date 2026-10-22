@@ -22,6 +22,10 @@ use std::{
     time::{Duration, Instant},
 };
 use uuid::Uuid;
+#[path = "native_commissioning/dashboard.rs"]
+mod dashboard;
+#[path = "support/grants.rs"]
+mod grant_fixture;
 #[path = "native_commissioning/terminal.rs"]
 mod terminal;
 
@@ -164,6 +168,12 @@ async fn real_native_instances_converge_from_database_and_preserve_owner_state(p
     .unwrap();
     let inventory = inventory_driver.fresh_inventory(&scope).await.unwrap();
     store.initialize_fresh(&scope, inventory).await.unwrap();
+    grant_fixture::grant(
+        &pool,
+        &scope,
+        &["fixture-administrator", "dashboard-administrator"],
+    )
+    .await;
     let workload = WorkloadConfig {
         control_namespace: control.clone(),
         controller_service_account: "hermes-controller".into(),
@@ -331,5 +341,6 @@ async fn real_native_instances_converge_from_database_and_preserve_owner_state(p
     );
     stage(&progress, "readded", namespace_a, namespace_b).await;
     terminal::verify(&pool, &store, &scope, &restarted, &progress, &bindings).await;
+    dashboard::verify(&pool, &store, &scope, &restarted, &progress).await;
     api_server.abort();
 }

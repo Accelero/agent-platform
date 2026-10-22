@@ -14,9 +14,9 @@ input contract and per-user deployment behavior.
 The [terminal backend guide](terminal-backends.md) covers profile selection,
 scoped worker provisioning, SSH identity and cleanup.
 The [dashboard feature specification](dashboard-features.md) and
-[stack guide](dashboard-stack.md) describe the next administration workflows and
-selected implementation direction; planned libraries in those guides are not
-claims of completed functionality.
+[stack guide](dashboard-stack.md) describe the implemented administration workflows.
+The [dashboard guide](dashboard.md) records PostgreSQL grant bootstrap, schema
+coverage and the tested production serving boundary.
 The [current handover](handover.md) records the completed SSH acceptance,
 integration fixes and remaining work.
 
@@ -29,14 +29,14 @@ integration fixes and remaining work.
 | Native configuration and state | Separate home/workspace PVCs; missing-only initialization; create-once credentials; Hermes managed config overrides selected leaves while user config remains on the home PVC | No automatic storage-class migration, volume shrinking or permanent data purge |
 | Shutdown during updates | Kubernetes Recreate rollout; runtime forwards SIGTERM to gateway/dashboard, waits up to 20 seconds and then kills remaining children; Pod grace period is 45 seconds | No update handshake that waits for agent runs to finish or acknowledges a completed application checkpoint; active work can be interrupted |
 | Manager crash recovery | PostgreSQL action journal, leased/fenced claims, frozen renderings, authenticated resource provenance, exact UID/RV checks, uncertain-create recovery and periodic resync | Ownership/admission/manual-recovery faults remain blocked; a deleted or foreign resource is not blindly adopted or replaced; exhaustive crash testing at every external boundary remains open |
-| Administration | Versioned API, Keycloak access-token validation, browser OIDC sessions, CSRF, audit, optimistic mutations and execution configuration endpoints; protected React/TypeScript/Vite scaffold with generated contract types and read-only assignment/runtime/audit lists | Creation/lifecycle/template/policy editors, pagination controls, owner-status/checkpoint UI and directory integration remain open |
+| Administration | Versioned API, Keycloak access-token validation, browser OIDC sessions, CSRF, audit, optimistic mutations and execution configuration endpoints; protected React/TypeScript dashboard with Query/Router, server search/filter/paging, typed assignment/runtime/storage/policy commands, form/JSON template drafts and immutable publication, explicit pinned apply and durable selected batches; PostgreSQL grant administration with bootstrap/recovery and next-request revocation | Owner-status/checkpoint UI, external directory integration, deployed Keycloak/browser and release acceptance remain open |
 | Terminal execution | Database runtime catalog and owner storage/subpaths; profile dashboard `terminal.runtime_id`; instance credential/allowlist enforcement; fenced on-demand v2 worker creation, authenticated pinned SSH readiness, scoped leases and exact-UID retirement/idle cleanup; verified two-owner SSH/file-transfer/denial/retirement integration | Nonempty runtime service-egress resolution, proactive prewarming, combined native/API/routing lifecycle and release acceptance remain open; v1 workers do not get automatic readiness |
 | Routing | Rust resolver/auth processes, Go/Yaegi plugin and isolated Traefik/WebSocket compatibility proofs | Native commissioning does not publish routes; full Keycloak/native/browser/proxy integration remains open |
 | Backup and recovery | Explicit fresh-install namespace/PV scan, schema/installation/epoch gates and retained ownership history | No scheduled backups, snapshot/copy jobs, backup retention, checkpoint coordinator or full data restore implementation; PVC retention is not a backup |
 | Distribution and adoption | Locked source builds and CI checks; reviewed native runtime test image; finite-context multi-stage local/CI manager/UI image build | No released manager/router-auth images or personal-mode chart installation; existing-owner adoption and release acceptance remain open |
 
 The per-user native Hermes dashboard is supplied by Hermes and runs in each
-instance. It is distinct from the [manager dashboard scaffold](dashboard.md).
+instance. It is distinct from the [manager dashboard](dashboard.md).
 Native `Ready` means the manager observed storage, the exact current workload,
 signed initialization and the native HTTP/auth gate. It does not mean a terminal
 backend is ready, a route was published or a real Keycloak browser login passed.
@@ -125,7 +125,7 @@ restore a lost registry or payload.
 | --- | --- | --- |
 | Rust workspace with disposable PostgreSQL | Concurrent ingestion, exact owner isolation, immutable snapshots, stale-claim fencing, invalid definitions, pending-create barriers, transient retry, API/session/policy/lease/journal invariants | Complete application functionality through all external services |
 | `tests.personal_hermes.kubernetes` | Real Kubernetes create-before-UID-save recovery, copied-proof/foreign UID rejection, bounded preconditioned updates/deletes, finalizer cleanup, actual bootstrap/admission, compiled controller SIGKILL/reopen and policy activation | Running native application by itself; the base fixture uses an unavailable application image |
-| `tests.personal_hermes.kubernetes --native` | Two real Hermes instances, image/admin updates, Pod restart, owner separation, removal/re-add and retained state; native profile selection and plugin HTTPS requests; three allowed workers across two backend types/owners, denied backend access, real SSH/file transfer, wrong-host-key rejection, PVC subpath isolation and all three worker retirement/absence receipts | Real Keycloak browser login, routed chat, live model calls, cron side effects or backup/restore |
+| `tests.personal_hermes.kubernetes --native` | Two real Hermes instances, image/admin updates, Pod restart, owner separation, removal/re-add and retained state; native profile selection and plugin HTTPS requests; three allowed workers across two backend types/owners, denied backend access, real SSH/file transfer, wrong-host-key rejection, PVC subpath isolation and all three worker retirement/absence receipts; a third manager-owned instance with published template apply/removal restoring retained user settings | Real Keycloak browser login, routed chat, live model calls, cron side effects or backup/restore |
 | `tests.personal_hermes.native_runtime --build` | Reviewed runtime image; non-root gateway/dashboard, private API denial, private/public CA handling, init-only key isolation, managed config precedence and state after forced restart; bind-mounted initialization result handling | Full cluster/provider acceptance |
 | `tests.personal_hermes.native_owner` | Pinned real Hermes self-hosted provider with signed token fixtures; exact subject/issuer on login/session/refresh and legacy unpinned compatibility | An actual Keycloak token exchange or full browser session |
 | `tests.personal_hermes.api_process` | Compiled API/router-auth listener/configuration gates, abrupt process termination and registry reopening | Full Kubernetes/execution lifecycle |

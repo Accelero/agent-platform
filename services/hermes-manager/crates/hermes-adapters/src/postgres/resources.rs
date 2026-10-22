@@ -195,7 +195,7 @@ impl ResourceRepository for PgStore {
         let tombstone: Option<i64> = sqlx::query_scalar("SELECT max((creation->>'generation')::bigint) FROM manager.owned_resources WHERE installation_id=$1 AND kind=$2 AND namespace=$3 AND name=$4 AND state='Deleted'")
             .bind(scope.id).bind(spec.kind.as_str()).bind(spec.namespace.as_deref().unwrap_or("")).bind(&spec.name).fetch_one(&mut *tx).await.map_err(db_error)?;
         if let Some(generation) = tombstone {
-            let managed: bool = sqlx::query_scalar("SELECT a.infrastructure_managed FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
+            let managed: bool = sqlx::query_scalar("SELECT (a.infrastructure_managed OR a.dashboard_managed) FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
                 .bind(claim.instance_id).fetch_one(&mut *tx).await.map_err(db_error)?;
             if !managed || claim.generation <= generation || spec.kind != ResourceKind::Deployment {
                 return Err(Error::OwnershipConflict);

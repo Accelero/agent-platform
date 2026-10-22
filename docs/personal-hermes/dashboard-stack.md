@@ -2,9 +2,9 @@
 
 This is the technical companion to the [feature specification](dashboard-features.md)
 and [build/authentication guide](dashboard.md). It records the selected direction
-for extending the manager dashboard. **Existing** means present in source and
-lockfiles. **Planned** means an implementation choice to add and verify; this
-document does not install dependencies or implement the editors.
+for the implemented dashboard. Installed versions are recorded in the lockfiles;
+the [work plan](dashboard-workplan.md) records the original baseline, resolved
+decisions and acceptance evidence. Optional YAML remains deferred.
 
 ## Stack and responsibility
 
@@ -12,21 +12,21 @@ document does not install dependencies or implement the editors.
 | --- | --- | --- |
 | Browser application | React, React DOM, TypeScript | Existing. Typed components and browser interaction; strict TypeScript checking. |
 | Build/development | Vite with the React plugin, Node and npm | Existing. Development server, production compilation and code splitting; Node is a build/development tool. |
-| Navigation | TanStack Router, `@tanstack/react-router` | Planned. Typed detail routes, validated URL search/filter state, links and unsaved-navigation handling. Current navigation uses normal anchors and `window.location.pathname`. |
-| Tables | TanStack Table, `@tanstack/react-table` | Planned. Headless column/selection/sort/filter state with accessible HTML tables; Rust performs collection queries. |
-| Server data | TanStack Query, `@tanstack/react-query` | Planned. Query lifecycle, cancellation, in-memory caching, invalidation and bounded refresh. The scaffold currently calls a small typed `fetch` wrapper from React effects. |
-| Structured forms | React Hook Form, `react-hook-form` | Planned. Field state, dirty/touched tracking, array/object controls and mapping validation errors to fields. |
-| Raw editor and diffs | Monaco Editor, `monaco-editor` | Planned. Locally bundled JSON editing, documentation, completion, diagnostics and configuration diffs. React owns editor mounting/disposal; a wrapper is optional and must use local assets. |
-| Browser schema validation | Versioned JSON Schema and Ajv, `ajv` | Planned. Consistent structural checks for form/raw drafts; precompiled validators preserve the script CSP. |
+| Navigation | TanStack Router, `@tanstack/react-router` | Installed. Typed detail routes, validated URL search/filter state, links and unsaved-navigation handling. Use code-based route definitions, not the file-based Vite plugin and generated route tree, so build inputs stay explicit. |
+| Tables | TanStack Table, `@tanstack/react-table` | Installed (Table v8). Headless column/selection/sort/filter state with accessible HTML tables; Rust performs collection queries. |
+| Server data | TanStack Query, `@tanstack/react-query` | Installed. Query lifecycle, cancellation, in-memory caching, invalidation and bounded refresh. |
+| Structured forms | React Hook Form, `react-hook-form` | Installed for template forms. Field state, dirty/touched tracking, array/object controls and mapping validation errors to fields. |
+| Raw editor and diffs | CodeMirror 6, JSON language and lint/completion extensions | Installed after the Monaco production CSP spike failed. Lazy local chunks, JSON completion, pointer diagnostics and semantic changed-path review. React disposes editor state on unmount. |
+| Browser schema validation | Versioned JSON Schema and Ajv, `ajv` | Installed. Consistent structural checks for form/raw drafts; precompiled validators preserve the script CSP. |
 | Optional YAML authoring | Monaco YAML language integration and a reviewed YAML parser | Deferred until JSON/form editing works. `monaco-yaml` is the candidate language integration; YAML converts to the same JSON data model. |
-| UI primitives | Radix Primitives, scoped `@radix-ui/react-*` packages | Planned. Dialogs, selects, popovers and tabs with focus/keyboard behavior; install components as needed. |
-| Appearance | Repository CSS and shared design tokens | Existing CSS, planned reusable components/tokens. Preserve the current forest-green navigation, light surfaces, spacing and responsive layouts. |
+| UI primitives | Radix Primitives, scoped `@radix-ui/react-*` packages | Installed Dialog for command/review dialogs with focus and keyboard behavior; native fields provide selects and other controls. |
+| Appearance | Repository CSS and shared design tokens | Existing CSS and reusable table, status and command components. Preserve the current forest-green navigation, light surfaces, spacing and responsive layouts. |
 | API contract | OpenAPI plus `openapi-typescript` | Existing generated TypeScript types. Extend the checked-in contract and regenerate types as endpoints are added. |
 | HTTP/server runtime | Rust, Axum, Tokio | Existing. HTTPS, protected assets, administration API, authentication and request bounds. |
 | Application policy | Rust domain/application modules and Serde | Existing. Authoritative validation, identity/ownership, permissions, versioning and lifecycle commands. |
-| Schema generation/evaluation | Rust `schemars` and `jsonschema` | Planned integration candidates. Generate schemas for typed manager inputs and validate reviewed runtime-specific configuration schemas; Rust policy checks remain required. |
+| Schema generation/evaluation | Rust `schemars` and `jsonschema` | Installed. Generate schemas for typed manager inputs and validate reviewed runtime-specific configuration schemas; Rust policy checks remain required. |
 | Persistence | PostgreSQL and SQLx | Existing. Manager records, sessions, audit, transactional operations, fenced controller work and versioned migrations. |
-| Authentication | Keycloak OIDC through the Rust session implementation | Existing. Provider tokens stay server-side; the browser uses opaque cookies. Current admin authorization requires the configured Keycloak client role. |
+| Authentication | Keycloak OIDC through the Rust session implementation | Existing. Provider tokens stay server-side; the browser uses opaque cookies. PostgreSQL grants alone authorize administrators; token roles confer no permission. |
 | Unit/browser tests | Vitest and Playwright | Existing. Expand client/component tests and real-browser workflow tests as features are added. |
 | Backend tests | Rust tests, SQLx/PostgreSQL and HTTPS OIDC fixtures | Existing. Verify authorization and durable behavior independently of React. |
 | Formatting and build checks | Prettier, `tsc`, Ruff, rustfmt, Clippy | Existing. Keep generated files and manually maintained files distinguishable. |
@@ -42,12 +42,11 @@ The authoritative installed versions are
 [`ui/package-lock.json`](../../services/hermes-manager/ui/package-lock.json),
 [`Cargo.lock`](../../services/hermes-manager/Cargo.lock) and
 [`rust-toolchain.toml`](../../services/hermes-manager/rust-toolchain.toml).
-At this checkout, the scaffold pins React/React DOM 19.3.1, TypeScript 5.9.3,
+At this checkout, the frontend pins React/React DOM 19.3.1, TypeScript 5.9.3,
 Vite 8.3.5, Node 26.11.1 and npm 11.20.0; Rust uses toolchain 1.99.1.
 These are recorded repository versions, not a claim about the newest releases.
-Pin planned dependencies when they are introduced, check their React/TypeScript
-peer compatibility and update the lockfile deliberately. No proposed library is
-installed merely because it appears in this table.
+Check React/TypeScript peer compatibility and update exact pins and lockfiles
+deliberately. The editor and validation dependencies are installed and bundled locally.
 
 ## Runtime and API architecture
 
@@ -79,12 +78,12 @@ forms. Preserve same-origin cookies, JSON responses and explicit handling of
 `401`, `403`, `409`, `412`, validation failures and dependency errors. API/auth
 errors must retain their status and JSON shape. Rust controls which dashboard
 paths receive SPA HTML; adding a client route requires a corresponding reviewed
-server navigation route. The existing server only serves the four scaffold
-pages and protected flat JS/CSS assets.
+server navigation route. The server registers all implemented list/detail routes explicitly and protects
+flat JS/CSS assets through the same grant checks.
 
 ## Routing, tables and server data
 
-TanStack Router is the intended addition for typed route and search-parameter
+TanStack Router provides for typed route and search-parameter
 handling. Its search validation supports representing table state in URLs;
 refer to the [official search-parameter guide](https://tanstack.com/router/latest/docs/guide/search-params).
 Define resource-specific detail paths and validate IDs/versions/search state.
@@ -146,7 +145,7 @@ access to that resource. Validate before publishing and assigning.
 
 Keep dirty/validation/publishing/operation state distinct. Block accidental
 navigation with an unsaved draft, support explicit discard and show a semantic
-diff before publish/apply. Save drafts through the future versioned draft API;
+diff before publish/apply. Save drafts through the versioned draft API;
 do not write drafts into live infrastructure desired-state rows. Infrastructure
 ownership, immutable published versions and explicit rollout rules are defined
 in the [feature specification](dashboard-features.md#template-versions-ownership-and-rollout).
@@ -159,7 +158,7 @@ and pinned Hermes image. A template's `schemaVersion`, the schema document's
 JSON Schema dialect and the Hermes image/software version are distinct values.
 Do not choose a schema merely by resolving an arbitrary mutable image tag.
 
-The planned path is:
+The implemented path is:
 
 1. Generate the typed manager envelope schema from its Rust/Serde shape using
    Schemars. Declare numeric bounds, enums and policy constraints explicitly;
@@ -175,7 +174,7 @@ The planned path is:
    generation and validators instead of relying on differing defaults. OpenAPI
    retains its own declared dialect. Ajv documents its
    [dialect-specific behavior](https://ajv.js.org/json-schema.html).
-4. Evaluate configuration against the reviewed schema in Rust using the planned
+4. Evaluate configuration against the reviewed schema in Rust using the
    `jsonschema` integration, then run the existing domain, ownership, reference
    and lifecycle checks. Rust is authoritative even when browser validation passes.
    The [Rust validator](https://docs.rs/jsonschema/latest/jsonschema/) supports
@@ -205,36 +204,33 @@ body bound is 16 KiB and native template `adminConfig` is limited to 8 KiB of
 serialized JSON. A large editor buffer does not raise these server limits. Any
 limit change requires a coordinated API/schema/controller review.
 
-## Monaco, workers and production assets
+## Editor spike and production assets
 
-Load Monaco only when entering a configuration editor or diff view. Bundle the
-editor, language workers and required fonts locally through Vite. Dispose models,
-listeners and completion providers when their editing session ends. Stable model
-URIs connect the correct schema to each template/configuration object. Monaco's
-[maintainer documentation](https://github.com/microsoft/monaco-editor) describes
-models, language services and worker integration.
+The Monaco 0.57 spike emitted ten served files. Its largest JavaScript chunk
+was 2,737.79 kB; its two workers were 303.77 and 433.12 kB, and its codicon font
+was 153.22 kB. Asset bounds were feasible, but the real Chromium run under Rust's
+nonce CSP reported Monaco runtime style elements and inline style attributes
+without valid nonce support. The work plan's fallback was therefore selected:
+CodeMirror 6. Monaco, its workers and its font are not shipped.
 
-JSON editing is the first supported raw format. YAML is a separate integration;
-syntax coloring alone is not YAML schema validation. If added, use a reviewed
-parser and [Monaco YAML language service](https://github.com/remcohaszing/monaco-yaml),
-require JSON-compatible data and define duplicate-key, tag, alias and resource
-limits. Preserve semantic values across mode changes and explain any comment or
-formatting normalization. YAML must not enable executable/custom constructors.
+The production CodeMirror build serves seven UI files: `index.html`, CSS, application,
+shared model, bundler runtime, editor and raw-editor chunks. The largest chunk is
+approximately 365 kB (119 kB gzip); the application chunk is approximately 330 kB. No worker
+or font resource is required. Dependency licenses ship separately in
+`/usr/share/doc/hermes-manager/THIRD_PARTY_NOTICES.txt`. The loader still accepts
+only startup-loaded HTML and flat JS/CSS, at most 32 files, 4 MiB each and 16 MiB
+in total. Paths never become general filesystem lookups.
 
-The current Rust asset loader accepts flat JS/CSS assets with bounded count and
-size. Editor integration needs explicit support for its actual worker, chunk and
-font outputs and a reviewed asset inventory/MIME mapping. Retain bounded,
-startup-loaded assets and authenticated delivery, including worker requests;
-request paths must never become general filesystem lookups. Measure bundle sizes
-and update the limits only with the required outputs understood.
+Rust generates a fresh style nonce for each HTML response, puts it in the meta
+placeholder and CSP, and CodeMirror and Radix consume it. `script-src 'self'`
+remains unchanged; `worker-src 'self'` is explicit. There is no `unsafe-inline`,
+`unsafe-eval`, blob worker, external schema fetch or CDN. Playwright runs the built
+editor and Radix dialogs against the Rust HTTPS/OIDC/PostgreSQL fixture and checks
+zero CSP violations, including real cookie/CSRF registration and draft publication.
 
-Serve workers from the same origin with credentials appropriate for the existing
-session gate. Add the required explicit worker CSP directive when implementing
-this; the current `default-src 'none'` policy does not itself permit workers.
-Test Monaco and Radix under the actual production policy, including runtime
-styles/positioning. Review any narrowly scoped style policy adjustments while
-preserving script restrictions. Configure editor loading and schema resolution
-to use the bundled or manager-served resources, without a public CDN dependency.
+JSON is the supported raw format. YAML remains a separate optional integration;
+it would need a reviewed parser, JSON-compatible values and duplicate-key/tag/
+alias/resource bounds. It is not installed or presented as validated YAML.
 
 ## Components, styling and accessibility
 
@@ -262,12 +258,12 @@ OIDC SDK session. Fetch the current actor, permitted actions and CSRF token from
 `/api/v1/session`. Browser mutations carry CSRF plus normal version/idempotency
 preconditions; Rust checks the actual actor and current policy.
 
-The current gate is the Keycloak management-client role documented in the
-[operator guide](dashboard.md#keycloak-administrator-access). The proposed
-PostgreSQL administrator-grant list is separate backend authorization work.
-React components must consume capabilities from the API so that changing the
-authority updates browser and bearer authorization consistently. A table showing
-session subjects cannot serve as the authoritative list of all administrators.
+Keycloak supplies the verified identity. PostgreSQL grants are checked on every
+browser/bearer request and in mutation transactions. `canManageAdministrators`
+controls grant writes, and the API reports effective permissions. Bootstrap,
+recovery and immediate next-request revocation are documented in the
+[operator guide](dashboard.md#keycloak-identity-and-postgresql-administrator-access).
+The grant list queries actual grants; recent identities are only candidate targets.
 
 Never persist provider credentials, user metadata or configuration drafts in
 frontend bundles, URLs, telemetry or default browser storage. Logout clears
@@ -278,8 +274,9 @@ authorization and audit behavior.
 
 ## Source organization and delivery checks
 
-The scaffold currently has `src/main.tsx`, `src/api.ts`, `src/style.css`, generated
-API types and client/browser tests. As features grow, use these logical modules:
+The frontend uses the modules below. Formatting recursively checks nested source
+and browser-test files. Every input is enumerated in `release-policy.json`, and
+a repository check rejects tracked UI files missing from that finite context.
 
 ```text
 ui/src/
@@ -297,8 +294,7 @@ ui/src/
   schemas/             reviewed schema assets/generated standalone validators
 ```
 
-This tree is a target organization, not a list of existing files. Introduce
-modules as their features are implemented. Keep generated outputs deterministic
+Keep generated outputs deterministic
 and mark them separately from hand-maintained adapters/components.
 
 The existing commands and CI entry points are in the

@@ -33,33 +33,19 @@ pub(super) fn routes() -> Router<Arc<AdminState>> {
         )
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CatalogPage {
-    after: Option<String>,
-    #[serde(default = "default_limit")]
-    limit: u16,
-}
 async fn runtime_catalog(
     State(state): State<Arc<AdminState>>,
-    query: Result<Query<CatalogPage>, axum::extract::rejection::QueryRejection>,
+    query: Result<Query<DashboardQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     let Ok(Query(query)) = query else {
         return api_error(Error::Invalid);
     };
     match state
         .store
-        .runtime_catalog(&state.scope, query.after.as_deref(), query.limit)
+        .dashboard_list(&state.scope, DashboardList::Runtimes, &query)
         .await
     {
-        Ok(items) => {
-            let next = if items.len() == usize::from(query.limit) {
-                items.last().map(|item| item.runtime.id.clone())
-            } else {
-                None
-            };
-            Json(json!({"items":items,"nextCursor":next})).into_response()
-        }
+        Ok(value) => Json(value).into_response(),
         Err(error) => api_error(error),
     }
 }

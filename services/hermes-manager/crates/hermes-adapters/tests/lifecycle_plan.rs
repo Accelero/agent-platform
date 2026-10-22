@@ -1,4 +1,6 @@
 //! Acknowledgement-time drain provenance and read-only retained-state planning.
+#[path = "support/grants.rs"]
+mod grant_fixture;
 use hermes_adapters::{
     materials::MaterialVault,
     postgres::{FreshInventory, PgStore},
@@ -47,6 +49,7 @@ impl Fixture {
             )
             .await
             .unwrap();
+        grant_fixture::grant(pool, &scope, &["fixture-admin"]).await;
         sqlx::query("INSERT INTO manager.instance_templates(id,version,schema_version,image,content_digest,approved) VALUES('personal-default',1,1,$1,$2,true)")
             .bind(format!("ghcr.io/example/hermes@sha256:{}", "a".repeat(64))).bind("b".repeat(64)).execute(pool).await.unwrap();
         let actor = VerifiedPrincipal {

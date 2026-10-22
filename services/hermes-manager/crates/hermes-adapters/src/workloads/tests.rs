@@ -20,6 +20,7 @@ fn fixture() -> (
         version: 1,
     };
     let assignment = AssignmentView {
+        source: "manager".into(),
         id: Uuid::new_v4(),
         identity: hermes_domain::Identity {
             issuer: scope.issuer.clone(),

@@ -19,8 +19,6 @@
     "allowedClients": [
       "manager-admin"
     ],
-    "managementClient": "manager-admin",
-    "administratorRole": "platform-administrator",
     "browser": {
       "databaseUrlFile": "/run/secrets/manager-admin-session/database-url",
       "publicOrigin": "https://hermes-admin.example.org",
@@ -51,5 +49,6 @@
       "certificateFile": "/run/secrets/manager-execution/tls.crt",
       "privateKeyFile": "/run/secrets/manager-execution/tls.key"
     }
-  }
+  },
+  "administratorIdentityFile": "/run/manager/bootstrap-identity.json"
 }

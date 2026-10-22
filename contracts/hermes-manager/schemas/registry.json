@@ -1,0 +1,18 @@
+{
+  "schemas": [
+    {
+      "id": "urn:hermes-manager:template:1",
+      "revision": 1,
+      "digest": "e126f6cfbcdd025731c6c7e68a76911c7b03f81e4044f9ba6cfc44a3cd66b67b",
+      "compatibleImageDigests": []
+    },
+    {
+      "id": "urn:hermes-manager:hermes-managed:1",
+      "revision": 1,
+      "digest": "a20ca03fee1b0aa717e562316c676f7cd8e0ad0f4005cb16630de9e8ba1952f1",
+      "compatibleImageDigests": [
+        "sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db"
+      ]
+    }
+  ]
+}

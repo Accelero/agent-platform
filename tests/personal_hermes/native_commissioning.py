@@ -353,11 +353,17 @@ def run_fixture(identifier, postgres, temporary):
                 "readded",
                 "terminal",
                 "terminal-retired",
+                "dashboard-ready",
+                "dashboard-applied",
+                "dashboard-removed",
             }
             print(
-                "PASS: two real native instances; image/admin updates, Pod restart, "
+                "PASS: two infrastructure-owned and one manager-owned "
+                "native instances; "
+                "image/admin updates, Pod restart, "
                 "removal/re-add and persistent owner state; dashboard/profile "
-                "backend selection, scoped real SSH/subpath execution and retirement"
+                "backend selection, scoped real SSH/subpath execution and retirement; "
+                "published template apply/removal preserves retained user settings"
             )
             return
         progress = json.loads(
@@ -385,6 +391,9 @@ def run_fixture(identifier, postgres, temporary):
                 "readded",
                 "terminal",
                 "terminal-retired",
+                "dashboard-ready",
+                "dashboard-applied",
+                "dashboard-removed",
             }
             and stage not in checked
         ):
@@ -469,6 +478,27 @@ def run_fixture(identifier, postgres, temporary):
                         )
                     )
                     assert not workers["items"], "Retired terminal Pod still exists"
+            elif stage == "dashboard-ready":
+                execute(
+                    owner_a,
+                    "import pathlib,json; p=pathlib.Path('/opt/data/config.yaml'); "
+                    "s=json.loads(p.read_text()); s['agent']={'max_turns':77,"
+                    "'fixture_preference':'dashboard owner choice'}; "
+                    "p.write_text(json.dumps(s))",
+                )
+            elif stage in {"dashboard-applied", "dashboard-removed"}:
+                expected = 24 if stage == "dashboard-applied" else 77
+                execute(
+                    owner_a,
+                    "import pathlib,json,os; os.environ['HERMES_HOME']='/opt/data'; "
+                    "from hermes_cli.config import load_config; c=load_config(); "
+                    f"assert c['agent']['max_turns']=={expected}; "
+                    "assert c['agent']['fixture_preference']=="
+                    "'dashboard owner choice'; "
+                    "raw=json.loads(pathlib.Path("
+                    "'/opt/data/config.yaml').read_text()); "
+                    "assert raw['agent']['max_turns']==77",
+                )
             elif stage == "ready":
                 for namespace, owner in [(owner_a, "owner-a"), (owner_b, "owner-b")]:
                     execute(

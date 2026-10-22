@@ -29,7 +29,7 @@ pub struct TemplateView {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OperationView {
     pub id: Uuid,
-    pub instance_id: Uuid,
+    pub instance_id: Option<Uuid>,
     pub kind: String,
     pub generation: i64,
     pub state: String,
@@ -40,10 +40,12 @@ pub struct OperationView {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AuditView {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
     pub id: Uuid,
     pub actor: Identity,
     pub action: String,
-    pub assignment_id: Uuid,
+    pub assignment_id: Option<Uuid>,
     pub operation_id: Uuid,
     pub request_id: Uuid,
     pub version: i64,

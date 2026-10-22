@@ -392,6 +392,8 @@ pub struct ExecutionPolicyView {
     pub applied_generation: i64,
     pub state: String,
     pub desired: ResolvedPolicy,
+    #[serde(default)]
+    pub applied: Option<ResolvedPolicy>,
     pub digest: String,
 }
 #[derive(Debug, Clone)]

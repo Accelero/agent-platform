@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "image": "ghcr.io/example/hermes@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "storageClass": "standard",
+  "homeGib": 8,
+  "workspaceGib": 16,
+  "cpuMillis": 1000,
+  "memoryMib": 1024,
+  "adminConfig": {
+    "terminal": {
+      "backend": "managed_execution",
+      "runtime_id": "python-tools"
+    },
+    "advanced": {
+      "retained": true
+    }
+  }
+}

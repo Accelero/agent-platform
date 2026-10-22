@@ -1,4 +1,6 @@
 //! HTTPS, mTLS and cryptographic authorization through real listeners and SQL.
+#[path = "support/grants.rs"]
+mod grant_fixture;
 use std::{collections::BTreeSet, time::Duration};
 
 use axum::{Json, Router, routing::get};
@@ -69,6 +71,7 @@ impl Fixture {
             )
             .await
             .unwrap();
+        grant_fixture::grant(pool, &scope, &["admin-a"]).await;
         store.check_existing(&scope).await.unwrap();
         sqlx::query("INSERT INTO manager.instance_templates (id,version,schema_version,image,content_digest,approved) VALUES ('personal-default',1,1,$1,$2,true)")
             .bind(format!("ghcr.io/example/hermes@sha256:{}","a".repeat(64))).bind("a".repeat(64)).execute(pool).await.unwrap();

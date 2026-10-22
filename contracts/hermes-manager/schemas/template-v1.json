@@ -1,0 +1,64 @@
+{
+  "$id": "urn:hermes-manager:template:1",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "adminConfig": {
+      "additionalProperties": true,
+      "description": "Read-only native managed scope. User config stays on the home PVC.",
+      "type": "object"
+    },
+    "cpuMillis": {
+      "format": "uint32",
+      "maximum": 64000,
+      "minimum": 10,
+      "type": "integer"
+    },
+    "homeGib": {
+      "format": "uint32",
+      "maximum": 1048576,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "image": {
+      "pattern": "^.+@sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "memoryMib": {
+      "format": "uint32",
+      "maximum": 262144,
+      "minimum": 128,
+      "type": "integer"
+    },
+    "schemaVersion": {
+      "format": "uint32",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "storageClass": {
+      "maxLength": 63,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9-]{0,62}$",
+      "type": "string"
+    },
+    "workspaceGib": {
+      "format": "uint32",
+      "maximum": 1048576,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "image",
+    "storageClass",
+    "homeGib",
+    "workspaceGib",
+    "cpuMillis",
+    "memoryMib"
+  ],
+  "title": "TemplateDefinition",
+  "type": "object",
+  "x-revision": 1
+}

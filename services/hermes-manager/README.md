@@ -15,15 +15,14 @@ agent runs.
 The [terminal backend guide](../../docs/personal-hermes/terminal-backends.md)
 describes dashboard/profile selection, scoped on-demand worker creation, pinned
 SSH access and retirement. Nonempty runtime service-egress resolution and wider
-routing/recovery integration remain incomplete. Automated backups and complete
-manager administration editors remain open. The
-[dashboard scaffold](../../docs/personal-hermes/dashboard.md) serves a protected
-React/TypeScript/Vite overview and read-only administration lists, using the
-existing Keycloak OIDC session and administrator-role checks. Its local/CI
-multi-stage image pipeline is separate from tagged release publication.
-The [dashboard stack guide](../../docs/personal-hermes/dashboard-stack.md) records
-installed and planned libraries, schema-driven form/raw editing, data/query
-boundaries, styling/accessibility and production integration checks.
+routing/recovery integration remain incomplete. Automated backups remain open.
+The [dashboard](../../docs/personal-hermes/dashboard.md) includes searchable
+administration views, typed commands, form/JSON template drafts, immutable
+publication, explicit application and durable bulk results. Keycloak authenticates
+identities; PostgreSQL grants define administrators. Its local/CI multi-stage
+image pipeline remains separate from tagged release publication.
+The [stack guide](../../docs/personal-hermes/dashboard-stack.md) records the
+installed libraries, schema coverage and production CSP verification.
 The manager is not installed by the 0.6.1 chart. The
 [implementation status](../../docs/personal-hermes/implementation.md) is the
 current capability/evidence index; the
@@ -148,7 +147,7 @@ human administrator authorization and browser Origin/CSRF checks as assignments,
 with actor/body-scoped idempotency and durable execution configuration audit.
 Real PostgreSQL/HTTPS tests cover owner isolation, version/replay conflicts,
 bounded pagination, unknown/duplicate fields, rejected opaque native credentials,
-CSRF and administrator-role loss on session refresh.
+CSRF and current PostgreSQL grant revocation.
 
 The optional execution TLS listener implements the separate
 [native protocol contract](../../contracts/hermes-manager/execution.openapi.yaml).
@@ -163,7 +162,7 @@ listing without setting Ready/applied state or granting a lease.
 
 API-only authentication uses signed Keycloak user access tokens. Require
 the configured issuer/audience, approved authorized client, a user-session `sid`,
-`Bearer` token type and the exact administrator role under the management client.
+`Bearer` token type and an active installation-scoped PostgreSQL administrator grant.
 Disable service accounts on management/router OIDC clients. ID tokens,
 client-credentials tokens, unverified headers, personal assignments and general
 realm roles cannot confer administration. JWT algorithms are pinned (the process
@@ -171,9 +170,9 @@ currently selects RS256), and keys come from a configured HTTPS JWKS endpoint
 on the issuer origin. Key fetches are bounded, size-limited and do not follow
 redirects or environment proxies. The key cache is independent of assignment
 authorization. Optional browser authentication is described below; the
-[dashboard scaffold](../../docs/personal-hermes/dashboard.md) is served behind
-that same administrator gate. The manager database has no administrator-grant
-allowlist; its user/assignment rows do not confer administration.
+[dashboard](../../docs/personal-hermes/dashboard.md) is served behind
+that same administrator gate. Only administrator grants confer administration; user/assignment rows do not.
+Bootstrap and recovery use the explicit operator commands in the dashboard guide.
 
 The resolver listener requires client mTLS AND fresh user access-token evidence
 for its separate route audience/client. Its peer role comes from an exact
@@ -183,7 +182,7 @@ assignment authorization and registered destination ownership/generation, with
 an overall deadline below two seconds and no-store responses.
 
 HTTPS integration tests use real certificates, real RSA signatures, a
-bounded TLS JWKS fixture and PostgreSQL. They cover role/audience/client/issuer
+bounded TLS JWKS fixture and PostgreSQL. They cover grant/audience/client/issuer
 separation, invalid/expired/stale signatures/evidence, wrong mTLS identities,
 missing/forged authentication, API-only mutations, races, unknown/oversized input,
 live revocation, maintenance/recovery gates and dependency/lock deadlines.
@@ -223,7 +222,7 @@ Use `cargo build --workspace --bins --locked` to build both executables. The
 compiled-process test covers their TLS/listener/configuration gates and abrupt
 termination. The PostgreSQL/HTTPS tests cover code/PKCE/nonce verification,
 single-use flows, browser binding, overlapping login, logout, CSRF, signature,
-audience/role checks, refresh rotation and separate mTLS callers. These protocol
+audience/grant checks, refresh rotation and separate mTLS callers. These protocol
 fixtures do not replace acceptance with real Keycloak and native Hermes.
 
 Provider tokens, PKCE verifiers and nonce/CSRF material are encrypted with
@@ -258,7 +257,10 @@ Provision separate database roles after migrations. The router session role
 needs only `USAGE` on `manager_router_auth`, `SELECT/INSERT/UPDATE/DELETE` on
 that schema's `browsers`, `flows` and `sessions`, and `EXECUTE` on
 `manager_router_auth.check_scope(uuid,bigint,text)`. The administrator session
-role needs equivalent grants in `manager_admin_auth`. Neither needs scope-table
+role needs equivalent grants for those three session tables in `manager_admin_auth`,
+plus `SELECT/INSERT/UPDATE` on `verified_identities` and `EXECUTE` on
+`has_administrator_grant(uuid,text,text)`. Do not grant the session role writes
+to `administrator_grants`. The API registry role owns grant commands. Neither needs scope-table
 write permission or assignment access. Schema owners/migration roles remain
 separate. The narrow definer function validates and locks the epoch without
 granting the session role permission to change it.

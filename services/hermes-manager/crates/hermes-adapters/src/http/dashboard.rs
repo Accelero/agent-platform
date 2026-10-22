@@ -65,6 +65,35 @@ impl DashboardAssets {
 
 async fn asset(State(assets): State<DashboardAssets>, request: Request) -> Response {
     let path = request.uri().path();
+    if let Some((prefix, id)) = path.rsplit_once('/')
+        && matches!(
+            prefix,
+            "/users"
+                | "/operations"
+                | "/activity"
+                | "/assignments"
+                | "/storage-bindings"
+                | "/terminal-runtimes"
+                | "/templates"
+                | "/template-drafts"
+                | "/administrators"
+                | "/template-batches"
+        )
+    {
+        let valid = if matches!(prefix, "/terminal-runtimes" | "/templates") {
+            !id.is_empty()
+                && id.len() <= 63
+                && id.as_bytes()[0].is_ascii_lowercase()
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        } else {
+            Uuid::parse_str(id).is_ok()
+        };
+        if !valid {
+            return api_error(Error::NotFound);
+        }
+    }
     let key = if path.starts_with("/assets/") {
         path
     } else {
@@ -73,12 +102,34 @@ async fn asset(State(assets): State<DashboardAssets>, request: Request) -> Respo
     let Some((mime, bytes)) = assets.files.get(key) else {
         return api_error(Error::NotFound);
     };
-    let mut result = bytes.clone().into_response();
+    let nonce = match crate::session_crypto::random_handle() {
+        Ok(nonce) => nonce,
+        Err(error) => return api_error(error),
+    };
+    let content = if mime
+        .to_str()
+        .is_ok_and(|value| value.starts_with("text/html"))
+    {
+        let Ok(html) = std::str::from_utf8(bytes) else {
+            return api_error(Error::Invalid);
+        };
+        Bytes::from(html.replace("__MANAGER_STYLE_NONCE__", &nonce))
+    } else {
+        bytes.clone()
+    };
+    let mut result = content.into_response();
     result
         .headers_mut()
         .insert(header::CONTENT_TYPE, mime.clone());
-    result.headers_mut().insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"));
+    let policy = format!(
+        "default-src 'none'; script-src 'self'; style-src 'self' 'nonce-{nonce}'; worker-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    );
+    let Ok(policy) = HeaderValue::from_str(&policy) else {
+        return api_error(Error::Invalid);
+    };
+    result
+        .headers_mut()
+        .insert(header::CONTENT_SECURITY_POLICY, policy);
     result
 }
 
@@ -111,7 +162,21 @@ pub(super) fn router(assets: DashboardAssets, auth: AdminAuth) -> Router {
     Router::new()
         .route("/", get(asset))
         .route("/assignments", get(asset))
+        .route("/assignments/{id}", get(asset))
+        .route("/users", get(asset))
+        .route("/users/{id}", get(asset))
+        .route("/operations/{id}", get(asset))
+        .route("/activity/{id}", get(asset))
+        .route("/administrators", get(asset))
+        .route("/administrators/{id}", get(asset))
+        .route("/template-batches/{id}", get(asset))
+        .route("/templates", get(asset))
+        .route("/templates/{id}", get(asset))
+        .route("/template-drafts/{id}", get(asset))
+        .route("/storage-bindings", get(asset))
+        .route("/storage-bindings/{id}", get(asset))
         .route("/terminal-runtimes", get(asset))
+        .route("/terminal-runtimes/{id}", get(asset))
         .route("/activity", get(asset))
         .route("/assets/{*path}", get(asset))
         .route_layer(middleware::from_fn_with_state(auth, authorize))

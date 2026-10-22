@@ -164,7 +164,8 @@ backup retention or implemented full-data restore/checkpoint workflow.
 
 Each instance includes the native Hermes dashboard for its owner. The manager
 has an administration API, browser-session authentication and a protected
-[dashboard scaffold](dashboard.md), but its administration editors remain open.
+[dashboard](dashboard.md), including manager-owned template drafts, publication and
+explicit application. Infrastructure-owned definitions remain read-only there.
 Terminal catalog/policy/lease and worker primitives exist, but this
 commissioning input does not grant terminal permissions by itself. Configure
 approved `managed-ssh-v2` runtime versions, storage and an assignment execution

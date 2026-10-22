@@ -68,7 +68,12 @@ async fn execution_registration_requires_csrf_and_current_administrator_role(poo
             .unwrap();
     assert_eq!(actor, "owner-a");
     sqlx::query("UPDATE manager_admin_auth.sessions SET verified_at=clock_timestamp()-interval '61 seconds' WHERE state='active'").execute(&pool).await.unwrap();
-    *f.provider.fault.write().await = "role".into();
+    sqlx::query(
+        "UPDATE manager_admin_auth.administrator_grants SET active=false WHERE subject='owner-a'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let response = f
         .client
         .post(format!("{}/api/v1/terminal-runtimes", f.admin.url))

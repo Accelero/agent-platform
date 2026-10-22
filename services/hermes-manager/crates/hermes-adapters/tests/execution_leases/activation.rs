@@ -103,6 +103,20 @@ async fn activation_requires_every_original_input_observed_and_atomic_applied_re
     pool: PgPool,
 ) {
     let (store, scope, client, policy, claim) = activation_fixture(&pool).await;
+    let assignment: Uuid =
+        sqlx::query_scalar("SELECT assignment_id FROM manager.instances WHERE id=$1")
+            .bind(client.instance_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        store
+            .execution_policy(&scope, assignment)
+            .await
+            .unwrap()
+            .applied
+            .is_none()
+    );
     let plan = store.activation_plan(&scope, &claim).await.unwrap();
     let first = input(&plan, &claim, "1");
     store
@@ -153,6 +167,9 @@ async fn activation_requires_every_original_input_observed_and_atomic_applied_re
     .await
     .unwrap();
     assert_eq!(status, (1, "Applied".into()));
+    let inspected = store.execution_policy(&scope, assignment).await.unwrap();
+    assert_eq!(inspected.applied.as_ref(), Some(&policy));
+    assert_eq!(inspected.desired, policy);
     let receipt:String=sqlx::query_scalar("SELECT content_digest FROM manager.execution_effective_policy_receipts WHERE instance_id=$1").bind(client.instance_id).fetch_one(&pool).await.unwrap();
     assert_eq!(receipt, policy.digest().unwrap());
     assert_eq!(

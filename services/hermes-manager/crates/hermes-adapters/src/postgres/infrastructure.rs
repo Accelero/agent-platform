@@ -11,7 +11,7 @@ impl PgStore {
     ) -> Result<bool, Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_claim(&mut tx, scope, claim).await?;
-        let valid:bool=sqlx::query_scalar("SELECT a.infrastructure_managed AND a.access='enabled' AND NOT EXISTS(SELECT 1 FROM manager.execution_environments e WHERE e.instance_id=i.id AND e.state<>'Retired') AND NOT EXISTS(SELECT 1 FROM manager.native_children c WHERE c.instance_id=i.id AND NOT EXISTS(SELECT 1 FROM manager.native_child_actions n WHERE n.pod_uid=c.pod_uid AND n.outcome='absent')) AND (NOT EXISTS(SELECT 1 FROM manager.owned_resources r WHERE r.instance_id=i.id AND r.kind='Deployment' AND r.state<>'Deleted') OR EXISTS(SELECT 1 FROM manager.native_stop_inputs n JOIN manager.operation_steps s USING(operation_id,step_key) WHERE n.operation_id=$2 AND s.verified_at IS NOT NULL)) FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
+        let valid:bool=sqlx::query_scalar("SELECT (a.infrastructure_managed OR a.dashboard_managed) AND a.access='enabled' AND NOT EXISTS(SELECT 1 FROM manager.execution_environments e WHERE e.instance_id=i.id AND e.state<>'Retired') AND NOT EXISTS(SELECT 1 FROM manager.native_children c WHERE c.instance_id=i.id AND NOT EXISTS(SELECT 1 FROM manager.native_child_actions n WHERE n.pod_uid=c.pod_uid AND n.outcome='absent')) AND (NOT EXISTS(SELECT 1 FROM manager.owned_resources r WHERE r.instance_id=i.id AND r.kind='Deployment' AND r.state<>'Deleted') OR EXISTS(SELECT 1 FROM manager.native_stop_inputs n JOIN manager.operation_steps s USING(operation_id,step_key) WHERE n.operation_id=$2 AND s.verified_at IS NOT NULL)) FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
             .bind(claim.instance_id).bind(claim.id).fetch_one(&mut *tx).await.map_err(db_error)?;
         if !valid {
             return Ok(false);
@@ -28,7 +28,7 @@ impl PgStore {
     ) -> Result<bool, Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_claim(&mut tx, scope, claim).await?;
-        let valid: bool = sqlx::query_scalar("SELECT a.infrastructure_managed AND a.access='revoked' AND NOT EXISTS(SELECT 1 FROM manager.owned_resources r WHERE r.instance_id=i.id AND r.kind='Deployment' AND r.state<>'Deleted') AND NOT EXISTS(SELECT 1 FROM manager.native_children c WHERE c.instance_id=i.id AND NOT EXISTS(SELECT 1 FROM manager.native_child_actions n WHERE n.pod_uid=c.pod_uid AND n.outcome='absent')) AND NOT EXISTS(SELECT 1 FROM manager.execution_environments e WHERE e.instance_id=i.id AND e.state<>'Retired') FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
+        let valid: bool = sqlx::query_scalar("SELECT (a.infrastructure_managed OR a.dashboard_managed) AND a.access='revoked' AND NOT EXISTS(SELECT 1 FROM manager.owned_resources r WHERE r.instance_id=i.id AND r.kind='Deployment' AND r.state<>'Deleted') AND NOT EXISTS(SELECT 1 FROM manager.native_children c WHERE c.instance_id=i.id AND NOT EXISTS(SELECT 1 FROM manager.native_child_actions n WHERE n.pod_uid=c.pod_uid AND n.outcome='absent')) AND NOT EXISTS(SELECT 1 FROM manager.execution_environments e WHERE e.instance_id=i.id AND e.state<>'Retired') FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
             .bind(claim.instance_id).fetch_one(&mut *tx).await.map_err(db_error)?;
         if !valid {
             return Ok(false);
@@ -48,7 +48,7 @@ impl PgStore {
         // A crash on the final permitted attempt can exhaust a claim before
         // schedule() records its condition. Recover only transient infra work;
         // preserve all ownership/admission/manual-recovery blocks.
-        sqlx::query("UPDATE manager.instances i SET state='Blocked',conditions=jsonb_set(i.conditions,'{commissioning}',jsonb_build_object('reason','dependency_unavailable','generation',i.desired_generation)),reconcile_after=clock_timestamp()+interval '30 seconds' FROM manager.assignments a WHERE a.id=i.assignment_id AND a.installation_id=$1 AND a.infrastructure_managed AND i.state='Provisioning' AND EXISTS(SELECT 1 FROM manager.operations o WHERE o.instance_id=i.id AND o.generation=i.desired_generation AND o.state='Blocked' AND (o.last_condition IS NULL OR o.last_condition->>'reason'='dependency_unavailable')) AND NOT EXISTS(SELECT 1 FROM manager.operations o WHERE o.instance_id=i.id AND o.state IN ('Pending','Running','Waiting','RetryAt'))")
+        sqlx::query("UPDATE manager.instances i SET state='Blocked',conditions=jsonb_set(i.conditions,'{commissioning}',jsonb_build_object('reason','dependency_unavailable','generation',i.desired_generation)),reconcile_after=clock_timestamp()+interval '30 seconds' FROM manager.assignments a WHERE a.id=i.assignment_id AND a.installation_id=$1 AND (a.infrastructure_managed OR a.dashboard_managed) AND i.state='Provisioning' AND EXISTS(SELECT 1 FROM manager.operations o WHERE o.instance_id=i.id AND o.generation=i.desired_generation AND o.state='Blocked' AND (o.last_condition IS NULL OR o.last_condition->>'reason'='dependency_unavailable')) AND NOT EXISTS(SELECT 1 FROM manager.operations o WHERE o.instance_id=i.id AND o.state IN ('Pending','Running','Waiting','RetryAt'))")
             .bind(scope.id).execute(&mut *tx).await.map_err(db_error)?;
         sqlx::query("LOCK TABLE manager.desired_users IN SHARE ROW EXCLUSIVE MODE")
             .execute(&mut *tx)
@@ -167,7 +167,7 @@ impl PgStore {
     ) -> Result<bool, Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_claim(&mut tx, scope, claim).await?;
-        let managed = sqlx::query_scalar("SELECT a.infrastructure_managed FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
+        let managed = sqlx::query_scalar("SELECT (a.infrastructure_managed OR a.dashboard_managed) FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
             .bind(claim.instance_id).fetch_one(&mut *tx).await.map_err(db_error)?;
         tx.commit().await.map_err(db_error)?;
         Ok(managed)
@@ -184,7 +184,7 @@ impl PgStore {
     ) -> Result<(), Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         lock_claim(&mut tx, scope, claim).await?;
-        let valid: bool = sqlx::query_scalar("SELECT a.infrastructure_managed AND a.access='enabled' FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
+        let valid: bool = sqlx::query_scalar("SELECT (a.infrastructure_managed OR a.dashboard_managed) AND a.access='enabled' FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE i.id=$1")
             .bind(claim.instance_id).fetch_one(&mut *tx).await.map_err(db_error)?;
         if !valid {
             return Err(Error::Forbidden);

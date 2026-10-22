@@ -5,15 +5,22 @@ use hermes_domain::{validate_image, validate_name};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TemplateDefinition {
+    #[schemars(range(min = 1, max = 1))]
     pub schema_version: u32,
+    #[schemars(regex(pattern = r"^.+@sha256:[0-9a-f]{64}$"))]
     pub image: String,
+    #[schemars(length(min = 1, max = 63), regex(pattern = r"^[a-z][a-z0-9-]{0,62}$"))]
     pub storage_class: String,
+    #[schemars(range(min = 1, max = 1048576))]
     pub home_gib: u32,
+    #[schemars(range(min = 1, max = 1048576))]
     pub workspace_gib: u32,
+    #[schemars(range(min = 10, max = 64000))]
     pub cpu_millis: u32,
+    #[schemars(range(min = 128, max = 262144))]
     pub memory_mib: u32,
     /// Read-only native managed scope. User config stays on the home PVC.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
@@ -121,4 +128,23 @@ pub trait CommissioningRepository: Send + Sync {
         claim: &OperationClaim,
         schedule: Schedule,
     ) -> Result<(), Error>;
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use super::*;
+    #[test]
+    fn reviewed_envelope_schema_matches_the_rust_type() {
+        let schema = schemars::generate::SchemaSettings::draft07()
+            .into_generator()
+            .into_root_schema_for::<TemplateDefinition>();
+        let mut generated = serde_json::to_value(schema).unwrap();
+        generated["$id"] = serde_json::json!("urn:hermes-manager:template:1");
+        generated["x-revision"] = serde_json::json!(1);
+        let committed: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../contracts/hermes-manager/schemas/template-v1.json"
+        ))
+        .unwrap();
+        assert_eq!(generated, committed);
+    }
 }

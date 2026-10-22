@@ -1,9 +1,12 @@
 # Manager dashboard: data management and editors
 
-This is the next dashboard feature specification. It describes requested
-behavior, not completed functionality. The [current scaffold](dashboard.md)
-has an overview and the first page of read-only assignment, terminal-runtime and
-audit lists. It has no template editor, assignment editor or administrator editor.
+This specification defines the dashboard behavior. The implementation now includes
+searchable views, typed administration commands, template form/JSON authoring,
+immutable publication, explicit version application and PostgreSQL administrator
+management. The [operator guide](dashboard.md) explains setup and authority;
+the [work plan](dashboard-workplan.md#status) records acceptance evidence and
+implementation scope. Optional YAML and external directory integration remain
+separate extensions.
 
 Use the [technology and implementation conventions](dashboard-stack.md) for
 the selected frontend libraries, schema/editor integration, API/state boundaries,
@@ -34,8 +37,9 @@ remain usable on narrow screens and through keyboard navigation.
 | Administrators | Canonical issuer/subject, optional identity labels, effective access, grant source and audit metadata where available | Inspect effective administrator permission and add/revoke access through the chosen authority described below |
 | Activity | Actor, action, affected user/template/assignment, operation, outcome and time | Open related records and redacted change/operation details |
 
-The initial Users collection consists of manager-registered identities; it must
-not pretend to contain every Keycloak user. Optional Keycloak directory search
+The Users collection consists of manager-registered identities and verified
+manager logins, with their provenance; it must not pretend to contain every Keycloak
+user. Optional Keycloak directory search
 can supply additional identity candidates and descriptive fields. Show whether
 an identity is directory-verified or manually entered. Exact `(issuer, subject)`
 is authoritative; email/display name are labels and search aids, never ownership
@@ -189,47 +193,33 @@ migration requirements must prevent dispatch and produce specific UI feedback.
 
 ## Administrator list and authorization authority
 
-**Current implementation:** Keycloak authenticates the human and the manager
-requires the configured management-client role in its signed access token.
-For the example configuration, this is
-`resource_access["manager-admin"].roles` containing `platform-administrator`, plus
-the trusted issuer, `manager-api` audience and authorized client. Manager
-PostgreSQL stores browser sessions, audit and assignments; it has no application
-administrator-grant table. Adding a desired user/assignment does not grant admin
-access. A generic realm `admin` role is insufficient.
+**Accepted authority:** Keycloak authenticates the human and supplies the exact
+stable issuer/subject. Installation-scoped PostgreSQL administrator grants are
+the sole authorization authority. Keycloak client and realm roles do not grant
+access and are not an additional prerequisite. User assignments do not grant
+administration permission.
 
-**Requested addition:** administrators must be able to inspect and edit who has
-manager administration access. This requires an explicit authorization-authority
-decision before implementing the write path. Options are:
+The dashboard lists actual grants and their PostgreSQL source. A separate
+`canManageAdministrators` permission controls grant writes. Targets must have
+verified authentication evidence; labels and email are never identity keys.
+Changes use ETags, actor-scoped idempotency and audit. Transactions serialize
+grant changes and refuse removal or demotion of the last recoverable manager.
+The operator has explicit initial-bootstrap and recovery commands using a
+private identity file, documented in the [operator guide](dashboard.md#keycloak-identity-and-postgresql-administrator-access).
 
-| Authority | Meaning of an edit | Required backend change |
-| --- | --- | --- |
-| Keep Keycloak client roles authoritative | Add/revoke the dedicated manager client-role mapping in Keycloak; the dashboard displays effective role membership, including inherited membership | A separately reviewed, narrowly authorized Keycloak role-management adapter. The current directory boundary is read-only and cannot make these writes. The manager must not receive unrestricted realm administration merely to edit this role. |
-| Manager PostgreSQL grants | Add/revoke an installation-scoped grant for an exact verified `(issuer, subject)`; Keycloak continues to authenticate the user | Grant schema, bootstrap/recovery and management commands, plus changes to every browser and bearer admin authorization path. Decide whether the Keycloak client role remains an additional prerequisite or is replaced by the manager grant; no implicit OR fallback. |
-
-Recommended direction for review: manager-owned PostgreSQL grants fit an editable
-application administrator list while preserving read-only Keycloak directory
-access. Keycloak would continue to authenticate humans and supply exact stable
-identities; the manager would own its application permission list. This would
-avoid giving the manager Keycloak role-write privileges. It is a proposal, not an
-accepted change to the current role gate. Explicitly resolve the role prerequisite
-and initial-admin bootstrap before implementation.
-
-Do not implement two independently writable grant authorities with ambiguous
-results. The administrator list must display the effective source of permission;
-do not infer the full admin population from recent session or audit rows.
-Inherited Keycloak grants must not appear revoked when a direct mapping is
-removed but another grant still applies.
-
-For either design, use canonical identity selection, audit grant/revoke actor
-and target, require explicit permission to manage administrators, prevent
-accidental removal of the last recoverable administrator and document bootstrap
-and recovery. Specify revocation propagation for active sessions and API tokens;
-it must apply to pages, assets, API reads and writes. The dashboard must explain
-any remaining token/session refresh delay. Do not change the live gate as part
-of documenting this requirement.
+Current grants are checked on every browser and bearer request, including pages
+and assets, and again in mutation transactions. Revocation fences browser
+sessions and denies the next request without waiting for token refresh. No
+Keycloak write adapter, parallel grant authority or implicit role fallback exists.
 
 ## Delivery and acceptance
+
+The [work plan](dashboard-workplan.md) breaks this into packages and records
+the original API gaps and their implementation evidence. Search/filter/keyset
+pagination, definition reads, source metadata, explicit template application,
+pointer-addressed validation and entity-aware audit are now implemented. Several existing endpoints
+(assignment creation and access, retry, operations, execution policy, runtime
+and storage registration) already support UI workflows without backend work.
 
 1. Extend read APIs with user/template details, source/ownership, search/filter/
    sort and pagination; add inspectable tables and template-to-user links.

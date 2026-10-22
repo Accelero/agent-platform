@@ -23,6 +23,7 @@ use uuid::Uuid;
 struct Config {
     installation: Installation,
     database_url_file: PathBuf,
+    administrator_identity_file: Option<PathBuf>,
     oidc: Oidc,
     admin: Admin,
     resolver: Resolver,
@@ -54,7 +55,9 @@ struct Admin {
     tls: Tls,
     audience: String,
     allowed_clients: BTreeSet<String>,
+    #[serde(default)]
     management_client: String,
+    #[serde(default)]
     administrator_role: String,
     browser: Option<SessionConfig>,
     ui_directory: Option<PathBuf>,
@@ -82,7 +85,14 @@ async fn run() -> Result<(), Error> {
         || args[1] != "--config"
         || !matches!(
             args[0].as_str(),
-            "api" | "controller" | "migrate" | "check" | "initialize" | "render-bootstrap"
+            "api"
+                | "controller"
+                | "migrate"
+                | "check"
+                | "initialize"
+                | "render-bootstrap"
+                | "administrator-bootstrap"
+                | "administrator-recover"
         )
     {
         return Err(Error::Invalid);
@@ -110,6 +120,19 @@ async fn run() -> Result<(), Error> {
     let database_bytes = read(&config.database_url_file, 16 * 1024).await?;
     let database_url = std::str::from_utf8(&database_bytes).map_err(|_| Error::Invalid)?;
     let store = PgStore::connect(database_url.trim()).await?;
+    if matches!(
+        args[0].as_str(),
+        "administrator-bootstrap" | "administrator-recover"
+    ) {
+        let path = config.administrator_identity_file.ok_or(Error::Invalid)?;
+        let identity: hermes_domain::Identity =
+            serde_json::from_slice(&read(&path, 4096).await?).map_err(|_| Error::Invalid)?;
+        store
+            .bootstrap_administrator(&scope, &identity, args[0] == "administrator-recover")
+            .await?;
+        println!("Administrator grant updated.");
+        return Ok(());
+    }
     if args[0] == "migrate" {
         return store.migrate(&scope).await;
     }
@@ -121,13 +144,10 @@ async fn run() -> Result<(), Error> {
         execution.listen == config.admin.listen || execution.listen == config.resolver.listen
     }) || config.admin.listen == config.resolver.listen
         || config.admin.audience == config.resolver.audience
-        || config.admin.management_client == config.resolver.authorized_client
         || config
             .admin
             .allowed_clients
             .contains(&config.resolver.authorized_client)
-        || config.admin.management_client.is_empty()
-        || config.admin.administrator_role.is_empty()
     {
         return Err(Error::Invalid);
     }

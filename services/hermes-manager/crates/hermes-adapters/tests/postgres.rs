@@ -1,4 +1,6 @@
 //! Real PostgreSQL tests: no in-memory persistence replacement and no silent skip.
+#[path = "support/grants.rs"]
+mod grant_fixture;
 use std::collections::{BTreeMap, BTreeSet};
 
 use hermes_adapters::postgres::{FreshInventory, PgStore};
@@ -71,6 +73,7 @@ async fn fixture(pool: &PgPool) -> (PgStore, InstallationScope, Assignments<PgSt
         issuer: ISSUER.into(),
     };
     store.initialize_fresh(&scope, evidence()).await.unwrap();
+    grant_fixture::grant(pool, &scope, &["administrator", "admin-a", "admin-b"]).await;
     store.check_existing(&scope).await.unwrap();
     sqlx::query("INSERT INTO manager.instance_templates (id,version,schema_version,image,content_digest,approved) VALUES ('personal-default',1,1,$1,$2,true)")
         .bind(format!("ghcr.io/example/hermes@sha256:{}", "a".repeat(64))).bind("a".repeat(64)).execute(pool).await.unwrap();
@@ -1041,4 +1044,954 @@ async fn existing_registry_upgrade_requires_matching_identity_and_maintenance(po
         .await
         .unwrap();
     store.check_existing(&scope).await.unwrap();
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn dashboard_query_cursors_filters_and_concurrent_inserts_are_stable(pool: PgPool) {
+    use hermes_adapters::postgres::dashboard::{DashboardList, DashboardQuery};
+    let (store, scope, service) = fixture(&pool).await;
+    for subject in ["fixture-alpha", "fixture-beta", "fixture-gamma"] {
+        enable(&service, subject).await;
+    }
+    let mut query = DashboardQuery {
+        limit: 1,
+        q: "fixture-".into(),
+        ..Default::default()
+    };
+    let first = store
+        .dashboard_list(&scope, DashboardList::Assignments, &query)
+        .await
+        .unwrap();
+    let first_id = first["items"][0]["id"].as_str().unwrap().to_owned();
+    query.after = Some(first["nextCursor"].as_str().unwrap().to_owned());
+    let baseline = store
+        .dashboard_list(&scope, DashboardList::Assignments, &query)
+        .await
+        .unwrap();
+    enable(&service, "other-prefix").await;
+    let second = store
+        .dashboard_list(&scope, DashboardList::Assignments, &query)
+        .await
+        .unwrap();
+    assert_eq!(baseline, second);
+    assert_ne!(first_id, second["items"][0]["id"]);
+    for changed in [
+        DashboardQuery {
+            q: "different".into(),
+            ..query.clone()
+        },
+        DashboardQuery {
+            sort: "-id".into(),
+            ..query.clone()
+        },
+        DashboardQuery {
+            access: Some("revoked".into()),
+            ..query.clone()
+        },
+    ] {
+        assert!(matches!(
+            store
+                .dashboard_list(&scope, DashboardList::Assignments, &changed)
+                .await,
+            Err(Error::Invalid)
+        ));
+    }
+    assert!(matches!(
+        store
+            .dashboard_list(&scope, DashboardList::Identities, &query)
+            .await,
+        Err(Error::Invalid)
+    ));
+    query.after = None;
+    query.access = Some("revoked".into());
+    assert!(
+        store
+            .dashboard_list(&scope, DashboardList::Assignments, &query)
+            .await
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    query.access = None;
+    query.q = "%".into();
+    assert!(
+        store
+            .dashboard_list(&scope, DashboardList::Assignments, &query)
+            .await
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL enable_seqscan=off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let plan:Vec<(String,)>=sqlx::query_as("EXPLAIN SELECT id FROM manager.assignments WHERE installation_id=$1 AND id>$2 ORDER BY id LIMIT 50").bind(scope.id).bind(Uuid::nil()).fetch_all(&mut *tx).await.unwrap();
+    assert!(
+        plan.iter()
+            .any(|row| row.0.contains("dashboard_assignment_order"))
+    );
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn dashboard_template_reads_redact_seeds_and_never_return_rejected_input(pool: PgPool) {
+    let (store, scope, _) = fixture(&pool).await;
+    let definition = serde_json::json!({"schemaVersion":1,"image":format!("ghcr.io/example/hermes@sha256:{}","a".repeat(64)),"storageClass":"standard","homeGib":8,"workspaceGib":16,"cpuMillis":1000,"memoryMib":1024,"adminConfig":{"model":"example-model","api_key":"fixture-private-seed","nested":{"system_prompt":"fixture-private-seed"}}});
+    sqlx::query("INSERT INTO manager.infrastructure_templates(installation_id,id,definition) VALUES($1,'fixture-template',$2)").bind(scope.id).bind(&definition).execute(&pool).await.unwrap();
+    let value = store
+        .dashboard_templates(&scope, Some("fixture-template"))
+        .await
+        .unwrap();
+    assert_eq!(value["source"], "infrastructure");
+    assert_eq!(value["definition"]["adminConfig"]["model"], "example-model");
+    assert!(!value.to_string().contains("fixture-private-seed"));
+    assert_eq!(value["redactedPaths"].as_array().unwrap().len(), 2);
+    sqlx::query("UPDATE manager.infrastructure_templates SET definition=$2,rejected_definition=$2,condition='invalid_definition' WHERE installation_id=$1").bind(scope.id).bind(serde_json::json!({"rawPod":{"password":"fixture-private-seed"}})).execute(&pool).await.unwrap();
+    let value = store
+        .dashboard_templates(&scope, Some("fixture-template"))
+        .await
+        .unwrap();
+    assert_eq!(value["condition"], "invalid_definition");
+    assert!(value["definition"].is_null());
+    assert_eq!(value["rejectedDefinition"]["code"], "invalid_definition");
+    assert!(!value.to_string().contains("fixture-private-seed"));
+    assert!(!value.to_string().contains("rawPod"));
+}
+
+fn dashboard_definition() -> hermes_application::commissioning::TemplateDefinition {
+    serde_json::from_str(include_str!(
+        "../../../../../contracts/hermes-manager/schemas/fixtures/valid/template.json"
+    ))
+    .unwrap()
+}
+async fn publish_dashboard_template(
+    store: &PgStore,
+    scope: &InstallationScope,
+    key: &str,
+    definition: hermes_application::commissioning::TemplateDefinition,
+) -> serde_json::Value {
+    use hermes_adapters::postgres::authoring::{DraftChange, DraftInput};
+    let created = store
+        .dashboard_save_draft(
+            scope,
+            &actor("administrator"),
+            &format!("{key}-create"),
+            DraftChange {
+                id: None,
+                expected: None,
+                input: DraftInput {
+                    template_id: "dashboard-fixture".into(),
+                    definition: definition.clone(),
+                },
+                publish: false,
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .dashboard_save_draft(
+            scope,
+            &actor("administrator"),
+            &format!("{key}-publish"),
+            DraftChange {
+                id: Some(serde_json::from_value(created["draft"]["id"].clone()).unwrap()),
+                expected: Some(1),
+                input: DraftInput {
+                    template_id: "dashboard-fixture".into(),
+                    definition,
+                },
+                publish: true,
+            },
+        )
+        .await
+        .unwrap()
+}
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn dashboard_drafts_publish_with_etags_replay_and_immutable_history(pool: PgPool) {
+    use hermes_adapters::postgres::authoring::{DraftChange, DraftInput};
+    let (store, scope, _) = fixture(&pool).await;
+    let input = DraftInput {
+        template_id: "dashboard-fixture".into(),
+        definition: dashboard_definition(),
+    };
+    let change = || DraftChange {
+        id: None,
+        expected: None,
+        input: input.clone(),
+        publish: false,
+    };
+    let created = store
+        .dashboard_save_draft(&scope, &actor("administrator"), "draft-create", change())
+        .await
+        .unwrap();
+    assert_eq!(
+        created,
+        store
+            .dashboard_save_draft(&scope, &actor("administrator"), "draft-create", change())
+            .await
+            .unwrap()
+    );
+    let id = serde_json::from_value(created["draft"]["id"].clone()).unwrap();
+    let mut updated = input.clone();
+    updated.definition.cpu_millis = 2000;
+    let saved = store
+        .dashboard_save_draft(
+            &scope,
+            &actor("administrator"),
+            "draft-update",
+            DraftChange {
+                id: Some(id),
+                expected: Some(1),
+                input: updated.clone(),
+                publish: false,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved["draft"]["version"], 2);
+    assert!(matches!(
+        store
+            .dashboard_save_draft(
+                &scope,
+                &actor("administrator"),
+                "draft-stale",
+                DraftChange {
+                    id: Some(id),
+                    expected: Some(1),
+                    input: input.clone(),
+                    publish: false
+                }
+            )
+            .await,
+        Err(Error::PreconditionFailed)
+    ));
+    let publish = || DraftChange {
+        id: Some(id),
+        expected: Some(2),
+        input: updated.clone(),
+        publish: true,
+    };
+    let published = store
+        .dashboard_save_draft(&scope, &actor("administrator"), "draft-publish", publish())
+        .await
+        .unwrap();
+    assert_eq!(
+        published,
+        store
+            .dashboard_save_draft(&scope, &actor("administrator"), "draft-publish", publish())
+            .await
+            .unwrap()
+    );
+    assert_eq!(published["draft"]["publishedVersion"], 1);
+    assert!(
+        sqlx::query("UPDATE manager.dashboard_template_drafts SET definition='{}' WHERE id=$1")
+            .bind(id)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    assert!(sqlx::query("UPDATE manager.template_definitions SET definition='{}' WHERE template_id='dashboard-fixture'").execute(&pool).await.is_err());
+    let infrastructure: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM manager.infrastructure_templates")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(infrastructure, 0);
+    let mut newer = dashboard_definition();
+    newer.memory_mib = 2048;
+    let result = publish_dashboard_template(&store, &scope, "next", newer).await;
+    assert_eq!(result["draft"]["publishedVersion"], 2);
+    let first:i64=sqlx::query_scalar("SELECT (definition->>'cpuMillis')::bigint FROM manager.template_definitions WHERE template_id='dashboard-fixture' AND template_version=1").fetch_one(&pool).await.unwrap();
+    assert_eq!(first, 2000);
+}
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn dashboard_rollout_preserves_owner_fences_history_and_blocks_storage_and_sources(
+    pool: PgPool,
+) {
+    use hermes_adapters::postgres::rollout::{BatchMember, TemplateBatch, TemplateSelection};
+    let (store, scope, service) = fixture(&pool).await;
+    publish_dashboard_template(&store, &scope, "initial", dashboard_definition()).await;
+    let mut command = create("fixture-rollout", Access::Enabled);
+    if let AssignmentCommand::Create { template, .. } = &mut command {
+        template.id = "dashboard-fixture".into();
+    }
+    let first = service
+        .execute(
+            &actor("administrator"),
+            Uuid::new_v4(),
+            "create-rollout",
+            command,
+        )
+        .await
+        .unwrap();
+    let mut proposed = dashboard_definition();
+    proposed
+        .admin_config
+        .insert("advanced".into(), serde_json::json!({"retained":false}));
+    publish_dashboard_template(&store, &scope, "updated", proposed.clone()).await;
+    let selection = TemplateSelection {
+        template_id: "dashboard-fixture".into(),
+        template_version: 2,
+    };
+    let member = BatchMember {
+        assignment_id: first.assignment_id,
+        expected_version: 1,
+    };
+    let preview = store
+        .dashboard_template_preview(&scope, first.assignment_id, &selection)
+        .await
+        .unwrap();
+    assert_eq!(preview["eligible"], true);
+    let accepted = store
+        .dashboard_apply_template(
+            &scope,
+            &actor("administrator"),
+            "rollout",
+            &member,
+            &selection,
+        )
+        .await
+        .unwrap();
+    assert_eq!(accepted["version"], 2);
+    assert_eq!(
+        accepted,
+        store
+            .dashboard_apply_template(
+                &scope,
+                &actor("administrator"),
+                "rollout",
+                &member,
+                &selection
+            )
+            .await
+            .unwrap()
+    );
+    let view = store
+        .get_assignment(&scope, first.assignment_id)
+        .await
+        .unwrap();
+    assert_eq!(view.instance_id, first.instance_id);
+    assert_eq!(view.identity.subject, "fixture-rollout");
+    assert_eq!(view.template.version, 2);
+    assert_eq!(view.desired_generation, 2);
+    let old: String = sqlx::query_scalar("SELECT state FROM manager.operations WHERE id=$1")
+        .bind(first.operation_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(old, "Superseded");
+    proposed.home_gib = 1;
+    publish_dashboard_template(&store, &scope, "shrink", proposed).await;
+    let shrink = TemplateSelection {
+        template_version: 3,
+        ..selection.clone()
+    };
+    let current = BatchMember {
+        expected_version: 2,
+        ..member.clone()
+    };
+    assert_eq!(
+        store
+            .dashboard_template_preview(&scope, first.assignment_id, &shrink)
+            .await
+            .unwrap()["eligible"],
+        false
+    );
+    assert!(matches!(
+        store
+            .dashboard_apply_template(&scope, &actor("administrator"), "shrink", &current, &shrink)
+            .await,
+        Err(Error::MigrationRequired)
+    ));
+    sqlx::query("UPDATE manager.assignments SET dashboard_managed=false,infrastructure_managed=true WHERE id=$1").bind(first.assignment_id).execute(&pool).await.unwrap();
+    assert!(matches!(
+        store
+            .dashboard_apply_template(
+                &scope,
+                &actor("administrator"),
+                "foreign-source",
+                &current,
+                &selection
+            )
+            .await,
+        Err(Error::OwnershipConflict)
+    ));
+    sqlx::query("UPDATE manager.assignments SET dashboard_managed=true,infrastructure_managed=false WHERE id=$1").bind(first.assignment_id).execute(&pool).await.unwrap();
+    let batch = TemplateBatch {
+        selection,
+        members: vec![member],
+    };
+    let id = store
+        .dashboard_start_batch(&scope, &actor("administrator"), "batch", &batch)
+        .await
+        .unwrap();
+    let resumed = store
+        .dashboard_resume_batch(&scope, &actor("administrator"), id)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&resumed).unwrap(),
+        serde_json::to_value(&batch).unwrap()
+    );
+    assert!(matches!(
+        store
+            .dashboard_resume_batch(&scope, &actor("admin-a"), id)
+            .await,
+        Err(Error::Forbidden)
+    ));
+    store
+        .dashboard_dispatch_batch(&scope, &actor("administrator"), id, &batch)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.dashboard_batch(&scope, id).await.unwrap()["items"][0]["errorCode"],
+        "stale_version"
+    );
+    assert_eq!(
+        id,
+        store
+            .dashboard_start_batch(&scope, &actor("administrator"), "batch", &batch)
+            .await
+            .unwrap()
+    );
+    let duplicate = TemplateBatch {
+        members: vec![current.clone(), current],
+        ..batch
+    };
+    assert!(matches!(
+        store
+            .dashboard_start_batch(&scope, &actor("administrator"), "bad-batch", &duplicate)
+            .await,
+        Err(Error::Invalid)
+    ));
+}
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn postgres_grants_are_authoritative_and_last_admin_is_recoverable(pool: PgPool) {
+    use hermes_adapters::postgres::administrators::{AdministratorChange, AdministratorInput};
+    let (store, scope, service) = fixture(&pool).await;
+    sqlx::query("DELETE FROM manager_admin_auth.administrator_grants")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        service
+            .execute(
+                &actor("administrator"),
+                Uuid::new_v4(),
+                "no-grant",
+                create("owner", Access::Enabled)
+            )
+            .await,
+        Err(Error::Forbidden)
+    ));
+    store
+        .bootstrap_administrator(&scope, &actor("administrator").identity, false)
+        .await
+        .unwrap();
+    let mut without_role = actor("administrator");
+    without_role.client_roles.clear();
+    service
+        .execute(
+            &without_role,
+            Uuid::new_v4(),
+            "with-grant",
+            create("owner", Access::Enabled),
+        )
+        .await
+        .unwrap();
+    let id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM manager_admin_auth.administrator_grants WHERE subject='administrator'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let revoke = AdministratorInput {
+        identity: actor("administrator").identity,
+        active: false,
+        can_manage_administrators: true,
+    };
+    assert!(matches!(
+        store
+            .update_administrator(
+                &scope,
+                &without_role,
+                "last",
+                AdministratorChange {
+                    id: Some(id),
+                    expected: Some(1),
+                    input: revoke.clone()
+                }
+            )
+            .await,
+        Err(Error::LastAdministrator)
+    ));
+    let candidate = Identity {
+        issuer: scope.issuer.clone(),
+        subject: "fixture-second-admin".into(),
+    };
+    store
+        .note_verified_identity(&scope, &candidate)
+        .await
+        .unwrap();
+    use hermes_adapters::postgres::dashboard::DashboardQuery;
+    store
+        .note_verified_identity(
+            &scope,
+            &Identity {
+                issuer: scope.issuer.clone(),
+                subject: "fixture-third-admin".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let candidate_query = DashboardQuery {
+        limit: 1,
+        q: "fixture-".into(),
+        ..Default::default()
+    };
+    assert!(matches!(
+        store
+            .administrator_candidates(&scope, &candidate, &candidate_query)
+            .await,
+        Err(Error::Forbidden)
+    ));
+    let first_candidates = store
+        .administrator_candidates(&scope, &without_role.identity, &candidate_query)
+        .await
+        .unwrap();
+    let next_candidates = DashboardQuery {
+        after: Some(first_candidates["nextCursor"].as_str().unwrap().into()),
+        ..candidate_query.clone()
+    };
+    let second_candidates = store
+        .administrator_candidates(&scope, &without_role.identity, &next_candidates)
+        .await
+        .unwrap();
+    assert_ne!(first_candidates["items"][0], second_candidates["items"][0]);
+    assert_eq!(second_candidates["nextCursor"], serde_json::Value::Null);
+    assert!(matches!(
+        store
+            .administrator_candidates(
+                &scope,
+                &without_role.identity,
+                &DashboardQuery {
+                    q: "changed".into(),
+                    ..next_candidates
+                }
+            )
+            .await,
+        Err(Error::Invalid)
+    ));
+    let added = store
+        .update_administrator(
+            &scope,
+            &without_role,
+            "grant-second",
+            AdministratorChange {
+                id: None,
+                expected: None,
+                input: AdministratorInput {
+                    identity: candidate.clone(),
+                    active: true,
+                    can_manage_administrators: true,
+                },
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(added["version"], 1);
+    store
+        .update_administrator(
+            &scope,
+            &without_role,
+            "revoke-self",
+            AdministratorChange {
+                id: Some(id),
+                expected: Some(1),
+                input: revoke,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .authorize_administrator(&scope, &without_role.identity)
+            .await,
+        Err(Error::Forbidden)
+    ));
+    assert!(
+        store
+            .authorize_administrator(&scope, &candidate)
+            .await
+            .unwrap()
+    );
+    // An inactive grant is not a recoverable administrator and cannot make
+    // revocation of the sole remaining active manager safe.
+    assert!(matches!(
+        store
+            .update_administrator(
+                &scope,
+                &actor(&candidate.subject),
+                "last-with-inactive-peer",
+                AdministratorChange {
+                    id: Some(serde_json::from_value(added["id"].clone()).unwrap()),
+                    expected: Some(1),
+                    input: AdministratorInput {
+                        identity: candidate.clone(),
+                        active: false,
+                        can_manage_administrators: true
+                    },
+                }
+            )
+            .await,
+        Err(Error::LastAdministrator)
+    ));
+    store
+        .bootstrap_administrator(&scope, &without_role.identity, true)
+        .await
+        .unwrap();
+    assert!(
+        store
+            .authorize_administrator(&scope, &without_role.identity)
+            .await
+            .unwrap()
+    );
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn concurrent_administrator_revocations_preserve_one_active_manager(pool: PgPool) {
+    use hermes_adapters::postgres::administrators::{AdministratorChange, AdministratorInput};
+    let (store, scope, _) = fixture(&pool).await;
+    sqlx::query(
+        "DELETE FROM manager_admin_auth.administrator_grants WHERE subject='administrator'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    for name in ["admin-a", "admin-b"] {
+        store
+            .note_verified_identity(&scope, &actor(name).identity)
+            .await
+            .unwrap();
+    }
+    async fn revoke(
+        store: &PgStore,
+        scope: &InstallationScope,
+        pool: &PgPool,
+        name: &str,
+    ) -> Result<serde_json::Value, Error> {
+        let id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM manager_admin_auth.administrator_grants WHERE subject=$1",
+        )
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        store
+            .update_administrator(
+                scope,
+                &actor(name),
+                name,
+                AdministratorChange {
+                    id: Some(id),
+                    expected: Some(1),
+                    input: AdministratorInput {
+                        identity: actor(name).identity,
+                        active: false,
+                        can_manage_administrators: true,
+                    },
+                },
+            )
+            .await
+    }
+    let (left, right) = tokio::join!(
+        revoke(&store, &scope, &pool, "admin-a"),
+        revoke(&store, &scope, &pool, "admin-b")
+    );
+    assert!(matches!(
+        (&left, &right),
+        (Ok(_), Err(Error::LastAdministrator)) | (Err(Error::LastAdministrator), Ok(_))
+    ));
+    let count:i64=sqlx::query_scalar("SELECT count(*) FROM manager_admin_auth.administrator_grants WHERE active AND can_manage_administrators").fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1);
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn dashboard_inspection_pages_query_sources_and_never_expose_journal_payloads(pool: PgPool) {
+    use hermes_adapters::postgres::dashboard::{DashboardList, DashboardQuery};
+    let (store, scope, service) = fixture(&pool).await;
+    let first = enable(&service, "inspection-owner").await;
+    let unassigned = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO manager.identities(id,issuer,subject) VALUES($1,$2,'inspection-unassigned')",
+    )
+    .bind(unassigned)
+    .bind(&scope.issuer)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let q = DashboardQuery {
+        limit: 1,
+        q: "inspection".into(),
+        ..Default::default()
+    };
+    let page = store
+        .dashboard_list(&scope, DashboardList::Identities, &q)
+        .await
+        .unwrap();
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    let mut next = q.clone();
+    next.after = Some(page["nextCursor"].as_str().unwrap().into());
+    let second = store
+        .dashboard_list(&scope, DashboardList::Identities, &next)
+        .await
+        .unwrap();
+    assert_ne!(page["items"][0]["id"], second["items"][0]["id"]);
+    next.assigned = Some(false);
+    assert!(matches!(
+        store
+            .dashboard_list(&scope, DashboardList::Identities, &next)
+            .await,
+        Err(Error::Invalid)
+    ));
+    let detail = store.dashboard_identity(&scope, unassigned).await.unwrap();
+    assert!(detail["assignment"].is_null());
+    assert_eq!(detail["provenance"], "manager_record");
+    let assigned = store
+        .dashboard_list(
+            &scope,
+            DashboardList::Identities,
+            &DashboardQuery {
+                limit: 50,
+                assigned: Some(true),
+                source: Some("manager".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        assigned["items"][0]["assignment"]["id"],
+        first.assignment_id.to_string()
+    );
+    service
+        .execute(
+            &actor("administrator"),
+            Uuid::new_v4(),
+            "inspect-suspend",
+            AssignmentCommand::SetAccess {
+                assignment_id: first.assignment_id,
+                expected_version: 1,
+                access: Access::Suspended,
+            },
+        )
+        .await
+        .unwrap();
+    let history = store
+        .dashboard_list(
+            &scope,
+            DashboardList::Operations,
+            &DashboardQuery {
+                limit: 50,
+                assignment_id: Some(first.assignment_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(history["items"].as_array().unwrap().len(), 2);
+    let operation = store
+        .dashboard_operation_details(&scope, first.operation_id)
+        .await
+        .unwrap();
+    assert_eq!(operation["assignmentId"], first.assignment_id.to_string());
+    assert!(operation.get("input").is_none());
+    assert!(operation["operation"].get("input").is_none());
+    let audit = Uuid::new_v4();
+    sqlx::query("INSERT INTO manager.audit_events(id,installation_id,actor_issuer,actor_subject,action,assignment_id,operation_id,request_id,version,change) VALUES($1,$2,$3,'administrator','assignment.set_access',$4,$5,$6,1,$7)").bind(audit).bind(scope.id).bind(&scope.issuer).bind(first.assignment_id).bind(first.operation_id).bind(Uuid::new_v4()).bind(serde_json::json!({"access":"enabled","password":"private-fixture-value","unexpected":"private-fixture-value"})).execute(&pool).await.unwrap();
+    let detail = store.dashboard_audit_detail(&scope, audit).await.unwrap();
+    assert_eq!(detail["change"], serde_json::json!({"access":"enabled"}));
+    assert!(!detail.to_string().contains("private-fixture-value"));
+    let candidate = Identity {
+        issuer: scope.issuer.clone(),
+        subject: "inspection-verified".into(),
+    };
+    store
+        .note_verified_identity(&scope, &candidate)
+        .await
+        .unwrap();
+    let verified_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM manager_admin_auth.verified_identities WHERE subject='inspection-verified'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let verified = store.dashboard_identity(&scope, verified_id).await.unwrap();
+    assert_eq!(verified["provenance"], "verified_authentication");
+    assert!(verified["assignment"].is_null());
+    let created = service
+        .execute(
+            &actor("administrator"),
+            Uuid::new_v4(),
+            "create-verified-owner",
+            create(&candidate.subject, Access::Enabled),
+        )
+        .await
+        .unwrap();
+    let followed = store.dashboard_identity(&scope, verified_id).await.unwrap();
+    assert_eq!(
+        followed["assignment"]["id"],
+        created.assignment_id.to_string()
+    );
+    let observation = store
+        .dashboard_template_observation(&scope, created.assignment_id)
+        .await
+        .unwrap();
+    assert!(observation["observedTemplate"].is_null());
+    assert_eq!(observation["desiredTemplate"]["id"], "personal-default");
+    let wrong = InstallationScope {
+        id: Uuid::new_v4(),
+        ..scope.clone()
+    };
+    assert!(
+        store
+            .dashboard_operation_details(&wrong, first.operation_id)
+            .await
+            .is_err()
+    );
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn dashboard_template_and_draft_collections_have_bound_paging_and_immutable_version_reads(
+    pool: PgPool,
+) {
+    use hermes_adapters::postgres::{
+        authoring::{DraftChange, DraftInput},
+        dashboard::{DashboardList, DashboardQuery},
+    };
+    let (store, scope, _) = fixture(&pool).await;
+    publish_dashboard_template(&store, &scope, "read-version", dashboard_definition()).await;
+    for id in ["inspection-alpha", "inspection-beta"] {
+        store
+            .dashboard_save_draft(
+                &scope,
+                &actor("administrator"),
+                id,
+                DraftChange {
+                    id: None,
+                    expected: None,
+                    publish: false,
+                    input: DraftInput {
+                        template_id: id.into(),
+                        definition: dashboard_definition(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let mut updated = dashboard_definition();
+    updated.cpu_millis = 2000;
+    publish_dashboard_template(&store, &scope, "second-read-version", updated).await;
+    let catalog = store
+        .dashboard_list(
+            &scope,
+            DashboardList::CatalogVersions,
+            &DashboardQuery {
+                limit: 1,
+                template_id: Some("dashboard-fixture".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(catalog["items"][0]["version"], 1);
+    let catalog_next = store
+        .dashboard_list(
+            &scope,
+            DashboardList::CatalogVersions,
+            &DashboardQuery {
+                limit: 1,
+                template_id: Some("dashboard-fixture".into()),
+                after: Some(catalog["nextCursor"].as_str().unwrap().into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(catalog_next["items"][0]["version"], 2);
+    let q = DashboardQuery {
+        limit: 1,
+        q: "inspection".into(),
+        publication: Some("draft".into()),
+        ..Default::default()
+    };
+    let page = store
+        .dashboard_list(&scope, DashboardList::Drafts, &q)
+        .await
+        .unwrap();
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    let next = DashboardQuery {
+        after: Some(page["nextCursor"].as_str().unwrap().into()),
+        ..q.clone()
+    };
+    let other = store
+        .dashboard_list(&scope, DashboardList::Drafts, &next)
+        .await
+        .unwrap();
+    assert_ne!(page["items"][0]["id"], other["items"][0]["id"]);
+    let mismatch = DashboardQuery {
+        publication: Some("published".into()),
+        ..next
+    };
+    assert!(matches!(
+        store
+            .dashboard_list(&scope, DashboardList::Drafts, &mismatch)
+            .await,
+        Err(Error::Invalid)
+    ));
+    let published = store
+        .dashboard_list(
+            &scope,
+            DashboardList::TemplateDefinitions,
+            &DashboardQuery {
+                limit: 50,
+                q: "dashboard-fixture".into(),
+                source: Some("manager".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(published["items"][0]["id"], "dashboard-fixture");
+    let version = store
+        .dashboard_template_version(&scope, "dashboard-fixture", 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        version["definition"],
+        serde_json::to_value(dashboard_definition()).unwrap()
+    );
+    assert!(matches!(
+        store
+            .dashboard_template_version(&scope, "dashboard-fixture", 3)
+            .await,
+        Err(Error::NotFound)
+    ));
+    let classes = store
+        .dashboard_list(
+            &scope,
+            DashboardList::StorageClasses,
+            &DashboardQuery {
+                limit: 50,
+                q: dashboard_definition().storage_class,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(classes["items"][0]["source"], "approved_template");
 }

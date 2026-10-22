@@ -35,6 +35,7 @@ tokio-rustls.workspace = true
 x509-parser.workspace = true
 zeroize.workspace = true
 tempfile.workspace = true
+jsonschema = { version = "=0.59.0", default-features = false }
 
 [lints]
 workspace = true

@@ -49,6 +49,23 @@ fn sealed(row: &sqlx::postgres::PgRow) -> Sealed {
 }
 
 impl PgSessions {
+    pub async fn authorize_administrator(&self, identity: &Identity) -> Result<(), Error> {
+        identity.validate(&self.scope.issuer)?;
+        sqlx::query("INSERT INTO manager_admin_auth.verified_identities(id,installation_id,issuer,subject) VALUES($1,$2,$3,$4) ON CONFLICT(installation_id,issuer,subject) DO UPDATE SET verified_at=clock_timestamp()").bind(Uuid::new_v4()).bind(self.scope.id).bind(&identity.issuer).bind(&identity.subject).execute(&self.pool).await.map_err(error)?;
+        let granted: bool =
+            sqlx::query_scalar("SELECT manager_admin_auth.has_administrator_grant($1,$2,$3)")
+                .bind(self.scope.id)
+                .bind(&identity.issuer)
+                .bind(&identity.subject)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(error)?;
+        if !granted {
+            return Err(Error::Forbidden);
+        }
+        Ok(())
+    }
+
     pub async fn connect(
         options: PgConnectOptions,
         scope: InstallationScope,

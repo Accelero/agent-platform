@@ -1,4 +1,6 @@
 //! Real PostgreSQL owner isolation, durable policy mutation, and stale fencing.
+#[path = "support/grants.rs"]
+mod grant_fixture;
 use std::collections::{BTreeMap, BTreeSet};
 
 use hermes_adapters::postgres::{FreshInventory, PgStore};
@@ -48,6 +50,7 @@ async fn fixture(pool: &PgPool) -> Fixture {
         )
         .await
         .unwrap();
+    grant_fixture::grant(pool, &scope, &["admin"]).await;
     sqlx::query("INSERT INTO manager.instance_templates(id,version,schema_version,image,content_digest,approved) VALUES('personal',1,1,$1,$2,true)").bind(format!("ghcr.io/example/hermes@sha256:{}","a".repeat(64))).bind("b".repeat(64)).execute(pool).await.unwrap();
     let mut owners = Vec::new();
     for subject in ["owner-a", "owner-b"] {
@@ -455,6 +458,7 @@ async fn foreign_owner_missing_secret_and_unapproved_mount_fail_before_mutation_
     assert_eq!(events, 3);
     let mut unauthorized = f.actor.clone();
     unauthorized.client_roles.clear();
+    unauthorized.identity.subject = "ungranted-fixture".into();
     assert_eq!(
         f.admin
             .execute(
@@ -892,4 +896,175 @@ async fn storage_updates_append_immutable_versions_with_atomic_preconditions_and
             .await
             .unwrap();
     assert_eq!(count, 3);
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn dashboard_reference_search_and_runtime_assignment_links_remain_owner_scoped(pool: PgPool) {
+    use hermes_adapters::postgres::dashboard::{DashboardList, DashboardQuery};
+    let f = fixture(&pool).await;
+    register(
+        &f,
+        "runtime",
+        ExecutionCommand::RegisterRuntime {
+            definition: runtime(),
+        },
+    )
+    .await
+    .unwrap();
+    let mut second_runtime = runtime();
+    second_runtime.runtime.version = 2;
+    register(
+        &f,
+        "runtime-v2",
+        ExecutionCommand::RegisterRuntime {
+            definition: second_runtime,
+        },
+    )
+    .await
+    .unwrap();
+    let runtime_page = f
+        .store
+        .dashboard_list(
+            &f.scope,
+            DashboardList::RuntimeVersions,
+            &DashboardQuery {
+                limit: 1,
+                runtime_id: Some("python-tools".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(runtime_page["items"][0]["runtime"]["version"], 1);
+    let runtime_next = f
+        .store
+        .dashboard_list(
+            &f.scope,
+            DashboardList::RuntimeVersions,
+            &DashboardQuery {
+                limit: 1,
+                runtime_id: Some("python-tools".into()),
+                after: Some(runtime_page["nextCursor"].as_str().unwrap().into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(runtime_next["items"][0]["runtime"]["version"], 2);
+    for (index, owner) in f.owners.iter().enumerate() {
+        let binding = storage(owner);
+        register(
+            &f,
+            &format!("binding-{index}"),
+            ExecutionCommand::RegisterStorage {
+                binding: binding.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        register(
+            &f,
+            &format!("pull-{index}"),
+            ExecutionCommand::RegisterPullSecret {
+                binding: pull(owner),
+            },
+        )
+        .await
+        .unwrap();
+        register(
+            &f,
+            &format!("policy-{index}"),
+            ExecutionCommand::SetPolicy {
+                assignment_id: owner.assignment,
+                expected_version: 1,
+                policy: policy(&binding),
+            },
+        )
+        .await
+        .unwrap();
+        let page = f
+            .store
+            .dashboard_list(
+                &f.scope,
+                DashboardList::Bindings,
+                &DashboardQuery {
+                    limit: 50,
+                    instance_id: Some(owner.instance),
+                    q: "network-home".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(page["items"].as_array().unwrap().len(), 1);
+        assert_eq!(page["items"][0]["instanceId"], owner.instance.to_string());
+    }
+    let assignments = f
+        .store
+        .dashboard_list(
+            &f.scope,
+            DashboardList::Assignments,
+            &DashboardQuery {
+                limit: 50,
+                runtime_id: Some("python-tools".into()),
+                runtime_version: Some(1),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(assignments["items"].as_array().unwrap().len(), 2);
+    let empty = f
+        .store
+        .dashboard_list(
+            &f.scope,
+            DashboardList::Assignments,
+            &DashboardQuery {
+                limit: 50,
+                runtime_id: Some("python-tools".into()),
+                runtime_version: Some(2),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(empty["items"].as_array().unwrap().is_empty());
+    assert_eq!(
+        f.store
+            .dashboard_runtime(&f.scope, "python-tools")
+            .await
+            .unwrap()["runtime"]["version"],
+        2
+    );
+    assert!(matches!(
+        f.store.dashboard_runtime(&f.scope, "unknown").await,
+        Err(Error::NotFound)
+    ));
+    let activity = f
+        .store
+        .dashboard_list(
+            &f.scope,
+            DashboardList::Audit,
+            &DashboardQuery {
+                limit: 50,
+                action: Some("execution.runtime.register".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(activity["items"].as_array().unwrap().len(), 2);
+    let event = &activity["items"][0];
+    assert_eq!(event["outcome"], "Recorded");
+    assert!(event["operationId"].is_null());
+    let detail = f
+        .store
+        .dashboard_audit_detail(
+            &f.scope,
+            serde_json::from_value(event["id"].clone()).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(detail["event"]["entityType"], "runtime");
+    assert_eq!(detail["change"]["runtimeId"], "python-tools");
 }

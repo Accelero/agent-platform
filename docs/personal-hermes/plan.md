@@ -140,13 +140,14 @@ operations. No Kubernetes access is needed for these tests.
 ### 2. Build the integrated management interface
 
 - [x] Implement manager administration login with a dedicated OIDC client and
-  configured platform-administrator role. A personal Hermes assignment grants
+  active installation-scoped PostgreSQL administrator grant. Keycloak supplies
+  identity; token roles grant no permission. A personal Hermes assignment grants
   no platform-administration permission.
 - [x] Implement the versioned administration API, authorization, CSRF protection,
   optimistic concurrency and actor-attributed audit events.
-- [ ] Add the built-in UI for identity lookup, assignment creation, enable,
+- [x] Add the built-in UI for recorded identity lookup, assignment creation, enable,
   suspend, revoke, template selection, instance status and safe retry.
-- [ ] Add typed administration endpoints/UI for terminal-runtime catalog versions,
+- [x] Add typed administration endpoints/UI for terminal-runtime catalog versions,
   per-assignment image/mount selection, storage bindings and policy activation
   status. Keep credential values and raw Kubernetes specs out of the browser.
 - [x] Create the React/TypeScript Vite application and generate its typed API
@@ -164,15 +165,17 @@ Exit: the UI manages fixture assignments only through the administration API.
 UI/API contract tests and an API-only acceptance test demonstrate that the UI
 can later move to a separate service without changing the core use cases.
 
-The [dashboard scaffold](dashboard.md), protected asset serving and local/CI
-image pipeline now exist. Read-only assignment/runtime/audit lists are available;
-the full editing workflows and their acceptance above remain unfinished.
+The [dashboard](dashboard.md), protected asset serving and local/CI
+image pipeline now exist. Search/filter/paging, typed commands, template
+authoring/publication/application and PostgreSQL grant management are implemented.
+External directory lookup, checkpoint UI and deployed end-to-end adoption remain open.
 The [dashboard feature specification](dashboard-features.md) defines the next
 tables, template/admin-config editors, user assignment workflows and editable
-administrator list, including the authorization-authority decision.
+administrator list; the accepted authority is PostgreSQL grants with Keycloak identity.
 The [stack implementation guide](dashboard-stack.md) defines the planned library
 integrations and their schema, authentication, accessibility and production-build
 acceptance checks. Adding those dependencies does not complete the workflows.
+The [dashboard work plan](dashboard-workplan.md) orders this into packages.
 
 ### 3. Implement commissioning and reconciliation
 

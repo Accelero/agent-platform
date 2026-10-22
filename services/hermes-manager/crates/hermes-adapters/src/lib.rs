@@ -22,3 +22,5 @@ pub mod server;
 pub mod session_crypto;
 pub mod sessions;
 pub mod workloads;
+
+pub(crate) mod template_validation;

@@ -135,7 +135,8 @@ async fn catalog_storage_and_desired_policy_are_audited_isolated_and_pending(poo
         .status(),
         202
     );
-    for (cursor, expected) in [("", "python-tools"), ("&after=python-tools", "rust-tools")] {
+    let mut cursor = String::new();
+    for expected in ["python-tools", "rust-tools"] {
         let page: Value = f
             .client
             .get(format!(
@@ -149,6 +150,10 @@ async fn catalog_storage_and_desired_policy_are_audited_isolated_and_pending(poo
             .json()
             .await
             .unwrap();
+        cursor = page["nextCursor"]
+            .as_str()
+            .map(|value| format!("&after={value}"))
+            .unwrap_or_default();
         assert_eq!(page["items"].as_array().unwrap().len(), 1);
         assert_eq!(page["items"][0]["runtime"]["id"], expected);
         if expected == "python-tools" {

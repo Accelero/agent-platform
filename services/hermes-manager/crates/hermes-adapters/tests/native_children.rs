@@ -1,3 +1,5 @@
+#[path = "support/grants.rs"]
+mod grant_fixture;
 use hermes_adapters::postgres::{FreshInventory, PgStore};
 use hermes_application::{
     AdminPolicy, AssignmentCommand, Assignments, Error, InstallationScope, OperationClaim,
@@ -44,6 +46,7 @@ async fn fixture(pool: &PgPool) -> Fixture {
         )
         .await
         .unwrap();
+    grant_fixture::grant(pool, &scope, &["administrator"]).await;
     sqlx::query("INSERT INTO manager.instance_templates(id,version,schema_version,image,content_digest,approved) VALUES('personal-default',1,1,$1,$2,true)").bind(format!("ghcr.io/example/native@sha256:{}","a".repeat(64))).bind("a".repeat(64)).execute(pool).await.unwrap();
     let actor = VerifiedPrincipal {
         identity: Identity {

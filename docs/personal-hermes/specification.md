@@ -29,7 +29,7 @@ This is OIDC-based backend selection, not merely OIDC protecting a fixed backend
 | Identity | Exact configured OIDC issuer and verified subject; email is descriptive |
 | Assignment | Manager-owned authorization and desired instance configuration for an identity |
 | Instance | Stable platform ID, private namespace, native Hermes state and approved execution resources |
-| Platform administrator | Actor with the configured management-client permission, distinct from a personal Hermes owner |
+| Platform administrator | Verified identity with an active installation-scoped PostgreSQL administrator grant, distinct from a personal Hermes owner |
 | Execution module | Terminal provisioning and lease lifecycle inside the same Rust manager; no separate per-owner execution-manager service |
 | Terminal runtime | Approved Kubernetes SSH worker image and execution policy, separate from the Hermes application image |
 | Storage binding | Owner-bound reference to a namespace-local claim, with permitted mount paths, access and recovery policy |
@@ -67,8 +67,8 @@ before creation. Email-only creation and automatic email-based account linking
 are invalid. When manual subject entry is used, show whether the directory has
 verified the subject; a later successful login still has to match it exactly.
 
-Administration requires an explicitly configured management role and client
-audience. A valid personal login, Hermes assignment, general realm membership or
+Keycloak supplies the verified identity and configured audience/client checks.
+Administration requires an active PostgreSQL grant for that exact issuer/subject. A valid personal login, Hermes assignment, general realm membership or
 router service certificate does not confer administration. Every mutation must
 authorize the actor on the server, check CSRF for browser-cookie requests, apply
 an optimistic version and create an audit event in the same transaction.
@@ -98,10 +98,10 @@ its approved instance template independently of the terminal worker image.
 The [dashboard feature specification](dashboard-features.md) expands this into
 searchable/filterable data tables, template details and synchronized form/raw
 editors, template-managed Hermes `adminConfig`, explicit user/template assignment
-and an editable administrator list. Its administrator-authority alternatives are
-an open design decision; the current implemented gate remains the configured
-Keycloak management-client role. Changing that gate or adding Keycloak role
-writes requires updating the authorization/directory boundary explicitly.
+and an editable administrator list. PostgreSQL grants are the accepted and
+implemented sole administrator authority; token roles are not prerequisites or
+fallbacks. Grant management has separate permission, last-administrator protection,
+operator bootstrap/recovery and current-grant checks for browser and bearer access.
 
 ## Durable data contract
 

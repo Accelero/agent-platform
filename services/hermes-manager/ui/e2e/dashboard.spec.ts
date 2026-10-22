@@ -63,12 +63,7 @@ test("expired sessions expose sign-in without retaining private rows", async ({
     }),
   );
   await page.goto("/");
-  await expect(page.getByRole("alert")).toContainText(
-    "Your session has expired",
-  );
-  await expect(
-    page.getByRole("link", { name: "Sign in with Keycloak →" }),
-  ).toHaveAttribute("href", "/auth/login");
+  await expect(page).toHaveURL(/\/auth\/login\?returnTo=/);
   await expect(page.getByText("fixture-admin", { exact: true })).toHaveCount(0);
 });
 

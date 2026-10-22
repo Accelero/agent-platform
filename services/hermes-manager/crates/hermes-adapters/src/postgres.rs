@@ -23,7 +23,11 @@ use uuid::Uuid;
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
 mod administration;
+pub mod administrators;
+pub mod authoring;
 mod commissioning;
+pub mod dashboard;
+mod dashboard_details;
 mod execution;
 mod infrastructure;
 mod lifecycle;
@@ -34,6 +38,7 @@ mod native_stop;
 mod policy_activation;
 mod resources;
 mod resync;
+pub mod rollout;
 mod terminal;
 
 #[derive(Clone)]
@@ -275,6 +280,8 @@ impl AssignmentStore for PgStore {
     async fn mutate(&self, mutation: Mutation) -> Result<Accepted, Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         gate(&mut tx, &mutation.installation).await?;
+        administrators::authorize_grant(&mut tx, &mutation.installation, &mutation.actor, false)
+            .await?;
         let scope = mutation.command.scope();
         sqlx::query("INSERT INTO manager.mutation_requests (installation_id,actor_issuer,actor_subject,scope,idempotency_key,body_digest) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
             .bind(mutation.installation.id).bind(&mutation.actor.issuer).bind(&mutation.actor.subject)
@@ -345,6 +352,7 @@ impl AssignmentStore for PgStore {
                 sqlx::query("INSERT INTO manager.assignments (id,installation_id,identity_id,access,template_id,template_version,version) VALUES ($1,$2,$3,$4,$5,$6,1)")
                     .bind(accepted.assignment_id).bind(mutation.installation.id).bind(identity_id).bind(access.as_str())
                     .bind(&template.id).bind(template.version).execute(&mut *tx).await.map_err(db_error)?;
+                sqlx::query("UPDATE manager.assignments SET dashboard_managed=EXISTS(SELECT 1 FROM manager.template_definitions d WHERE d.template_id=$2 AND d.template_version=$3) WHERE id=$1").bind(accepted.assignment_id).bind(&template.id).bind(template.version).execute(&mut *tx).await.map_err(db_error)?;
                 sqlx::query("INSERT INTO manager.instances (id,assignment_id,namespace,desired_generation) VALUES ($1,$2,$3,1)")
                     .bind(accepted.instance_id).bind(accepted.assignment_id).bind(instance_namespace(mutation.installation.id, accepted.instance_id))
                     .execute(&mut *tx).await.map_err(db_error)?;
@@ -355,10 +363,13 @@ impl AssignmentStore for PgStore {
                 expected_version,
                 access,
             } => {
-                let row = sqlx::query("SELECT a.version,a.access,i.id FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE a.id=$1 AND a.installation_id=$2 FOR UPDATE OF a,i")
+                let row = sqlx::query("SELECT a.version,a.access,a.infrastructure_managed,i.id FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id WHERE a.id=$1 AND a.installation_id=$2 FOR UPDATE OF a,i")
                     .bind(assignment_id).bind(mutation.installation.id).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or(Error::NotFound)?;
                 if row.get::<i64, _>("version") != *expected_version {
                     return Err(Error::PreconditionFailed);
+                }
+                if row.get::<bool, _>("infrastructure_managed") {
+                    return Err(Error::OwnershipConflict);
                 }
                 let version: i64 = sqlx::query_scalar("UPDATE manager.assignments SET access=$2, version=version+1, updated_at=clock_timestamp() WHERE id=$1 RETURNING version")
                     .bind(assignment_id).bind(access.as_str()).fetch_one(&mut *tx).await.map_err(db_error)?;
@@ -453,6 +464,12 @@ fn assignment_view(row: sqlx::postgres::PgRow) -> Result<AssignmentView, Error> 
         _ => return Err(Error::RecoveryRequired),
     };
     Ok(AssignmentView {
+        source: if row.get::<bool, _>("infrastructure_managed") {
+            "infrastructure"
+        } else {
+            "manager"
+        }
+        .into(),
         id: row.get("id"),
         identity: Identity {
             issuer: row.get("issuer"),
@@ -481,7 +498,7 @@ impl AssignmentReader for PgStore {
     ) -> Result<AssignmentView, Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         gate(&mut tx, scope).await?;
-        let row = sqlx::query("SELECT a.id,k.issuer,k.subject,a.access,a.template_id,a.template_version,a.version,i.id AS instance_id,i.namespace,i.desired_generation,i.observed_generation,i.state FROM manager.assignments a JOIN manager.identities k ON k.id=a.identity_id JOIN manager.instances i ON i.assignment_id=a.id WHERE a.installation_id=$1 AND a.id=$2")
+        let row = sqlx::query("SELECT a.id,a.infrastructure_managed,k.issuer,k.subject,a.access,a.template_id,a.template_version,a.version,i.id AS instance_id,i.namespace,i.desired_generation,i.observed_generation,i.state FROM manager.assignments a JOIN manager.identities k ON k.id=a.identity_id JOIN manager.instances i ON i.assignment_id=a.id WHERE a.installation_id=$1 AND a.id=$2")
         .bind(scope.id)
         .bind(id)
         .fetch_optional(&mut *tx)
@@ -504,7 +521,7 @@ impl AssignmentReader for PgStore {
         }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         gate(&mut tx, scope).await?;
-        let rows = sqlx::query("SELECT a.id,k.issuer,k.subject,a.access,a.template_id,a.template_version,a.version,i.id AS instance_id,i.namespace,i.desired_generation,i.observed_generation,i.state FROM manager.assignments a JOIN manager.identities k ON k.id=a.identity_id JOIN manager.instances i ON i.assignment_id=a.id WHERE a.installation_id=$1 AND ($2::uuid IS NULL OR a.id>$2) ORDER BY a.id LIMIT $3")
+        let rows = sqlx::query("SELECT a.id,a.infrastructure_managed,k.issuer,k.subject,a.access,a.template_id,a.template_version,a.version,i.id AS instance_id,i.namespace,i.desired_generation,i.observed_generation,i.state FROM manager.assignments a JOIN manager.identities k ON k.id=a.identity_id JOIN manager.instances i ON i.assignment_id=a.id WHERE a.installation_id=$1 AND ($2::uuid IS NULL OR a.id>$2) ORDER BY a.id LIMIT $3")
             .bind(scope.id).bind(after).bind(i64::from(limit)).fetch_all(&mut *tx).await.map_err(db_error)?;
         let views = rows
             .into_iter()

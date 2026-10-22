@@ -11,6 +11,14 @@ use uuid::Uuid;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum Error {
+    #[error("administrator grant already exists")]
+    AdministratorExists,
+    #[error("identity has no verified authentication evidence")]
+    UnverifiedIdentity,
+    #[error("last recoverable administrator cannot be removed")]
+    LastAdministrator,
+    #[error("storage migration required")]
+    MigrationRequired,
     #[error("invalid request")]
     Invalid,
     #[error("administrator permission required")]
@@ -70,15 +78,9 @@ impl AdminPolicy {
             .identity
             .validate(&self.issuer)
             .map_err(|_| Error::Forbidden)?;
-        if self.audience.is_empty()
-            || self.management_client.is_empty()
-            || self.administrator_role.is_empty()
-            || !actor.audiences.contains(&self.audience)
-            || !actor
-                .client_roles
-                .get(&self.management_client)
-                .is_some_and(|roles| roles.contains(&self.administrator_role))
-        {
+        // This validates authenticated identity context only. PostgreSQL grants
+        // are checked by each administration transport and mutation repository.
+        if self.audience.is_empty() || !actor.audiences.contains(&self.audience) {
             return Err(Error::Forbidden);
         }
         Ok(())
@@ -249,6 +251,7 @@ impl<S: AssignmentStore> Assignments<S> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AssignmentView {
+    pub source: String,
     pub id: Uuid,
     pub identity: Identity,
     pub access: Access,
@@ -448,7 +451,10 @@ mod tests {
     struct Store(Arc<AtomicUsize>);
     #[async_trait]
     impl AssignmentStore for Store {
-        async fn mutate(&self, _: Mutation) -> Result<Accepted, Error> {
+        async fn mutate(&self, mutation: Mutation) -> Result<Accepted, Error> {
+            if mutation.actor.subject != "fixture-granted-admin" {
+                return Err(Error::Forbidden);
+            }
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(Error::Unavailable)
         }
@@ -521,6 +527,7 @@ mod tests {
         );
         assert_eq!(store.0.load(Ordering::SeqCst), 0);
         actor.audiences.insert("manager-api".into());
+        actor.identity.subject = "fixture-granted-admin".into();
         assert_eq!(
             service
                 .execute(&actor, Uuid::new_v4(), "request-1", command)

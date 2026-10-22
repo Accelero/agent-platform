@@ -184,11 +184,21 @@ pub async fn start_with_peers(
     mtls: bool,
     peers: BTreeSet<String>,
 ) -> Running {
+    let (listener, _) = bind("127.0.0.1:0").await.unwrap();
+    start_on_listener(secrets, router, mtls, peers, listener).await
+}
+pub async fn start_on_listener(
+    secrets: &Secrets,
+    router: Router,
+    mtls: bool,
+    peers: BTreeSet<String>,
+    listener: tokio::net::TcpListener,
+) -> Running {
     let cert = secrets.read("server.crt").await;
     let key = secrets.read("server.key").await;
     let ca = secrets.read("ca.crt").await;
     let tls = tls_config(&cert, &key, mtls.then_some(ca.as_slice())).unwrap();
-    let (listener, address) = bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
     let (stop, stopped) = oneshot::channel();
     let task = tokio::spawn(async move {
         serve_until(

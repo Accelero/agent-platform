@@ -1,5 +1,7 @@
 """Validate published manager contracts before generating presentation clients."""
 
+import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -8,6 +10,31 @@ from openapi_spec_validator import validate
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = ROOT / "contracts/hermes-manager"
+
+
+def test_all_tracked_dashboard_files_are_in_manager_build_context():
+    ui = Path("services/hermes-manager/ui")
+    tracked = (
+        subprocess.run(
+            ["git", "ls-files", "-z", "--", ui.as_posix()],
+            cwd=ROOT,
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        .stdout.decode()
+        .split("\0")
+    )
+    excluded = {"dist", "test-results", "node_modules"}
+    expected = {
+        name
+        for name in tracked
+        if name and Path(name).relative_to(ui).parts[0] not in excluded
+    }
+    policy = json.loads((ROOT / "release-policy.json").read_text())
+    included = set(policy["development_contexts"]["hermes-manager"]["files"])
+    missing = sorted(expected - included)
+    assert not missing, f"Dashboard files missing from manager build context: {missing}"
 
 
 @pytest.mark.parametrize(

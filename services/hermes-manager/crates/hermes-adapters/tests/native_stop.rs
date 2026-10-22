@@ -1,4 +1,6 @@
 //! Persisted retained stop inputs and the real bounded TLS Kubernetes transport.
+#[path = "support/grants.rs"]
+mod grant_fixture;
 #[allow(dead_code)]
 mod support;
 
@@ -69,6 +71,7 @@ async fn fixture(pool: &PgPool, disabled: bool) -> Fixture {
         )
         .await
         .unwrap();
+    grant_fixture::grant(pool, &scope, &["admin"]).await;
     sqlx::query("INSERT INTO manager.instance_templates(id,version,schema_version,image,content_digest,approved) VALUES('personal-default',1,1,$1,$2,true)").bind(format!("ghcr.io/example/native@sha256:{}","a".repeat(64))).bind("b".repeat(64)).execute(pool).await.unwrap();
     let actor = VerifiedPrincipal {
         identity: Identity {

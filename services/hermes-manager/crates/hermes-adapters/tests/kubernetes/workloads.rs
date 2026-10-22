@@ -44,6 +44,7 @@ pub(super) async fn verify(
         version: 1,
     };
     let assignment = AssignmentView {
+        source: "manager".into(),
         id: Uuid::new_v4(),
         identity: Identity {
             issuer: scope.issuer.clone(),

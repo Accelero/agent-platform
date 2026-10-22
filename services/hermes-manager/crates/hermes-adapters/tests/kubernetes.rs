@@ -9,6 +9,8 @@ mod bootstrap;
 mod controller;
 #[path = "kubernetes/fence_admission.rs"]
 mod fence_admission;
+#[path = "support/grants.rs"]
+mod grant_fixture;
 #[path = "kubernetes/infrastructure.rs"]
 mod infrastructure;
 #[path = "kubernetes/process.rs"]
@@ -112,6 +114,7 @@ async fn real_kubernetes_recovers_create_before_uid_commit_and_refuses_foreign_r
         )
         .await
         .unwrap();
+    grant_fixture::grant(&pool, &scope, &["admin"]).await;
     sqlx::query("INSERT INTO manager.instance_templates(id,version,schema_version,image,content_digest,approved) VALUES('personal-default',1,1,$1,$2,true)").bind(format!("ghcr.io/example/hermes@sha256:{}","a".repeat(64))).bind("a".repeat(64)).execute(&pool).await.unwrap();
     let policy = AdminPolicy {
         issuer: scope.issuer.clone(),

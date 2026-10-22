@@ -168,6 +168,8 @@ impl ExecutionRepository for PgStore {
         }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         gate(&mut tx, &mutation.scope).await?;
+        super::administrators::authorize_grant(&mut tx, &mutation.scope, &mutation.actor, false)
+            .await?;
         if matches!(mutation.command, ExecutionCommand::SetPolicy { .. }) {
             sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,184712))")
                 .bind(mutation.scope.id.to_string())
@@ -329,9 +331,17 @@ impl ExecutionRepository for PgStore {
     ) -> Result<ExecutionPolicyView, Error> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         gate(&mut tx, scope).await?;
-        let row=sqlx::query("SELECT a.id,a.version,s.desired_generation,s.applied_generation,s.state,p.policy,p.content_digest FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id JOIN manager.execution_policy_status s ON s.instance_id=i.id JOIN manager.execution_policy_versions p ON p.instance_id=i.id AND p.generation=s.desired_generation WHERE a.id=$1 AND a.installation_id=$2")
+        let row=sqlx::query("SELECT a.id,a.version,s.desired_generation,s.applied_generation,s.state,p.policy,p.content_digest,ap.policy AS applied_policy,ap.content_digest AS applied_digest FROM manager.assignments a JOIN manager.instances i ON i.assignment_id=a.id JOIN manager.execution_policy_status s ON s.instance_id=i.id JOIN manager.execution_policy_versions p ON p.instance_id=i.id AND p.generation=s.desired_generation LEFT JOIN manager.execution_policy_versions ap ON ap.instance_id=i.id AND ap.generation=s.applied_generation WHERE a.id=$1 AND a.installation_id=$2")
             .bind(assignment_id).bind(scope.id).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or(Error::NotFound)?;
         let desired = decode_policy(row.get("policy"), &row.get::<String, _>("content_digest"))?;
+        let applied = match row.get::<Option<Value>, _>("applied_policy") {
+            Some(policy) => Some(decode_policy(
+                policy,
+                &row.get::<String, _>("applied_digest"),
+            )?),
+            None if row.get::<i64, _>("applied_generation") == 0 => None,
+            None => return Err(Error::Invalid),
+        };
         let view = ExecutionPolicyView {
             assignment_id: row.get("id"),
             assignment_version: row.get("version"),
@@ -339,6 +349,7 @@ impl ExecutionRepository for PgStore {
             applied_generation: row.get("applied_generation"),
             state: row.get("state"),
             desired,
+            applied,
             digest: row.get("content_digest"),
         };
         tx.commit().await.map_err(db_error)?;

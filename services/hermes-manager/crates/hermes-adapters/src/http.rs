@@ -30,8 +30,14 @@ use crate::{
     session_crypto::Purpose,
 };
 
+mod administrators;
+mod authoring;
 mod dashboard;
+mod dashboard_reads;
+mod rollout;
+use crate::postgres::dashboard::{DashboardList, DashboardQuery};
 mod execution;
+mod validation;
 pub use dashboard::DashboardAssets;
 
 struct AdminState {
@@ -42,12 +48,16 @@ struct AdminState {
 }
 #[derive(Clone)]
 struct AdminAuth {
+    store: PgStore,
+    scope: InstallationScope,
     tokens: AccessTokenVerifier,
     policy: AdminPolicy,
     browser: Option<BrowserAuth>,
 }
 #[derive(Clone)]
 struct BrowserCsrf(Option<String>);
+#[derive(Clone)]
+struct ManageAdministrators(bool);
 struct ResolverState {
     routes: Routes<PgStore>,
     tokens: AccessTokenVerifier,
@@ -60,6 +70,14 @@ fn response(status: StatusCode, body: Value) -> Response {
 
 pub(crate) fn api_error(error: Error) -> Response {
     let (status, code) = match error {
+        Error::AdministratorExists => (StatusCode::CONFLICT, "administrator_grant_exists"),
+        Error::UnverifiedIdentity => (StatusCode::UNPROCESSABLE_ENTITY, "identity_not_verified"),
+        Error::LastAdministrator => (StatusCode::CONFLICT, "last_administrator"),
+        Error::MigrationRequired => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "storage_migration_required",
+        ),
+        Error::OwnershipConflict => (StatusCode::CONFLICT, "ownership_conflict"),
         Error::Invalid => (StatusCode::UNPROCESSABLE_ENTITY, "invalid_request"),
         Error::InvalidIdentityEvidence => (StatusCode::UNAUTHORIZED, "invalid_identity_evidence"),
         Error::Forbidden => (StatusCode::FORBIDDEN, "access_denied"),
@@ -145,6 +163,24 @@ async fn admin_auth(State(auth): State<AdminAuth>, mut request: Request, next: N
     if let Err(error) = auth.policy.authorize(&principal) {
         return api_error(error);
     }
+    if let Err(error) = auth
+        .store
+        .note_verified_identity(&auth.scope, &principal.identity)
+        .await
+    {
+        return api_error(error);
+    }
+    let manage = match auth
+        .store
+        .authorize_administrator(&auth.scope, &principal.identity)
+        .await
+    {
+        Ok(manage) => manage,
+        Err(error) => return api_error(error),
+    };
+    request
+        .extensions_mut()
+        .insert(ManageAdministrators(manage));
     request.extensions_mut().insert(principal);
     request.extensions_mut().insert(BrowserCsrf(csrf));
     next.run(request).await
@@ -280,6 +316,8 @@ pub fn admin_router_with_dashboard(
         scope,
     });
     let auth = AdminAuth {
+        store: state.store.clone(),
+        scope: state.scope.clone(),
         tokens,
         policy,
         browser: browser.clone(),
@@ -288,6 +326,19 @@ pub fn admin_router_with_dashboard(
         .route("/api/v1/session", get(session))
         .route("/api/v1/identities", get(identities))
         .route("/api/v1/templates", get(templates))
+        .route(
+            "/api/v1/configuration-schemas",
+            get(validation::configuration_schemas),
+        )
+        .route("/api/v1/template-definitions", get(template_definitions))
+        .route(
+            "/api/v1/template-definitions/validate",
+            post(validation::validate_template),
+        )
+        .route(
+            "/api/v1/template-definitions/{id}",
+            get(template_definition),
+        )
         .route(
             "/api/v1/assignments",
             get(assignments).post(create_assignment),
@@ -301,6 +352,10 @@ pub fn admin_router_with_dashboard(
         .route("/api/v1/operations/{id}", get(operation))
         .route("/api/v1/audit-events", get(audit))
         .merge(execution::routes())
+        .merge(dashboard_reads::routes())
+        .merge(authoring::routes())
+        .merge(administrators::routes())
+        .merge(rollout::routes())
         .route_layer(middleware::from_fn_with_state(auth.clone(), admin_auth))
         .with_state(state);
     let protected = match dashboard {
@@ -342,19 +397,28 @@ pub fn resolver_router(
 async fn session(
     Extension(actor): Extension<VerifiedPrincipal>,
     Extension(csrf): Extension<BrowserCsrf>,
+    Extension(manage): Extension<ManageAdministrators>,
 ) -> Json<Value> {
-    Json(
-        json!({"actor":actor.identity,"permittedActions":["assignment.create","assignment.set_access","instance.retry","execution.runtime.register","execution.storage.register","execution.storage.update","execution.pull-secret.register","execution.policy.set"],"csrfToken":csrf.0}),
-    )
+    let mut actions = vec![
+        "template.draft.create",
+        "template.draft.update",
+        "template.publish",
+        "assignment.set_template",
+        "assignment.create",
+        "assignment.set_access",
+        "instance.retry",
+        "execution.runtime.register",
+        "execution.storage.register",
+        "execution.storage.update",
+        "execution.pull-secret.register",
+        "execution.policy.set",
+    ];
+    if manage.0 {
+        actions.push("administrator.manage");
+    }
+    Json(json!({"actor":actor.identity,"permittedActions":actions,"csrfToken":csrf.0}))
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Pagination {
-    after: Option<Uuid>,
-    #[serde(default = "default_limit")]
-    limit: u16,
-}
 fn default_limit() -> u16 {
     50
 }
@@ -365,24 +429,47 @@ fn page<T: Serialize>(items: Vec<T>, next: Option<Uuid>) -> Json<Value> {
 
 async fn identities(
     State(state): State<Arc<AdminState>>,
-    query: Result<Query<Pagination>, axum::extract::rejection::QueryRejection>,
+    query: Result<Query<DashboardQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     let Ok(Query(query)) = query else {
         return api_error(Error::Invalid);
     };
     match state
         .store
-        .identities(&state.scope, query.after, query.limit)
+        .dashboard_list(&state.scope, DashboardList::Identities, &query)
         .await
     {
-        Ok(items) => {
-            let next = if items.len() == usize::from(query.limit) {
-                items.last().map(|i| i.id)
-            } else {
-                None
-            };
-            page(items, next).into_response()
-        }
+        Ok(value) => Json(value).into_response(),
+        Err(error) => api_error(error),
+    }
+}
+
+async fn template_definitions(
+    State(state): State<Arc<AdminState>>,
+    query: Result<Query<DashboardQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let Ok(Query(query)) = query else {
+        return api_error(Error::Invalid);
+    };
+    match state
+        .store
+        .dashboard_list(&state.scope, DashboardList::TemplateDefinitions, &query)
+        .await
+    {
+        Ok(value) => Json(value).into_response(),
+        Err(error) => api_error(error),
+    }
+}
+async fn template_definition(
+    State(state): State<Arc<AdminState>>,
+    Path(id): Path<String>,
+) -> Response {
+    match state
+        .store
+        .dashboard_templates(&state.scope, Some(&id))
+        .await
+    {
+        Ok(value) => Json(value).into_response(),
         Err(error) => api_error(error),
     }
 }
@@ -396,24 +483,17 @@ async fn templates(State(state): State<Arc<AdminState>>) -> Response {
 
 async fn assignments(
     State(state): State<Arc<AdminState>>,
-    query: Result<Query<Pagination>, axum::extract::rejection::QueryRejection>,
+    query: Result<Query<DashboardQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     let Ok(Query(query)) = query else {
         return api_error(Error::Invalid);
     };
     match state
         .store
-        .list_assignments(&state.scope, query.after, query.limit)
+        .dashboard_list(&state.scope, DashboardList::Assignments, &query)
         .await
     {
-        Ok(items) => {
-            let next = if items.len() == usize::from(query.limit) {
-                items.last().map(|i| i.id)
-            } else {
-                None
-            };
-            page(items, next).into_response()
-        }
+        Ok(value) => Json(value).into_response(),
         Err(error) => api_error(error),
     }
 }
@@ -455,24 +535,17 @@ async fn operation(State(state): State<Arc<AdminState>>, Path(id): Path<Uuid>) -
 
 async fn audit(
     State(state): State<Arc<AdminState>>,
-    query: Result<Query<Pagination>, axum::extract::rejection::QueryRejection>,
+    query: Result<Query<DashboardQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     let Ok(Query(query)) = query else {
         return api_error(Error::Invalid);
     };
     match state
         .store
-        .audit(&state.scope, query.after, query.limit)
+        .dashboard_list(&state.scope, DashboardList::Audit, &query)
         .await
     {
-        Ok(items) => {
-            let next = if items.len() == usize::from(query.limit) {
-                items.last().map(|i| i.id)
-            } else {
-                None
-            };
-            page(items, next).into_response()
-        }
+        Ok(value) => Json(value).into_response(),
         Err(error) => api_error(error),
     }
 }

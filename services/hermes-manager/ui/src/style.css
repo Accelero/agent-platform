@@ -690,3 +690,157 @@ td small {
     transition: none;
   }
 }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.workspace,
+main {
+  min-width: 0;
+}
+.pager {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 18px 0;
+}
+.detail {
+  padding: 24px;
+  margin: 18px 0;
+}
+pre {
+  overflow: auto;
+  max-width: 100%;
+  font-size: 12px;
+}
+.id-cell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.id-cell code {
+  overflow-wrap: anywhere;
+}
+.status-ready,
+.status-enabled,
+.status-applied,
+.status-succeeded {
+  color: #27572f;
+  background: #edf6e5;
+}
+.status-blocked,
+.status-error,
+.status-failed,
+.status-revoked {
+  color: #8d4826;
+  background: #fff0e7;
+}
+form {
+  margin: 20px 0;
+  display: grid;
+  gap: 16px;
+}
+label {
+  display: grid;
+  gap: 8px;
+}
+input,
+select,
+textarea {
+  width: 100%;
+  max-width: 100%;
+  padding: 10px;
+  font: inherit;
+  color: inherit;
+  border: 1px solid #b5c3af;
+  border-radius: 5px;
+  background: white;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #b4cc73;
+  outline-offset: 2px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0;
+}
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: #173c3299;
+  z-index: 10;
+}
+.dialog-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 11;
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  padding: 28px;
+  border-radius: 10px;
+  background: #f7f8f4;
+  box-shadow: 0 20px 80px #0004;
+}
+.dialog-content h2 {
+  font-size: 22px;
+}
+.dialog-content p {
+  line-height: 1.7;
+}
+.dialog-cancel {
+  margin-top: 15px;
+}
+fieldset {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #dce5cf;
+  border-radius: 6px;
+  padding: 16px;
+  min-width: 0;
+}
+legend {
+  padding: 0 6px;
+}
+.array-entry {
+  display: grid;
+  gap: 8px;
+}
+.list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: end;
+  margin: 20px 0;
+}
+.list-controls label {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.raw-editor {
+  height: 480px;
+  border: 1px solid #b5c3af;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+input[type="checkbox"] {
+  width: auto;
+  justify-self: start;
+}

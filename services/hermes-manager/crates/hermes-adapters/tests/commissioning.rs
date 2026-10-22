@@ -1,4 +1,6 @@
 //! Real PostgreSQL plan pinning and durable controller wait/retry scheduling.
+#[path = "support/grants.rs"]
+mod grant_fixture;
 use hermes_adapters::postgres::{FreshInventory, PgStore};
 use hermes_application::{
     AdminPolicy, AssignmentCommand, Assignments, Error, InstallationScope, OperationClaim,
@@ -66,6 +68,7 @@ async fn fixture(
         )
         .await
         .unwrap();
+    grant_fixture::grant(pool, &scope, &["admin"]).await;
     let definition = definition();
     sqlx::query("INSERT INTO manager.instance_templates(id,version,schema_version,image,content_digest,approved) VALUES('personal-default',1,1,$1,$2,true)").bind(&definition.image).bind(digest.unwrap_or_else(||definition.digest().unwrap())).execute(pool).await.unwrap();
     if let Some(body) = body {

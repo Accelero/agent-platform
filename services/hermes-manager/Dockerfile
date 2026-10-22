@@ -5,13 +5,15 @@ COPY services/hermes-manager/ui/package.json services/hermes-manager/ui/package-
 RUN npm ci --ignore-scripts --fetch-timeout=60000 --fetch-retries=2
 COPY contracts/hermes-manager/openapi.yaml /src/contracts/hermes-manager/openapi.yaml
 COPY contracts/hermes-manager/router.openapi.yaml /src/contracts/hermes-manager/router.openapi.yaml
+COPY contracts/hermes-manager/schemas/ /src/contracts/hermes-manager/schemas/
 COPY services/hermes-manager/ui/ ./
-RUN npm run generate && npm test && npm run build
+RUN npm run generate && npm run check:schemas && npm test && npm run build
 
 FROM rust@sha256:a24e292b4af7bdee351a31d3a6379972a5652f0ea22a1b6d6883324ac4f5097c AS rust
 WORKDIR /src/services/hermes-manager
 COPY services/hermes-manager/Cargo.toml services/hermes-manager/Cargo.lock services/hermes-manager/rust-toolchain.toml ./
 COPY services/hermes-manager/crates/ ./crates/
+COPY contracts/hermes-manager/schemas/ /src/contracts/hermes-manager/schemas/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/services/hermes-manager/target \
@@ -32,6 +34,7 @@ RUN apt-get update \
  && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent manager
 COPY --from=rust /out/ /usr/local/bin/
 COPY --from=ui /src/services/hermes-manager/ui/dist/ /usr/share/hermes-manager/ui/
+COPY --from=ui /src/services/hermes-manager/ui/dist/THIRD_PARTY_NOTICES.txt /usr/share/doc/hermes-manager/THIRD_PARTY_NOTICES.txt
 COPY --from=ui /src/services/hermes-manager/ui/node_modules/react/LICENSE /usr/share/doc/hermes-manager/react.LICENSE
 COPY --from=ui /src/services/hermes-manager/ui/node_modules/react-dom/LICENSE /usr/share/doc/hermes-manager/react-dom.LICENSE
 USER 10001:10001

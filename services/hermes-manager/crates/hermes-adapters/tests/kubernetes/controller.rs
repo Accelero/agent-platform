@@ -164,6 +164,7 @@ pub(super) async fn verify(
             BTreeSet::from(["administrator".into()]),
         )]),
     };
+    super::grant_fixture::grant(pool, scope, &["fixture-admin"]).await;
     let assignments = Assignments::new(store.clone(), scope.clone(), policy).unwrap();
     let accepted = assignments
         .execute(
@@ -184,6 +185,9 @@ pub(super) async fn verify(
         )
         .await
         .unwrap();
+    // This fixture exercises the legacy API journal/drain barrier. Native
+    // manager-owned publication/application is covered by native_commissioning.
+    sqlx::query("UPDATE manager.assignments SET dashboard_managed=false,dashboard_definition=NULL WHERE id=$1").bind(accepted.assignment_id).execute(pool).await.unwrap();
     let worker = controller(
         store.clone(),
         scope,

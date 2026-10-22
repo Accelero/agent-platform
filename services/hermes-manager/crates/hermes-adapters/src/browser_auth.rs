@@ -197,7 +197,7 @@ impl BrowserAuth {
         Ok(payload)
     }
 
-    fn authorize(&self, verified: &VerifiedAccess) -> Result<(), Error> {
+    async fn authorize(&self, verified: &VerifiedAccess) -> Result<(), Error> {
         if unix_time()?.saturating_sub(verified.issued_at()) > 120
             || verified.authorized_client() != self.provider.config().client_id
             || verified.identity().issuer != self.store.scope().issuer
@@ -206,6 +206,9 @@ impl BrowserAuth {
         }
         if let Some(policy) = &self.admin {
             policy.authorize(&verified.principal())?;
+            self.store
+                .authorize_administrator(&verified.identity())
+                .await?;
         }
         Ok(())
     }
@@ -272,7 +275,7 @@ impl BrowserAuth {
         }
         let tokens = self.provider.exchange(code, &secrets).await?;
         let verified = self.tokens.verify(&tokens.access_token).await?;
-        self.authorize(&verified)?;
+        self.authorize(&verified).await?;
         if verified.identity().subject != tokens.subject {
             return Err(Error::InvalidIdentityEvidence);
         }
@@ -342,7 +345,7 @@ impl BrowserAuth {
         if !stored.refresh_due {
             match self.tokens.verify(&payload.access_token).await {
                 Ok(verified) if verified.expires_at() > unix_time()? + 5 => {
-                    self.authorize(&verified)?;
+                    self.authorize(&verified).await?;
                     if verified.identity() != stored.identity
                         || verified.provider_session() != payload.provider_session
                     {
@@ -367,7 +370,7 @@ impl BrowserAuth {
                 .refresh(&previous.refresh_token, &previous.nonce)
                 .await?;
             let verified = self.tokens.verify(&tokens.access_token).await?;
-            self.authorize(&verified)?;
+            self.authorize(&verified).await?;
             if verified.identity() != claim.session.identity
                 || verified.identity().subject != tokens.subject
                 || verified.provider_session() != previous.provider_session

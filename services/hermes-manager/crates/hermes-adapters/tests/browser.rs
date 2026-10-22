@@ -1,4 +1,6 @@
 //! Real HTTPS OIDC protocol, opaque browser sessions and administration CSRF.
+#[path = "support/grants.rs"]
+mod grant_fixture;
 use axum::{
     Form, Json, Router,
     extract::{Query, State},
@@ -28,6 +30,7 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 use tokio::sync::{Mutex, RwLock};
 use url::Url;
@@ -200,6 +203,18 @@ impl Fixture {
         purpose: Purpose,
         assets: Option<DashboardAssets>,
     ) -> Self {
+        Self::with_dashboard_at(pool, purpose, assets, None).await
+    }
+    async fn with_dashboard_at(
+        pool: &PgPool,
+        purpose: Purpose,
+        assets: Option<DashboardAssets>,
+        listener: Option<tokio::net::TcpListener>,
+    ) -> Self {
+        let public_origin = listener
+            .as_ref()
+            .map(|listener| format!("https://{}", listener.local_addr().unwrap()))
+            .unwrap_or_else(|| "https://localhost".into());
         let (client_id, audience, callback_path) = match purpose {
             Purpose::Administration => ("manager-admin", "manager-api", "/auth/oidc/callback"),
             Purpose::Router => ("hermes-router", "route-api", "/_platform/oidc/callback"),
@@ -259,6 +274,7 @@ impl Fixture {
             )
             .await
             .unwrap();
+        grant_fixture::grant(pool, &scope, &["owner-a", "owner-b"]).await;
         sqlx::query("INSERT INTO manager.instance_templates(id,version,schema_version,image,content_digest,approved) VALUES('personal-default',1,1,$1,$2,true)").bind(format!("ghcr.io/example/hermes@sha256:{}","a".repeat(64))).bind("a".repeat(64)).execute(pool).await.unwrap();
         let http = http_client(Some(&p.secrets.read("ca.crt").await)).unwrap();
         let tokens = AccessTokenVerifier::new(
@@ -287,7 +303,7 @@ impl Fixture {
             OidcConfig {
                 issuer,
                 client_id: client_id.into(),
-                callback_url: format!("https://localhost{callback_path}"),
+                callback_url: format!("{public_origin}{callback_path}"),
                 scopes: vec!["openid".into()],
                 client_secret: None,
                 revocation_url: None,
@@ -309,7 +325,7 @@ impl Fixture {
             )
             .unwrap(),
             BrowserConfig {
-                public_origin: "https://localhost".into(),
+                public_origin,
                 other_origin: "https://hermes.example.org".into(),
             },
             (purpose == Purpose::Administration).then_some(policy.clone()),
@@ -346,7 +362,11 @@ impl Fixture {
             .await;
             (public, Some(server))
         };
-        let admin = start(&p.secrets, public, false).await;
+        let admin = if let Some(listener) = listener {
+            support::start_on_listener(&p.secrets, public, false, BTreeSet::new(), listener).await
+        } else {
+            start(&p.secrets, public, false).await
+        };
         let client = p.secrets.client(None).await;
         Self {
             provider: p,
@@ -431,7 +451,7 @@ fn cookies(browser: &str, session: &str) -> String {
 }
 
 #[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
-async fn dashboard_pages_assets_admin_role_logout_and_api_only_boundary(pool: PgPool) {
+async fn dashboard_pages_assets_postgres_grants_logout_and_api_only_boundary(pool: PgPool) {
     let directory = tempfile::tempdir().unwrap();
     tokio::fs::create_dir(directory.path().join("assets"))
         .await
@@ -465,21 +485,31 @@ async fn dashboard_pages_assets_admin_role_logout_and_api_only_boundary(pool: Pg
         .await
         .unwrap();
     assert_eq!(script.status(), StatusCode::UNAUTHORIZED);
-    // A valid Keycloak-style login without the management client role cannot
-    // create an administration session or retrieve the dashboard.
-    *f.provider.fault.write().await = "role".into();
+    // A valid signed identity without a PostgreSQL grant cannot create an
+    // administration session or retrieve the dashboard.
+    *f.provider.subject.write().await = "ungranted-fixture".into();
     let (browser, authorization) = f.begin(None).await;
     let callback = f.callback(&authorization).await;
     assert_eq!(
         f.complete(&browser, &callback).await.status(),
         StatusCode::FORBIDDEN
     );
+    *f.provider.subject.write().await = "owner-a".into();
     *f.provider.fault.write().await = String::new();
     let (browser, session) = f.login().await;
     for path in [
         "/",
         "/assignments",
+        "/assignments/00000000-0000-0000-0000-000000000001",
+        "/users",
+        "/users/00000000-0000-0000-0000-000000000001",
+        "/operations/00000000-0000-0000-0000-000000000001",
+        "/activity/00000000-0000-0000-0000-000000000001",
+        "/templates",
+        "/storage-bindings",
+        "/storage-bindings/00000000-0000-0000-0000-000000000001",
         "/terminal-runtimes",
+        "/terminal-runtimes/fixture-runtime",
         "/activity",
         "/assets/app.js",
     ] {
@@ -512,6 +542,10 @@ async fn dashboard_pages_assets_admin_role_logout_and_api_only_boundary(pool: Pg
         "/auth/missing",
         "/internal/missing",
         "/unknown",
+        "/users/x/y",
+        "/assignments/invalid",
+        "/terminal-runtimes/INVALID",
+        "/api/v1/nope",
         "/assets/missing.js",
         "/assets/%2e%2e%2findex.html",
     ] {
@@ -691,7 +725,7 @@ async fn callback_replay_wrong_browser_and_overlapping_identity_switch_fail_clos
 }
 
 #[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
-async fn invalid_oidc_nonce_signature_subject_hash_audience_role_or_age_cannot_create_session(
+async fn invalid_oidc_nonce_signature_subject_hash_audience_or_age_cannot_create_session(
     pool: PgPool,
 ) {
     let f = Fixture::new(&pool).await;
@@ -702,7 +736,6 @@ async fn invalid_oidc_nonce_signature_subject_hash_audience_role_or_age_cannot_c
         "hash",
         "audience",
         "client",
-        "role",
         "stale",
     ] {
         *f.provider.fault.write().await = fault.into();
@@ -733,7 +766,7 @@ async fn refresh_rechecks_provider_and_subject_and_never_revives_revoked_session
         sqlx::query("UPDATE manager_admin_auth.sessions SET verified_at=clock_timestamp()-interval '61 seconds' WHERE state='active'").execute(&pool).await.unwrap();
         *f.provider.fault.write().await = fault.into();
         let status = f.session(&browser, &session).await.status();
-        if fault.is_empty() {
+        if fault.is_empty() || fault == "role" {
             assert_eq!(status, StatusCode::OK);
         } else {
             assert!(matches!(
@@ -1012,4 +1045,110 @@ async fn provider_advertising_only_pairwise_subjects_cannot_start_login(pool: Pg
         .await
         .unwrap();
     assert_eq!(count, 0);
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+#[ignore = "run with MANAGER_UI_DIST and npm installed after building the production UI"]
+async fn production_dashboard_browser_csp(pool: PgPool) {
+    let directory = std::env::var("MANAGER_UI_DIST").expect("production assets directory");
+    let assets = DashboardAssets::load(std::path::Path::new(&directory))
+        .await
+        .unwrap();
+    let (listener, _) = hermes_adapters::server::bind("127.0.0.1:0").await.unwrap();
+    let f =
+        Fixture::with_dashboard_at(&pool, Purpose::Administration, Some(assets), Some(listener))
+            .await;
+    let (browser, session) = f.login().await;
+    let mut command = tokio::process::Command::new("npm");
+    command
+        .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../ui"))
+        .args(["run", "test:production"])
+        .env("MANAGER_E2E_ORIGIN", &f.admin.url)
+        .env("MANAGER_E2E_SESSION", session)
+        .env("MANAGER_E2E_BROWSER", browser)
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(Duration::from_secs(120), command.output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "Production browser failed: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[sqlx::test(migrator = "hermes_adapters::postgres::MIGRATOR")]
+async fn postgres_revocation_denies_existing_cookie_assets_pages_and_bearer_immediately(
+    pool: PgPool,
+) {
+    let directory = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(directory.path().join("assets"))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        directory.path().join("index.html"),
+        "<!doctype html><title>Revocation fixture</title>",
+    )
+    .await
+    .unwrap();
+    tokio::fs::write(
+        directory.path().join("assets/app.js"),
+        "export const fixture=true;",
+    )
+    .await
+    .unwrap();
+    let assets = DashboardAssets::load(directory.path()).await.unwrap();
+    let f = Fixture::with_dashboard(&pool, Purpose::Administration, Some(assets)).await;
+    // OIDC roles are deliberately absent. Only this exact PostgreSQL identity grants access.
+    *f.provider.fault.write().await = "role".into();
+    let (browser, session) = f.login().await;
+    let now = unix_time().unwrap();
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some("fixture".into());
+    let claims = json!({"iss":f.provider.issuer.read().await.clone(),"sub":"owner-a","aud":"manager-api","azp":"manager-admin","iat":now,"exp":now+300,"nbf":now-1,"typ":"Bearer","sid":"provider-session-one"});
+    let bearer = encode(&header, &claims, &f.provider.secrets.signer).unwrap();
+    assert_eq!(
+        f.client
+            .get(format!("{}/api/v1/session", f.admin.url))
+            .bearer_auth(&bearer)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    sqlx::query(
+        "UPDATE manager_admin_auth.administrator_grants SET active=false WHERE subject='owner-a'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    for path in [
+        "/",
+        "/assignments",
+        "/assets/app.js",
+        "/api/v1/session",
+        "/api/v1/assignments",
+    ] {
+        let response = f
+            .client
+            .get(format!("{}{path}", f.admin.url))
+            .header(header::COOKIE, cookies(&browser, &session))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path}");
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    }
+    assert_eq!(
+        f.client
+            .get(format!("{}/api/v1/session", f.admin.url))
+            .bearer_auth(&bearer)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
 }
