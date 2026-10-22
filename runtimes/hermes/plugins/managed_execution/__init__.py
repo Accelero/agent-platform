@@ -1,6 +1,5 @@
-"""Native Hermes terminal image selection with deployment-owned mounts and scheduling."""
+"""Personal Hermes terminal backend: manager-leased SSH workers with pinned host keys."""
 import json
-import hashlib
 import base64
 import ipaddress
 import logging
@@ -9,7 +8,6 @@ import re
 import threading
 import weakref
 from pathlib import Path
-import re
 import socket
 import shlex
 import ssl
@@ -23,6 +21,9 @@ from agent.terminal_env_provider import TerminalEnvironmentProvider
 from tools.environments.ssh import SSHEnvironment
 
 log = logging.getLogger(__name__)
+# Written by the manager into each personal instance; the only connection source.
+MANAGED_CONFIG = Path('/run/hermes/execution-ca/config.yaml')
+WORKSPACE = '/workspace'
 
 
 def personal_instance():
@@ -35,56 +36,13 @@ def session_key():
     return get_session_env("HERMES_SESSION_KEY", "")
 
 
-# Platform-owned Multica task context. Every profile forwards it to task workers
-# over SSH SendEnv, so a profile created later needs no env_passthrough entry.
-MULTICA_TASK_VARIABLES = (
-    'MULTICA_TOKEN', 'MULTICA_TASK_CONFIG_ROOT', 'MULTICA_TASK_WORKSPACES_ROOT',
-    'MULTICA_SERVER_URL', 'MULTICA_WORKSPACE_ID', 'MULTICA_AGENT_ID', 'MULTICA_AGENT_NAME',
-    'MULTICA_TASK_ID', 'MULTICA_TASK_SLOT', 'MULTICA_DAEMON_PORT', 'MULTICA_REPO_CHECKOUT_MODE',
-)
-
-
-def multica_workdir(home=None):
-    """The daemon's overlay identifies the task; cwd may change during a run."""
-    from hermes_cli.config import get_hermes_home
-    home = Path(home) if home is not None else get_hermes_home()
-    root = Path('/opt/data/.multica/workspaces')
-    if not home.is_relative_to(root):
-        return None
-    relative = home.relative_to(root)
-    if len(relative.parts) != 3 or relative.parts[-1] != 'hermes-home':
-        raise ValueError('Multica execution requires a managed task home')
-    workdir = home.parent / 'workdir'
-    if not workdir.is_dir() or workdir.resolve() != workdir:
-        raise ValueError('Multica workdir is missing or traverses a symlink')
-    return str(workdir)
-
-
-def ensure_profile_workspace(profile, root=Path('/opt/data/workspaces')):
-    """The manager mounts only an existing profile directory. Profiles created
-    after controller startup, for example in the dashboard, need one as well."""
-    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', profile) or root.is_symlink() or not root.is_dir():
-        return
-    target = root / profile
-    if target.is_symlink():
-        raise ValueError('Profile workspace must not be a symbolic link')
-    target.mkdir(mode=0o700, exist_ok=True)
-
-
 def invocation_cwd(cwd, task_id):
-    """Recover an explicitly declared controller workspace after Hermes's
-    generic container guard has sanitized a host-looking cwd."""
-    from agent.runtime_cwd import scoped_session_cwd, scope_terminal_cwd
+    """Recover an explicitly declared workspace directory after Hermes's generic
+    container guard has sanitized a host-looking cwd."""
+    from agent.runtime_cwd import scoped_session_cwd
     from tools.terminal_tool import get_session_cwd
     declared = get_session_cwd(task_id) or scoped_session_cwd()
-    if not declared:
-        configured = scope_terminal_cwd()
-        if configured and Path(configured).is_relative_to('/opt/data/workspaces'):
-            declared = configured
-    # Native lazy environment creation passes config.cwd even when an explicit
-    # session override exists. Both remote and controller profile roots matter.
-    if declared and any(Path(declared).is_relative_to(root)
-                        for root in ('/workspace', '/opt/data/workspaces')):
+    if declared and Path(declared).is_relative_to(WORKSPACE):
         return declared
     return cwd
 
@@ -99,7 +57,9 @@ class Client:
         url = self.settings['manager_url'].rstrip('/')
         if not url.startswith('https://'):
             raise ValueError('The execution manager requires HTTPS')
-        context = ssl.create_default_context(cafile=self.settings.get('ca_file', '/etc/runtime-manager/tls/ca.crt'))
+        if not self.settings.get('ca_file'):
+            raise ValueError('The execution manager requires a pinned CA file')
+        context = ssl.create_default_context(cafile=self.settings['ca_file'])
         request = urllib.request.Request(url + path,
             data=json.dumps(body).encode() if body is not None else None,
             headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
@@ -112,10 +72,6 @@ class Client:
         payload.update(session=session, request=uuid.uuid4().hex)
         if self.settings.get('runtime_id'):
             payload['runtime_id'] = self.settings['runtime_id']
-        if self.settings.get('template'):
-            payload['template'] = self.settings['template']
-        if self.settings.get('image'):
-            payload['image'] = self.settings['image']
         if self.runtime:
             payload['runtime'] = self.runtime
         if parent_lease:
@@ -141,7 +97,6 @@ class ManagedSSHEnvironment(SSHEnvironment):
         from hermes_cli.config import get_hermes_home
         self.runtime = runtime or {'hermes_home': str(get_hermes_home()), 'workdir': cwd}
         self.runtime_home = self.runtime['hermes_home']
-        self.multica_workdir = multica_workdir(self.runtime_home)
         self.client = Client(settings, self.runtime)
         self.managed_task_key = task_id
         # Hermes supplies the resolved session key, including its native delegate aliases.
@@ -157,7 +112,7 @@ class ManagedSSHEnvironment(SSHEnvironment):
         self._lost = False
         self._closed = False
         self._owners = set()
-        self._initial_cwd, self._initial_timeout = self.multica_workdir or cwd, timeout
+        self._initial_cwd, self._initial_timeout = cwd, timeout
         self.managed_generation = None
         self.managed_environment = None
         self._sync_manager = None
@@ -184,28 +139,27 @@ class ManagedSSHEnvironment(SSHEnvironment):
         self.managed_environment = reply['environment']
         endpoint = dict(reply['ssh'])
         host_key = endpoint.pop('host_key', None)
-        if personal_instance() and not host_key:
+        if not host_key:
             raise RuntimeError('Manager did not supply a verified SSH host identity')
         old_identity = getattr(self, '_host_identity_dir', None)
         if old_identity is not None:
             old_identity.cleanup()
         self._host_identity_dir = None
         self._known_hosts = None
-        if host_key:
-            if endpoint.get('port') != 2222 or endpoint.get('user') != 'worker':
-                raise RuntimeError('Invalid managed SSH endpoint')
-            ipaddress.ip_address(endpoint['host'])
-            if not isinstance(host_key, str) or len(host_key) > 1024 or not re.fullmatch(r'ssh-ed25519 [A-Za-z0-9+/=]+', host_key):
-                raise RuntimeError('Invalid managed SSH host identity')
-            base64.b64decode(host_key.split()[1], validate=True)
-            uuid.UUID(self.managed_environment)
-            if not re.fullmatch(r'[1-9][0-9]*', self.managed_generation):
-                raise RuntimeError('Invalid managed SSH generation')
-            self._host_identity_dir = tempfile.TemporaryDirectory(prefix='hermes-managed-ssh-')
-            self._known_hosts = Path(self._host_identity_dir.name) / 'known_hosts'
-            alias = 'hermes-managed-' + self.managed_environment + '-' + self.managed_generation
-            self._known_hosts.write_text(alias + ' ' + host_key + '\n')
-            self._known_hosts.chmod(0o600)
+        if endpoint.get('port') != 2222 or endpoint.get('user') != 'worker':
+            raise RuntimeError('Invalid managed SSH endpoint')
+        ipaddress.ip_address(endpoint['host'])
+        if not isinstance(host_key, str) or len(host_key) > 1024 or not re.fullmatch(r'ssh-ed25519 [A-Za-z0-9+/=]+', host_key):
+            raise RuntimeError('Invalid managed SSH host identity')
+        base64.b64decode(host_key.split()[1], validate=True)
+        uuid.UUID(self.managed_environment)
+        if not re.fullmatch(r'[1-9][0-9]*', self.managed_generation):
+            raise RuntimeError('Invalid managed SSH generation')
+        self._host_identity_dir = tempfile.TemporaryDirectory(prefix='hermes-managed-ssh-')
+        self._known_hosts = Path(self._host_identity_dir.name) / 'known_hosts'
+        alias = 'hermes-managed-' + self.managed_environment + '-' + self.managed_generation
+        self._known_hosts.write_text(alias + ' ' + host_key + '\n')
+        self._known_hosts.chmod(0o600)
         deadline = time.monotonic() + 30
         while True:
             try:
@@ -318,20 +272,16 @@ class ManagedSSHEnvironment(SSHEnvironment):
                 raise
 
     def _target_flags(self, port_flag):
-        # IPs/NodePorts can be reused after recycle. Pin the lookup to this managed generation;
-        # accept-new records the first key and rejects a changed key within that generation.
+        # Pod IPs can be reused. Pin the lookup to this generation's manager-supplied host key.
         alias = "hermes-managed-" + self.managed_environment + "-" + self.managed_generation
-        flags = super()._target_flags(port_flag) + ["-o", "HostKeyAlias=" + alias]
-        if getattr(self, '_known_hosts', None):
-            flags += ['-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + str(self._known_hosts), '-o', 'GlobalKnownHostsFile=/dev/null']
-        return flags
+        return super()._target_flags(port_flag) + [
+            '-o', 'HostKeyAlias=' + alias, '-o', 'StrictHostKeyChecking=yes',
+            '-o', 'UserKnownHostsFile=' + str(self._known_hosts), '-o', 'GlobalKnownHostsFile=/dev/null']
 
     def _build_ssh_command(self, extra_args=None, send_env=()):
         command = super()._build_ssh_command(extra_args, send_env)
-        if getattr(self, '_known_hosts', None):
-            # OpenSSH takes the first option: override the native default too.
-            command = ['StrictHostKeyChecking=yes' if arg == 'StrictHostKeyChecking=accept-new' else arg for arg in command]
-        return command
+        # OpenSSH takes the first option: override the native default too.
+        return ['StrictHostKeyChecking=yes' if arg == 'StrictHostKeyChecking=accept-new' else arg for arg in command]
 
     def _snapshot_excluded_passthrough_names(self):
         # The built-in SSH transport only excludes these in multiplex mode. ACP and direct
@@ -341,22 +291,8 @@ class ManagedSSHEnvironment(SSHEnvironment):
         return tuple(sorted(self._snapshot_passthrough_names))
 
     def _wrap_command(self, command, cwd):
-        remote_home = (str(Path(self.multica_workdir).parent / 'hermes-home')
-                       if self.multica_workdir else '/opt/data/profiles/' + self.settings['profile'])
-        if not self.multica_workdir and personal_instance():
-            remote_home = self._remote_home + '/.hermes'
+        remote_home = self._remote_home + '/.hermes'
         command = 'export HERMES_HOME=' + shlex.quote(remote_home) + '\n' + command
-        if self.multica_workdir:
-            identity = hashlib.sha256(self.managed_task_key.encode()).hexdigest()
-            config_root = '/tmp/hermes-multica/' + identity
-            # Apply after SSH passthrough/snapshot restoration. The controller's
-            # task config and sibling task roots are not mounted into execution.
-            values = {'MULTICA_TASK_CONFIG_ROOT': config_root,
-                      'MULTICA_TASK_WORKSPACES_ROOT': self.multica_workdir,
-                      'MULTICA_DAEMON_PORT': '19514', 'MULTICA_REPO_CHECKOUT_MODE': 'isolated'}
-            exports = ' '.join(key + '=' + shlex.quote(value) for key, value in values.items())
-            command = ('mkdir -p ' + shlex.quote(config_root) + ' && chmod 700 '
-                       + shlex.quote(config_root) + ' || exit 1\nexport ' + exports + '\n' + command)
         return super()._wrap_command(command, cwd)
 
     def _before_execute(self):
@@ -400,7 +336,6 @@ class Provider(TerminalEnvironmentProvider):
     session_isolated_when_nonpersistent = True
     skip_container_guards = False
     cache_path_base = "~/.hermes"
-    strip_env_keys = frozenset({"EXECUTION_MANAGER_TOKEN"})
 
     def __init__(self, ctx):
         self.ctx = ctx
@@ -410,12 +345,21 @@ class Provider(TerminalEnvironmentProvider):
         self._creation_locks = weakref.WeakValueDictionary()
 
     def settings(self):
-        defaults = dict(manager_url="https://runtime-manager:8090", token_file="/run/secrets/runtime-manager-token",
-                        ca_file='/etc/runtime-manager/tls/ca.crt', profile="", mode="per_profile_on_demand",
-                        ssh_key="/opt/ssh/id_ed25519", acquire_timeout_seconds=180, image="", template="", runtime_id="")
-        settings = {key: self.ctx.get_config(key, value) for key, value in defaults.items()}
-        # The schema-driven dashboard saves this in the active profile's native
-        # config, so backend selection survives restarts without being authority.
+        """Connection settings come only from the manager's managed configuration;
+        profiles choose a lifetime mode and an approved runtime_id."""
+        managed = json.loads(MANAGED_CONFIG.read_text())
+        connection = managed['plugins']['entries']['managed_execution']['settings']
+        settings = {key: connection[key] for key in ('manager_url', 'token_file', 'ca_file', 'ssh_key')}
+        settings.update(
+            # The wire profile is the credential's fixed service scope. Native
+            # profile isolation is carried by runtime.hermes_home and runtime_id.
+            profile='default',
+            mode=self.ctx.get_config('mode', 'per_profile_on_demand'),
+            acquire_timeout_seconds=self.ctx.get_config('acquire_timeout_seconds', 180),
+            runtime_id=self.ctx.get_config('runtime_id', ''),
+        )
+        # The schema-driven dashboard saves the selection in the active profile's
+        # native config; the manager still checks it against the allowlist.
         try:
             from hermes_cli.config import load_config
         except ImportError:
@@ -425,62 +369,34 @@ class Provider(TerminalEnvironmentProvider):
             if isinstance(terminal, dict) and 'runtime_id' in terminal:
                 value = terminal['runtime_id']
                 settings['runtime_id'] = '' if value is None else value
-        # Existing native profiles preserve their config across image updates.
-        # Upgrade the former built-in endpoint to the encrypted transport.
-        if settings['manager_url'].rstrip('/') == 'http://runtime-manager:8090':
-            settings['manager_url'] = defaults['manager_url']
-        from gateway.session_context import get_session_env
-        session_profile = get_session_env('HERMES_SESSION_PROFILE', '')
-        # A Multica overlay is a "custom" Hermes home, but its derived plugin
-        # configuration still names the administrator-approved execution role.
-        if session_profile in ('custom', 'default'):
-            session_profile = ''
-        settings["profile"] = (settings["profile"] or session_profile or self.ctx.profile_name)
-        if personal_instance():
-            managed = json.loads(Path('/run/hermes/execution-ca/config.yaml').read_text())
-            connection = managed['plugins']['entries']['managed_execution']['settings']
-            for key in ('manager_url', 'token_file', 'ca_file', 'ssh_key'):
-                settings[key] = connection[key]
-            # Wire profile is the credential's service scope. Native profile
-            # isolation is carried by runtime.hermes_home and the selected ID.
-            settings['profile'] = 'default'
-        if settings["mode"] not in ("per_session", "per_profile_on_demand", "per_profile_always_running"):
-            raise ValueError("Invalid managed_execution mode")
+        if settings['mode'] not in ('per_session', 'per_profile_on_demand', 'per_profile_always_running'):
+            raise ValueError('Invalid managed_execution mode')
         if not isinstance(settings['runtime_id'], str) or (settings['runtime_id']
                 and re.fullmatch(r'[a-z][a-z0-9-]{0,62}', settings['runtime_id']) is None):
-            raise ValueError("Invalid managed_execution runtime_id")
+            raise ValueError('Invalid managed_execution runtime_id')
         return settings
 
     def is_available(self):
+        if not personal_instance():
+            return False
         try:
-            return Path(self.settings()["token_file"]).is_file()
-        except (ValueError, OSError):
+            return Path(self.settings()['token_file']).is_file()
+        except (ValueError, OSError, KeyError):
             return False
 
-    def create_environment(self, *, cwd, timeout, task_id="default", image=None, container_config=None, **kwargs):
+    def create_environment(self, *, cwd, timeout, task_id="default", **kwargs):
         settings = self.settings()
-        settings['image'] = settings['image'] or image
         cwd = invocation_cwd(cwd, task_id)
         from hermes_cli.config import get_hermes_home
-        home = str(get_hermes_home())
-        workdir = multica_workdir(home)
-        runtime = {'hermes_home': home, 'workdir': workdir or cwd}
-        if workdir:
-            # Registered in the task's own session context before its SSH session starts.
-            from tools.env_passthrough import register_env_passthrough
-            register_env_passthrough(MULTICA_TASK_VARIABLES)
-        if workdir or cwd not in ('/workspace', '/opt/data/workspaces/' + settings['profile']):
-            # A profile-wide container cannot carry different task mounts safely.
+        runtime = {'hermes_home': str(get_hermes_home()), 'workdir': cwd}
+        if cwd != WORKSPACE:
+            # A profile-lifetime worker is shared; a distinct workdir gets its own session.
             settings['mode'] = 'per_session'
-        else:
-            ensure_profile_workspace(settings['profile'])
         # Hermes uses both <session-id> (terminal calls) and session:<session-id>
         # (file/prompt calls without a task ID). Canonicalize inside the provider,
         # so its supported factory returns one transport for that conversation.
         key = task_id.removeprefix('session:')
-        if key != 'prompt-backend-probe' and workdir and os.environ.get('MULTICA_TASK_ID'):
-            key = 'multica:' + os.environ['MULTICA_TASK_ID']
-        identity = (settings['manager_url'], settings['profile'], settings['runtime_id'], settings['mode'], settings['template'], settings['image'], key,
+        identity = (settings['manager_url'], settings['runtime_id'], settings['mode'], key,
                     json.dumps(runtime, sort_keys=True))
         with self._guard:
             lock = self._creation_locks.setdefault(identity, threading.Lock())

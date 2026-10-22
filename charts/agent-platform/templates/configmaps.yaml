@@ -9,42 +9,14 @@ metadata:
     {{- include "agent-platform.labels" $ | nindent 4 }}
 data: {{ toYaml $data | nindent 2 }}
 {{- end }}
-{{- if (index .Values.workloads "runtime-manager").enabled }}
+{{- if (index .Values.workloads "multica-gateway").enabled }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: runtime-manager-config
+  name: multica-gateway-config
   namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "agent-platform.labels" . | nindent 4 }}
-data:
-  config.yaml: |
-    {{- (include "agent-platform.runtime" . | fromJson).config | toYaml | nindent 4 }}
-{{- end }}
-{{- range $name := list "multica-gateway" "hermes-gateway" }}
-{{- if (index $.Values.workloads $name).enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ $name }}-config
-  namespace: {{ $.Release.Namespace }}
 data:
   nginx.conf: |
-    {{- $.Files.Get (printf "files/%s.nginx.conf" $name) | nindent 4 }}
-{{- end }}
-{{- end }}
-
-{{- if .Values.workloads.hermes.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: hermes-defaults
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "agent-platform.labels" . | nindent 4 }}
-data:
-  defaults.json: {{ dict "config" .Values.hermes.config "profiles" .Values.hermes.profiles | toJson | quote }}
+    {{- .Files.Get "files/multica-gateway.nginx.conf" | nindent 4 }}
 {{- end }}

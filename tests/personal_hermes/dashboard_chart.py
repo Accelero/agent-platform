@@ -390,7 +390,6 @@ https.createServer({
             kubeconfig.write_bytes(command(["k3d", "kubeconfig", "get", name]))
             command(["k3d", "image", "import", image, "-c", name], timeout=180)
             values = {
-                "sandbox": {"enabled": False},
                 "images": {"hermes-manager": image},
                 "hermesManager": {
                     "enabled": True,

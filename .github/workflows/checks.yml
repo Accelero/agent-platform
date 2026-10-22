@@ -24,12 +24,12 @@ jobs:
         with:
           version: 'v3.22.1'
       - run: uv sync --locked
-      - run: uv run ruff check agent_platform tests services/tools/platform_bootstrap
-      - run: uv run ruff format --check agent_platform tests services/tools/platform_bootstrap
+      - run: uv run ruff check agent_platform tests
+      - run: uv run ruff format --check agent_platform tests
       - run: uv run python -m agent_platform.privacy
       - run: uv run pytest -q
       - run: helm lint charts/agent-platform
-      - name: Render lightweight deployment
+      - name: Render manager deployment
         run: |
           uv run python - <<'PY'
           from pathlib import Path

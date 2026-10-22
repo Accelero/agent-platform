@@ -1,12 +1,24 @@
-"""Run inside the pinned Hermes image to verify its native plugin configuration API."""
+"""Run inside the pinned Hermes image to verify the plugin and initializer."""
 
 import importlib.util
+import json
 import os
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import yaml
+
+# Fields the execution contract accepts on acquire; the manager rejects others.
+ACQUIRE_FIELDS = {
+    "profile",
+    "session",
+    "mode",
+    "request",
+    "runtime_id",
+    "parent_lease",
+    "runtime",
+}
 
 
 def main() -> None:
@@ -36,7 +48,7 @@ def main() -> None:
         if endpoint.endswith("/acquire"):
             return {
                 "lease": "lease",
-                "generation": "generation",
+                "generation": "1",
                 "environment": "environment",
                 "ttl": 120,
                 "ssh": {"host": "127.0.0.1", "port": 2222, "user": "worker"},
@@ -49,55 +61,66 @@ def main() -> None:
         patch.object(plugin.ManagedSSHEnvironment, "_connect"),
     ):
         home = Path(directory)
+        managed = home / "managed.json"
+        connection = {
+            "manager_url": "https://manager.example.org/execution",
+            "token_file": str(home / "token"),
+            "ca_file": str(home / "ca.crt"),
+            "ssh_key": str(home / "id_ed25519"),
+        }
+        managed.write_text(
+            json.dumps(
+                {
+                    "plugins": {
+                        "entries": {"managed_execution": {"settings": connection}}
+                    }
+                }
+            )
+        )
+        plugin.MANAGED_CONFIG = managed
         token = set_hermes_home_override(home)
         environments = []
         try:
-            # Same provider/session, changing native profile settings. A cached
-            # environment must never conceal the new image selection.
-            for template, image in (
-                ("research", "example.org/research:1"),
-                ("coding", "example.org/coding:2"),
-                ("research", ""),
-                ("coding", ""),
-            ):
+            # Same provider/session, changing the profile's dashboard selection.
+            # A cached environment must never conceal the new runtime selection.
+            for runtime_id in ("python-tools", "shell-tools", "python-tools", ""):
                 config = {
-                    "terminal": {"backend": "managed_execution", "cwd": "/workspace"},
+                    "terminal": {
+                        "backend": "managed_execution",
+                        "cwd": "/workspace",
+                        "runtime_id": runtime_id,
+                    },
+                    # Profile plugin settings cannot redirect the connection.
                     "plugins": {
                         "entries": {
                             "managed_execution": {
-                                "settings": {
-                                    "image": image,
-                                    "template": template,
-                                    "profile": "default",
-                                }
+                                "settings": {"manager_url": "https://foreign.invalid"}
                             }
                         }
                     },
                 }
                 (home / "config.yaml").write_text(yaml.safe_dump(config))
+                before = len(calls)
                 environment = provider.create_environment(
                     cwd="/workspace", timeout=10, task_id="same-session"
                 )
                 environments.append(environment)
-                payload = next(
-                    payload
-                    for endpoint, payload in reversed(calls)
-                    if endpoint.endswith("/acquire")
-                )
-                assert payload.get("image", "") == image
-                assert payload["profile"] == "default"
-                assert payload["template"] == template
-                assert (
-                    not image
-                    or payload["image"] != "nikolaik/python-nodejs:python3.11-nodejs20"
-                )
+                assert environment.settings["manager_url"] == connection["manager_url"]
+                assert environment.settings["runtime_id"] == runtime_id
+                for endpoint, payload in calls[before:]:
+                    if endpoint.endswith("/acquire"):
+                        assert set(payload) <= ACQUIRE_FIELDS, set(payload)
+                        assert payload["profile"] == "default"
+                        assert payload.get("runtime_id", "") == runtime_id
                 assert (
                     provider.create_environment(
                         cwd="/workspace", timeout=10, task_id="same-session"
                     )
                     is environment
                 )
-            assert len({id(environment) for environment in environments}) == 4
+            # Re-selecting a runtime reuses its transport; each selection is distinct.
+            assert environments[2] is environments[0]
+            assert len({id(environment) for environment in environments}) == 3
         finally:
             for environment in environments:
                 environment.cleanup()
@@ -112,62 +135,45 @@ def main() -> None:
         spec.loader.exec_module(runtime)
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            runtime.initialize(root=home)
-            config = yaml.safe_load((home / "config.yaml").read_text())
-            assert config["terminal"]["backend"] == "managed_execution"
-            assert "model" not in config
-            assert not (home / "profiles").exists()
-            # The bundled plugin serves every home; no per-home copy may shadow it.
-            assert not (home / "plugins/managed_execution").exists()
+            # personal-init.py writes this from manager-supplied configuration.
             (home / "config.yaml").write_text(
                 "terminal: {backend: managed_execution}\nmodel: user-choice\n"
             )
             saved = (home / "config.yaml").read_bytes()
             runtime.initialize(root=home)
             assert (home / "config.yaml").read_bytes() == saved
+            assert (home / "plugins/hindsight").is_dir()
+            # The bundled plugin serves every home; no per-home copy may shadow it.
+            assert not (home / "plugins/managed_execution").exists()
     managed_policy_binds_new_profiles()
-    multica_task_context_reaches_every_profile(plugin, provider)
-    print("Native Hermes plugin image selection, caching and initialization passed.")
-
-
-def multica_task_context_reaches_every_profile(plugin, provider) -> None:
-    """A Multica task forwards its task variables without profile configuration."""
-    from tools.env_passthrough import get_all_passthrough
-
-    def call(client, endpoint: str, payload=None, **kwargs) -> dict:
-        if endpoint.endswith("/acquire"):
-            return {
-                "lease": "lease",
-                "generation": "generation",
-                "environment": "environment",
-                "ttl": 120,
-                "ssh": {"host": "127.0.0.1", "port": 2222, "user": "worker"},
-            }
-        return {}
-
-    with (
-        patch.object(plugin.Client, "call", call),
-        patch.object(plugin.ManagedSSHEnvironment, "_connect"),
-        patch.object(plugin, "multica_workdir", return_value="/tmp/task/workdir"),
-    ):
-        environment = provider.create_environment(
-            cwd="/workspace", timeout=10, task_id="multica-task"
-        )
-        try:
-            assert set(plugin.MULTICA_TASK_VARIABLES) <= get_all_passthrough()
-        finally:
-            environment.cleanup()
+    print(
+        "Native Hermes plugin runtime selection, connection and initialization passed."
+    )
 
 
 def managed_policy_binds_new_profiles() -> None:
     """A profile created after startup, without terminal settings or a plugin copy,
     must still resolve to managed SSH execution and never to local commands."""
+    from hermes_cli import _platform_terminal_policy as policy
     from hermes_cli.plugins import discover_plugins, get_plugin_manager
     from hermes_constants import reset_hermes_home_override, set_hermes_home_override
     from tools.terminal_scope import build_profile_terminal_scope
     from tools.terminal_tool_backends import _get_plugin_env_provider
 
     with tempfile.TemporaryDirectory() as directory:
+        # The manager mounts this personal policy read-only in every instance.
+        managed = Path(directory) / "managed"
+        managed.mkdir()
+        (managed / "config.yaml").write_text(
+            json.dumps(
+                {
+                    "terminal": {"backend": "managed_execution"},
+                    "plugins": {"enabled": ["managed_execution"], "disabled": []},
+                }
+            )
+        )
+        policy.MANAGED_DIR = managed
+        os.environ["HERMES_PERSONAL_INSTANCE_ID"] = "smoke-instance"
         home = Path(directory) / "profiles" / "created-later"
         home.mkdir(parents=True)
         (home / "config.yaml").write_text("model:\n  default: chosen\n")

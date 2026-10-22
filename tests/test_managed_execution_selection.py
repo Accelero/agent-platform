@@ -1,14 +1,18 @@
 """Native protocol retries and cache isolation for approved runtime selection."""
 
 import importlib.util
+import json
 import sys
 import threading
 import types
 import urllib.error
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
+import jsonschema
 import pytest
+import yaml
 
 SOURCE = (
     Path(__file__).resolve().parents[1]
@@ -17,7 +21,7 @@ SOURCE = (
 
 
 @pytest.fixture
-def plugin(monkeypatch):
+def plugin(monkeypatch, tmp_path):
     # These tests use the native provider's public factory without starting SSH.
     # The real pinned Hermes image is covered by personal_hermes/native_runtime.py.
     dependencies = {
@@ -33,6 +37,20 @@ def plugin(monkeypatch):
     spec = importlib.util.spec_from_file_location("managed_execution_selection", SOURCE)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # The manager writes this connection into every personal instance.
+    managed = tmp_path / "config.yaml"
+    connection = {
+        "manager_url": "https://manager.example.org/execution",
+        "token_file": "/run/hermes/credentials/execution-client-token",
+        "ca_file": "/run/hermes/execution-ca/ca.crt",
+        "ssh_key": "/run/hermes/credentials/id_ed25519",
+    }
+    managed.write_text(
+        json.dumps(
+            {"plugins": {"entries": {"managed_execution": {"settings": connection}}}}
+        )
+    )
+    monkeypatch.setattr(module, "MANAGED_CONFIG", managed)
     return module
 
 
@@ -180,3 +198,70 @@ def test_personal_connection_requires_manager_host_identity(plugin, monkeypatch)
                 "ssh": {"host": "10.42.0.1", "port": 2222, "user": "worker"},
             }
         )
+
+
+CONTRACT = yaml.safe_load(
+    (
+        Path(__file__).resolve().parents[1]
+        / "contracts/hermes-manager/execution.openapi.yaml"
+    ).read_text()
+)
+
+
+def conforms(schema: str, path: str, body: dict) -> None:
+    """Every plugin request must hit a contract path with a valid strict body."""
+    assert "/execution" + path in CONTRACT["paths"]
+    jsonschema.Draft202012Validator(
+        {"$ref": f"#/components/schemas/{schema}", **CONTRACT}
+    ).validate(body)
+
+
+def recording_client(plugin, requests, reply=None):
+    client = plugin.Client(
+        settings(runtime_id="python-tools"),
+        runtime={"hermes_home": "/opt/data", "workdir": "/workspace"},
+    )
+    client.call = lambda path, body, timeout: requests.append((path, body)) or reply
+    return client
+
+
+def test_acquire_request_matches_the_execution_contract(plugin):
+    requests = []
+    client = recording_client(plugin, requests, reply={"lease": "granted"})
+    client.acquire("conversation", parent_lease=str(uuid.uuid4()))
+    [(path, body)] = requests
+    conforms("AcquireRequest", path, body)
+
+
+def test_lease_and_session_requests_match_the_execution_contract(plugin):
+    requests = []
+    environment = plugin.ManagedSSHEnvironment.__new__(plugin.ManagedSSHEnvironment)
+    environment._guard = threading.RLock()
+    environment._closed = False
+    environment._lost = False
+    environment.settings = settings(runtime_id="python-tools")
+    environment.session = "conversation"
+    environment.runtime = {"hermes_home": "/opt/data", "workdir": "/workspace"}
+    environment.client = recording_client(plugin, requests)
+    environment.provider = SimpleNamespace(
+        _guard=threading.RLock(), _environments=set()
+    )
+    lease = str(uuid.uuid4())
+    environment._reply = {"lease": lease, "ttl": 120}
+    environment._renew_stop = threading.Event()
+    environment._renew_worker = threading.Thread(target=lambda: None)
+    environment._renew_worker.start()
+    # One renewal cycle, then stop.
+    stops = iter([False, True])
+    environment._renew(
+        environment._reply, SimpleNamespace(wait=lambda _seconds: next(stops))
+    )
+    environment.cleanup()
+    schemas = {
+        "/v1/leases/heartbeat": "LeaseRequest",
+        "/v1/leases/release": "LeaseRequest",
+        "/v1/sessions/close": "CloseSessionRequest",
+    }
+    assert [path for path, _ in requests] == list(schemas)
+    for path, body in requests:
+        conforms(schemas[path], path, body)

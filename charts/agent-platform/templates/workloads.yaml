@@ -34,14 +34,8 @@ spec:
   template:
     metadata:
       annotations:
-        {{- if eq $name "hermes" }}
-        checksum/hermes-defaults: {{ dict "config" $.Values.hermes.config "profiles" $.Values.hermes.profiles | toJson | sha256sum }}
-        {{- end }}
         checksum/application: {{ include "agent-platform.workloads" $ | sha256sum }}
-        {{- if eq $name "runtime-manager" }}
-        checksum/runtime: {{ include "agent-platform.runtime" $ | sha256sum }}
-        {{- end }}
-        {{- if has $name (list "multica-gateway" "hermes-gateway") }}
+        {{- if eq $name "multica-gateway" }}
         checksum/gateway: {{ $.Files.Get (printf "files/%s.nginx.conf" $name) | sha256sum }}
         {{- end }}
         {{- with $workload.podAnnotations }}

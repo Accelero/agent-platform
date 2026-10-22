@@ -3,7 +3,7 @@ info:
   title: Personal Hermes native execution API
   version: 0.1.0
   description: >-
-    Separate internal TLS listener under development, not part of release 0.6.1.
+    Separate internal TLS listener used by the personal Hermes managed_execution plugin.
     A native opaque bearer credential resolves one installation, current epoch,
     enabled instance and exact profile. It grants no administration or route
     resolution permission. OIDC JWTs and browser cookies do not authenticate here.

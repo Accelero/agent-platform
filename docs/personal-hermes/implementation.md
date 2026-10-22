@@ -1,9 +1,11 @@
 # Personal Hermes implementation status
 
 Status as of 2026-10-22 on `feat/personal-hermes-commissioning`. This is the
-current source implementation and evidence index. The chart in this checkout
-adds opt-in Rust manager and router-auth roles for v0.7.0. Released charts through
-v0.6.9 do not install those services. No deployment or release qualification is implied by these tests.
+current source implementation and evidence index. This branch is a Rust-only
+rewrite: the chart installs only the manager roles (plus an optional, unintegrated
+Multica board). The earlier shared Hermes Deployment, Python runtime manager and
+`tools` image are removed. No deployment or release qualification is implied by
+these tests.
 
 The [specification](specification.md), [architecture](architecture.md) and
 [delivery plan](plan.md) describe the full target product. Use this page for what
@@ -17,8 +19,8 @@ The [dashboard feature specification](dashboard-features.md) and
 [stack guide](dashboard-stack.md) describe the implemented administration workflows.
 The [dashboard guide](dashboard.md) records PostgreSQL grant bootstrap, schema
 coverage and the tested production serving boundary.
-The [current handover](handover.md) records the completed SSH acceptance,
-integration fixes and remaining work.
+The [execution contract](../../contracts/hermes-manager/execution.openapi.yaml)
+is the plugin–manager wire interface; plugin requests are tested against it.
 
 ## Current capability boundary
 
@@ -131,7 +133,7 @@ restore a lost registry or payload.
 | `tests.personal_hermes.api_process` | Compiled API/router-auth listener/configuration gates, abrupt process termination and registry reopening | Full Kubernetes/execution lifecycle |
 | `tests.personal_hermes.router_compatibility` | Real pinned Traefik/Yaegi, two fixture backends on the same hostname/path, forged-header rejection and open-WebSocket revocation | Combined Rust/Keycloak/native login, uploads, cookie handling or production route publication |
 
-Latest standard verification snapshot: **170 Rust tests and 128 Python tests
+Latest standard verification snapshot: **185 Rust tests and 87 Python tests
 passed**, alongside workspace formatting/Clippy, Helm lint and privacy preflight.
 The dashboard adds seven frontend client tests, four Chromium presentation tests,
 generated OpenAPI type checks, a production Vite build and a local/CI multi-stage
@@ -173,8 +175,8 @@ credentials; they do not read an existing kubecontext.
 
 ```bash
 uv sync --locked
-uv run ruff check agent_platform tests services/tools/platform_bootstrap
-uv run ruff format --check agent_platform tests services/tools/platform_bootstrap
+uv run ruff check agent_platform tests
+uv run ruff format --check agent_platform tests
 uv run pytest -q
 helm lint charts/agent-platform
 uv run python -m agent_platform.privacy
@@ -208,18 +210,10 @@ containers. Keep fixture credentials out of logs and release inputs.
    lease tombstones. Finish policy retry/deadline/manual-recovery status.
 3. Complete route publication and real Keycloak/native/proxy browser acceptance,
    including HTTP mutations, uploads, cookies, identity changes and WebSockets.
-4. Extend the manager scaffold with administration editors and remaining owner/checkpoint contracts using
-   the existing administration authorization and CSRF boundary.
+4. Add owner-status and checkpoint contracts to the dashboard using the existing
+   administration authorization and CSRF boundary.
 5. Implement checkpoint/inventory/readback receipts, full data restore and
    explicit adoption; supply backup transport and scheduling from infrastructure.
-6. Package the new services and personal-mode chart configuration, then complete
-   release acceptance. Updating source is separate from deployment/publication.
-
-## Paused handoff — 2026-10-20
-
-The earlier pause ended when native commissioning work resumed. That checkpoint
-ended at migration 0016 and is preserved in Git history; it is not the current
-status or resume instruction. Migration 0017, explicit fresh initialization and
-integrated native commissioning described above supersede its native-instance
-and fresh-inventory gaps. Terminal, routing, UI and coordinated recovery work
-remain incomplete as listed here.
+6. Publish the first manager release and complete release acceptance. Updating
+   source is separate from deployment/publication.
+7. Add board integration for personal instances (deferred).

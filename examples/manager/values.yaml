@@ -1,6 +1,4 @@
 # Nonsecret shape reference. Provision the referenced Secret privately.
-sandbox:
-  enabled: false
 hermesManager:
   enabled: true
   installation:

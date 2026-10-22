@@ -147,7 +147,7 @@ def test_completed_home_preserves_settings_profiles_memory_and_original_seed(fix
         "profiles/custom/config.yaml": b"owner setting fixture",
         "memories/owner.md": b"owner memory fixture",
         "agents/custom.yaml": b"owner agent fixture",
-        ".multica/config.json": b"owner enrollment fixture",
+        ".config/app.json": b"owner application fixture",
     }
     for path, value in files.items():
         target = root / path

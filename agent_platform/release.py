@@ -59,8 +59,8 @@ def prepare_chart(
 
 
 def render_chart(target: Path, chart: Path) -> None:
-    """Exercise a generic lightweight example without personal deployment inputs."""
-    text = (ROOT / "examples/lightweight/values.yaml").read_text()
+    """Exercise the nonsecret manager example without personal deployment inputs."""
+    text = (ROOT / "examples/manager/values.yaml").read_text()
     values = target / "reviewed-values.yaml"
     values.write_text(text)
     output = run(
@@ -82,20 +82,11 @@ def render_chart(target: Path, chart: Path) -> None:
         for item in documents
         if item["kind"] in {"Deployment", "StatefulSet", "DaemonSet"}
     }
-    if deployed != {
-        "hermes",
-        "runtime-manager",
-        "multica-backend",
-        "multica-web",
-        "multica-gateway",
-        "hermes-gateway",
-    }:
-        raise ValueError(
-            "The lightweight example contains deferred or missing workloads."
-        )
+    if deployed != {"hermes-manager-api"}:
+        raise ValueError("The manager example contains deferred or missing workloads.")
     for item in documents:
         if item["kind"] == "PersistentVolumeClaim":
-            raise ValueError("The lightweight example must consume existing claims.")
+            raise ValueError("The manager example must not create claims.")
         if item["kind"] == "Deployment":
             volumes = item["spec"]["template"]["spec"].get("volumes", [])
             if len({value["name"] for value in volumes}) != len(volumes):
@@ -145,29 +136,28 @@ def build(
     )
     sys.stdout.write("Verifying built runtime images.\n")
     sys.stdout.flush()
-    for role, interpreter in (("tools", "python"), ("agent-runtime", "python3")):
-        run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "--network",
-                "none",
-                "--read-only",
-                "--user",
-                "0:0",
-                "--entrypoint",
-                interpreter,
-                images[role],
-                "-c",
-                (
-                    "from pathlib import Path; "
-                    "assert not list(Path('/etc/ssh').glob('ssh_host_*_key')); "
-                    "assert not Path('/etc/ssl/private/ssl-cert-snakeoil.key').exists()"
-                ),
-            ],
-            timeout=60,
-        )
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--read-only",
+            "--user",
+            "0:0",
+            "--entrypoint",
+            "python3",
+            images["agent-runtime"],
+            "-c",
+            (
+                "from pathlib import Path; "
+                "assert not list(Path('/etc/ssh').glob('ssh_host_*_key')); "
+                "assert not Path('/etc/ssl/private/ssl-cert-snakeoil.key').exists()"
+            ),
+        ],
+        timeout=60,
+    )
     run(
         [
             "docker",
@@ -182,42 +172,6 @@ def build(
             "-",
         ],
         data=(ROOT / "tests/hermes_execution_smoke.py").read_bytes(),
-        timeout=180,
-    )
-    run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "--interactive",
-            "--entrypoint",
-            "python",
-            images["runtime-manager"],
-            "-",
-        ],
-        data=(ROOT / "tests/runtime_smoke.py").read_bytes(),
-        timeout=180,
-    )
-    run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "--entrypoint",
-            "python",
-            images["tools"],
-            "-c",
-            (
-                "import boto3,kubernetes,yaml,platform_bootstrap.__main__; "
-                "import subprocess; "
-                'subprocess.run(["pg_dump","--version"],check=True); '
-                'subprocess.run(["restic","version"],check=True)'
-            ),
-        ],
         timeout=180,
     )
     run(

@@ -11,7 +11,8 @@
 {{- if eq $role "api" }}
 {{- $admin := default dict $config.admin }}
 {{- $_ := set $admin "listen" "0.0.0.0:8443" }}
-{{- $_ := set $admin "uiDirectory" "/usr/share/hermes-manager/ui" }}
+{{- /* The dashboard requires browser sessions; without them the API stays API-only. */}}
+{{- if $admin.browser }}{{- $_ := set $admin "uiDirectory" "/usr/share/hermes-manager/ui" }}{{- else }}{{- $_ := unset $admin "uiDirectory" }}{{- end }}
 {{- $_ := set $config "admin" $admin }}
 {{- $resolver := default dict $config.resolver }}
 {{- $_ := set $resolver "listen" "0.0.0.0:8444" }}

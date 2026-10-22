@@ -1,8 +1,8 @@
 # Personal Hermes architecture
 
-Status: target architecture, based on release 0.6.1. The chart in that release
-does not install the new manager/router services or settings below. Parts now
-exist in source: see the [implementation status](implementation.md) for the
+Status: target architecture for the Rust-only personal Hermes platform. The
+legacy 0.6.x shared Hermes Deployment and Python runtime manager have been
+removed from this branch. Parts now exist in source: see the [implementation status](implementation.md) for the
 current boundary and the [native commissioning guide](native-commissioning.md)
 for implemented infrastructure templates, database mappings and update/removal
 behavior. The UI, complete terminal lifecycle, routing and checkpoint sections
@@ -339,11 +339,9 @@ a routine UI impersonation feature.
 
 ## Unified terminal lifecycle and database model
 
-The new Rust manager replaces the execution responsibility of the legacy Python
-`runtime-manager` in personal mode. Preserve the tested lease, idempotency,
-parent/delegate joining, scope isolation, idle/recycle and draining behavior in
-Rust. Do not deploy or wrap the old manager as an additional service in this
-mode. Keep the release 0.6.1 singleton path working until explicit adoption.
+The Rust manager owns terminal execution; the legacy Python `runtime-manager`
+has been removed. It keeps that design's lease, idempotency, parent/delegate
+joining, scope isolation, idle/recycle and draining behavior.
 
 Keep one desired Hermes gateway replica running for every enabled assignment,
 including while its browser is closed and all terminal workers are idle. Native

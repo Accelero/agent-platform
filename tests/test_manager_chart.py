@@ -70,6 +70,22 @@ def test_manager_api_chart_has_native_config_private_mounts_and_no_kubernetes_ri
     )
 
 
+def test_manager_api_without_browser_sessions_stays_api_only(tmp_path):
+    values = yaml.safe_load((ROOT / "examples/manager/values.yaml").read_text())
+    del values["hermesManager"]["api"]["config"]["admin"]["browser"]
+    documents = render(tmp_path, values)
+    config = json.loads(
+        next(
+            x
+            for x in documents
+            if x["kind"] == "ConfigMap"
+            and x["metadata"]["name"].startswith("hermes-manager-")
+        )["data"]["config.json"]
+    )
+    # The process rejects dashboard assets without browser authentication.
+    assert "uiDirectory" not in config["admin"]
+
+
 def test_controller_requires_explicit_account_and_separate_secret(tmp_path):
     values = yaml.safe_load((ROOT / "examples/manager/values.yaml").read_text())
     manager = values["hermesManager"]

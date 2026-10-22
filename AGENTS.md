@@ -6,28 +6,36 @@ mutable application state or deployment-specific backup scripts.
 
 ## Layout
 
-- `agent_platform/`: shared BuildKit/cache configuration, release builder and
-  bounded command execution.
-- `containers/docker-bake.hcl`: the six supported release image targets.
-- `runtimes/`: Hermes adapters and agent-runtime build sources.
-- `services/`: runtime manager, patched Multica backend and generic operations tools.
-- `tools/platform/`: pinned command-line tools used by runtime images.
-- `charts/agent-platform/`: self-contained application chart and native configuration templates.
-- `examples/lightweight/`: nonsecret render fixture with optional services disabled.
-- `vendor/multica/`: pinned upstream server source and upstream license notices.
+- `agent_platform/`: shared BuildKit/cache configuration, release builder,
+  privacy preflight and bounded command execution.
+- `containers/docker-bake.hcl`: the four supported release image targets.
+- `services/hermes-manager/`: Rust manager workspace and React dashboard.
+- `contracts/hermes-manager/`: OpenAPI contracts and template schemas.
+- `runtimes/hermes/`: per-user Hermes image and the `managed_execution` plugin.
+- `runtimes/agent-runtime/`: default SSH terminal worker image.
+- `plugins/hermes-route-resolver/`: Traefik/Yaegi route resolver.
+- `charts/agent-platform/`: self-contained application chart.
+- `examples/manager/`: nonsecret manager render fixture.
+- `services/multica/`, `vendor/multica/`: optional standalone board backend,
+  pinned upstream server source and upstream license notices.
 - `provenance/`: origin revisions, original source hashes and extraction notes.
-- `tests/`: release invariants and offline runtime smoke payloads.
+- `tests/`: release invariants, plugin/contract tests and acceptance fixtures.
 
 ## Checks
 
 Use Python 3.14 and `uv sync --locked`. After edits run:
 
 ```bash
-uv run ruff check agent_platform tests services/tools/platform_bootstrap
-uv run ruff format --check agent_platform tests services/tools/platform_bootstrap
+uv run ruff check agent_platform tests
+uv run ruff format --check agent_platform tests
 uv run pytest -q
 helm lint charts/agent-platform
 ```
+
+Run the Rust checks in `services/hermes-manager/README.md` after manager edits.
+The OpenAPI contracts are the authority for every interface. Keep the plugin's
+requests conformant to `execution.openapi.yaml`; change the contract, the Rust
+handler and the plugin together.
 
 Keep imported runtime/vendor code changes focused and review their Docker build
 compatibility. Generic code must not import a deployment repository. Preserve

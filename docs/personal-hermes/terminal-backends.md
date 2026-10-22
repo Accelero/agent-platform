@@ -1,10 +1,11 @@
 # Profile-selected terminal backends
 
-Hermes profiles select a terminal backend through the native Hermes dashboard.
-The plugin requests that backend from the manager, which enforces the instance's
-approved execution policy and supplies a lease and verified SSH endpoint. This
-page describes the implementation; the wider product requirements remain in
-the [specification](specification.md).
+Users can create more Hermes profiles and choose a terminal backend for each one
+in the native Hermes dashboard. The bundled `managed_execution` plugin requests
+that backend from the manager. The manager enforces the instance's approved
+execution policy, creates and retires the worker, and supplies a lease and
+verified SSH endpoint. This page describes the implementation; the wider product
+requirements remain in the [specification](specification.md).
 
 ## Configure an owner and its backend types
 
@@ -85,6 +86,38 @@ Changes apply when an environment is acquired; active commands and leases stay
 bound to the runtime/generation already granted. Provider transport caching
 includes the selected runtime and native invocation context.
 
+## Plugin–manager interface
+
+The [execution contract](../../contracts/hermes-manager/execution.openapi.yaml)
+is the only interface between the plugin and the manager. The manager rejects
+unknown fields, so the plugin sends exactly these requests under the managed
+`manager_url` (which ends in `/execution`):
+
+| Plugin step | Request | Body |
+| --- | --- | --- |
+| A command needs a terminal | `POST /execution/v1/leases/acquire` | `profile` (always `default`), `session`, `mode`, `request` (idempotency ID), optional `runtime_id`, `parent_lease`, `runtime` |
+| While the lease is in use | `POST /execution/v1/leases/heartbeat` | `lease` |
+| Turn ends or SSH setup fails | `POST /execution/v1/leases/release` | `lease` |
+| Per-session environment closes | `POST /execution/v1/sessions/close` | `profile`, `session`, optional `runtime_id`, `runtime` |
+
+- **Connection.** `manager_url`, `token_file`, `ca_file` and `ssh_key` come only
+  from the managed configuration that the manager writes into
+  `/run/hermes/execution-ca/config.yaml`. Profiles cannot change them. Outside
+  a personal instance the provider reports itself unavailable.
+- **Selection.** Profiles choose `terminal.runtime_id` (dashboard) and the
+  lifetime `mode`. They cannot request an image, template, mount or Pod field;
+  the contract has no such fields.
+- **Identity.** The opaque bearer credential identifies the instance. Native
+  profile isolation travels in `runtime.hermes_home` and `runtime_id`, while
+  the wire `profile` stays the credential's fixed `default` scope.
+- **Retries.** A `409` (environment pending) or `503` is retried with the same
+  `request` ID until `acquire_timeout_seconds`. Any other status fails the
+  terminal call without fallback.
+
+`tests/test_managed_execution_selection.py` validates every plugin request
+against the contract schemas and paths. Change the contract, the Rust handler
+and the plugin together.
+
 ## Acquisition and SSH
 
 1. The plugin authenticates every manager request with the instance's mounted
@@ -142,8 +175,8 @@ after observed retirement. Commands interrupted by worker loss are not replayed.
 Always-running mode currently skips ordinary idle cleanup; provisioning and
 replacement require acquisition work. Proactive prewarming/replenishment without
 a new request is not implemented.
-This does not add coordinated backups, a manager admin
-frontend, routing or automatic upstream image selection.
+This does not add coordinated backups, routing or automatic upstream image
+selection.
 
 ## Verification
 
@@ -155,7 +188,7 @@ the real dashboard schema/configuration handlers, bundled plugin, manager HTTPS
 API, constrained controller, SSH/file transfer, host-key rejection, owner PVC
 subpaths and retirement across two owners and backend types. It verifies three
 allowed workers, a denied backend request and all three retirement/absence
-receipts. The [handover](handover.md) records the integration fixes and evidence.
+receipts.
 
 ```bash
 uv run python -m tests.personal_hermes.native_runtime --build

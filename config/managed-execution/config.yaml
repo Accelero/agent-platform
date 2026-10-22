@@ -1,8 +1,0 @@
-# Managed SSH execution policy for native Kubernetes controllers.
-terminal:
-  backend: managed_execution
-  container_persistent: false
-  ssh_host: execution
-  ssh_port: 2222
-  ssh_user: worker
-  ssh_key: /opt/ssh/id_ed25519

@@ -173,8 +173,6 @@ pub(crate) fn template(runtime: &ResolvedRuntime) -> Value {
         ("LANG", runtime.definition.locale.as_str()),
         ("LC_ALL", runtime.definition.locale.as_str()),
         ("TMPDIR", "/tmp"),
-        ("MULTICA_CHECKOUT_BIND", "127.0.0.1"),
-        ("MULTICA_CHECKOUT_PORT", "18768"),
     ]);
     let mut volumes = vec![
         json!({"name":"worker-home","kind":"empty","sizeLimit":disk}),

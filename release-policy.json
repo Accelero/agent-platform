@@ -2,26 +2,17 @@
   "chart_files": [
     "Chart.yaml",
     "README.md",
-    "files/hermes-gateway.nginx.conf",
     "files/multica-gateway.nginx.conf",
     "templates/_application.tpl",
-    "templates/_dashboard.tpl",
     "templates/_helpers.tpl",
-    "templates/_runtime.tpl",
     "templates/configmaps.yaml",
     "templates/multica-github.yaml",
     "templates/networkpolicy.yaml",
-    "templates/sandbox/access.yaml",
-    "templates/sandbox/admission.yaml",
-    "templates/sandbox/network.yaml",
     "templates/services.yaml",
     "templates/storage.yaml",
     "templates/workloads.yaml",
     "values.schema.json",
     "values.yaml",
-    "templates/bootstrap.yaml",
-    "templates/_bootstrap.tpl",
-    "templates/sandbox/registry.yaml",
     "templates/hermes-manager.yaml"
   ],
   "contexts": {
@@ -33,8 +24,6 @@
         "runtimes/hermes/patch-dashboard-owner.py",
         "runtimes/hermes/terminal-policy.py",
         "runtimes/hermes/patch-terminal-policy.py",
-        "runtimes/hermes/multica-run",
-        "runtimes/hermes/multica-checkout-run",
         "runtimes/hermes/managed-exec",
         "runtimes/hermes/requirements.lock",
         "runtimes/hermes/plugins/managed_execution/__init__.py",
@@ -42,11 +31,7 @@
         "runtimes/hermes/native_files.py",
         "runtimes/hermes/runtime-init.py",
         "runtimes/hermes/personal-init.py",
-        "runtimes/hermes/personal-run.py",
-        "runtimes/hermes/patch-terminal-scope.py",
-        "runtimes/hermes/assistant-init",
-        "runtimes/agent-runtime/multica-checkout-proxy.py",
-        "config/managed-execution/config.yaml"
+        "runtimes/hermes/personal-run.py"
       ]
     },
     "agent-runtime": {
@@ -55,20 +40,7 @@
         "Dockerfile",
         "sshd_config",
         "ssh/environment-base.conf",
-        "entrypoint.sh",
-        "multica-checkout-proxy.py"
-      ]
-    },
-    "runtime-manager": {
-      "root": "services/runtime-manager",
-      "files": [
-        "Dockerfile",
-        "api.py",
-        "manager.py",
-        "backends.py",
-        "kubernetes_mounts.py",
-        "hermes_policy.py",
-        "codex_policy.py"
+        "entrypoint.sh"
       ]
     },
     "multica-backend": {
@@ -83,26 +55,9 @@
         "bootstrap/migrations.txt"
       ]
     },
-    "platform-tools": {
-      "root": "tools/platform",
-      "files": [
-        "Dockerfile",
-        "downloads.lock.json",
-        "install.py"
-      ]
-    },
     "multica-source": {
       "root": "vendor/multica",
       "provenance": true
-    },
-    "tools": {
-      "root": ".",
-      "files": [
-        "services/tools/Dockerfile",
-        "services/tools/Dockerfile.dockerignore",
-        "services/tools/platform_bootstrap/__init__.py",
-        "services/tools/platform_bootstrap/__main__.py"
-      ]
     },
     "hermes-manager": {
       "root": ".",

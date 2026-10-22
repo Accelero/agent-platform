@@ -35,8 +35,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           uv sync --locked
-          uv run ruff check agent_platform tests services/tools/platform_bootstrap
-          uv run ruff format --check agent_platform tests services/tools/platform_bootstrap
+          uv run ruff check agent_platform tests
+          uv run ruff format --check agent_platform tests
           uv run python -m agent_platform.privacy
           uv run pytest -q
           uv run python - <<'PY'

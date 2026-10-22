@@ -8,7 +8,7 @@ function "image" {
 }
 
 group "default" {
-  targets = ["hermes", "runtime-manager", "agent-runtime", "multica-backend", "tools", "hermes-manager"]
+  targets = ["hermes", "agent-runtime", "multica-backend", "hermes-manager"]
 }
 target "metadata" {
   labels = {
@@ -16,20 +16,10 @@ target "metadata" {
     "org.opencontainers.image.revision" = SOURCE_REVISION
   }
 }
-target "platform-tools" {
-  inherits = ["metadata"]
-  context = "tools/platform"
-}
 target "agent-runtime" {
   inherits = ["metadata"]
   context = "runtimes/agent-runtime"
   tags = [image("agent-runtime")]
-}
-target "runtime-manager" {
-  inherits = ["metadata"]
-  context = "services/runtime-manager"
-  contexts = { platform-tools = "target:platform-tools" }
-  tags = [image("runtime-manager")]
 }
 target "hermes" {
   inherits = ["metadata"]
@@ -43,14 +33,6 @@ target "multica-backend" {
   contexts = { multica-source = "vendor/multica" }
   tags = [image("multica-backend")]
 }
-target "tools" {
-  inherits = ["metadata"]
-  context = "."
-  dockerfile = "services/tools/Dockerfile"
-  contexts = { multica-backend = "target:multica-backend" }
-  tags = [image("tools")]
-}
-
 target "hermes-manager" {
   inherits = ["metadata"]
   context = "."

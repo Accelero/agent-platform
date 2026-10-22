@@ -14,10 +14,8 @@ from agent_platform.privacy import stage_contexts
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = (
     "hermes",
-    "runtime-manager",
     "agent-runtime",
     "multica-backend",
-    "tools",
     "hermes-manager",
 )
 

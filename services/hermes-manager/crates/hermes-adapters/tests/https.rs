@@ -235,9 +235,20 @@ async fn administration_api_only_workflow_authorizes_every_read_and_mutation(poo
     let view: Value = response.json().await.unwrap();
     assert_eq!(view["identity"]["subject"], "owner-a");
     assert_eq!(view["instanceId"], instance_id);
+    // Without a configured directory, search is authorized but reports disabled.
+    let response = f
+        .client
+        .get(format!("{}/api/v1/directory-users", f.admin.url))
+        .bearer_auth(f.admin_token())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["enabled"], false);
+    assert!(body["items"].as_array().unwrap().is_empty());
     for path in [
         "/api/v1/identities",
-        "/api/v1/directory-users",
         "/api/v1/templates",
         "/api/v1/audit-events",
         "/api/v1/assignments?limit=1",

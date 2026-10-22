@@ -268,9 +268,8 @@ granting the session role permission to change it.
 
 The router still needs native cookie stripping/filtering, coordinated native
 logout/identity switching, owner status and full proxy/provider/native acceptance.
-The controller commissions Kubernetes resources in the disposable fixture. These
-services do not yet ship in the chart or provide complete personal-instance
-lifecycle/routing readiness.
+The chart can deploy these roles, but they do not yet provide complete
+personal-instance routing readiness.
 
 ## Owned-resource reconciliation
 
@@ -387,8 +386,8 @@ the shutdown and persistence limits are described in the native commissioning
 guide. Periodic resync and transient infrastructure retry use durable SQL work.
 The API-managed combined path still waits for effective execution policy, and
 full terminal/native/routing lifecycle acceptance remains open. Coordinated
-recovery and adoption are unfinished; this source branch does not provide an
-upgrade/adoption procedure for an existing singleton deployment.
+recovery and adoption are unfinished; there is no upgrade path from the removed
+0.6.x shared-Hermes deployment.
 
 The execution-policy foundation stores immutable runtime versions, owner-local
 storage/pull references and resolved desired policy generations with audited,

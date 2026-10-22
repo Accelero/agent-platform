@@ -10,7 +10,7 @@ name: Build image cache
       - 'containers/**'
       - 'runtimes/**'
       - 'services/**'
-      - 'tools/**'
+      - 'contracts/**'
       - 'vendor/**'
       - 'config/**'
       - 'pyproject.toml'
