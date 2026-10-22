@@ -6,7 +6,7 @@ services described here are not installed by the 0.6.1 chart. See the
 remaining acceptance gates. Infrastructure-driven native commissioning is now
 implemented and tested. Profile-selected v2 terminal provisioning and SSH are
 implemented in source; runtime service egress, complete combined lifecycle,
-the manager's administration editors, routing and coordinated recovery still need work. The
+routing, owner/checkpoint workflows and coordinated recovery still need work. The
 [native commissioning guide](native-commissioning.md) documents the current
 database/template contract.
 See [terminal backends](terminal-backends.md) for the new profile/worker flow and
@@ -168,7 +168,8 @@ can later move to a separate service without changing the core use cases.
 The [dashboard](dashboard.md), protected asset serving and local/CI
 image pipeline now exist. Search/filter/paging, typed commands, template
 authoring/publication/application and PostgreSQL grant management are implemented.
-External directory lookup, checkpoint UI and deployed end-to-end adoption remain open.
+External directory lookup is implemented as an optional read-only service adapter;
+checkpoint UI and deployed end-to-end adoption remain open.
 The [dashboard feature specification](dashboard-features.md) defines the next
 tables, template/admin-config editors, user assignment workflows and editable
 administrator list; the accepted authority is PostgreSQL grants with Keycloak identity.

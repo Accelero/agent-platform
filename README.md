@@ -20,7 +20,7 @@ package visibility is public. Source and package visibility are managed separate
 | PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/tools:0.6.9` |
 | Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.6.9` |
 
-The packaged chart pins all five images by manifest digest in `values.yaml`.
+The packaged chart pins all six images by manifest digest in `values.yaml`.
 The upstream Multica frontend also uses its reviewed digest. Containers remain
 registry downloads; their filesystem layers are not embedded in the chart.
 Image `latest` tags are convenient for inspection. Deployments select one chart
@@ -113,13 +113,14 @@ The administration API, browser authentication, terminal policy/lease primitives
 and router components exist in source. The
 [terminal backend integration](docs/personal-hermes/terminal-backends.md) adds
 profile dashboard selection, authorized on-demand worker creation, pinned SSH
-access and retirement. Runtime service-egress resolution, the manager admin
-frontend, route publication and combined Keycloak/native/browser acceptance
+access and retirement. Runtime service-egress resolution, route publication and combined Keycloak/native/browser acceptance
 remain unfinished. There are no automated backups or implemented
 full-data restore workflows. Image updates require infrastructure to change the
 template digest; Recreate updates can interrupt active agent work.
 
-Release/chart 0.6.1 does not install the new manager or router-auth services.
+The source v0.7.0 chart adds opt-in manager/dashboard, controller and router-auth
+roles, with private Secret mounts and independent TLS listener policies. See
+[local Docker/k3d chart testing](charts/agent-platform/README.md#rust-manager-and-dashboard).
 Read the [implementation status](docs/personal-hermes/implementation.md) for the
 current capability and evidence index, and the
 [native commissioning guide](docs/personal-hermes/native-commissioning.md) for
@@ -155,7 +156,7 @@ See [AGENTS.md](AGENTS.md) for repository guidance.
 1. Review passing checks and bump chart/project versions together. Let the trusted
    main cache workflow finish before tagging to reuse its build layers.
 2. Push an explicit immutable tag such as `v0.6.3`.
-3. GitHub Actions builds/tests and publishes five versioned images, renders/tests
+3. GitHub Actions builds/tests and publishes six versioned images, renders/tests
    the chart with their exact digests, and packages it. Image convenience tags are
    updated before the OCI chart is published. The chart is published last so a new
    stable chart always references images that already exist.
@@ -200,7 +201,7 @@ event details out of future image attestations.
 ## Build cache
 
 BuildKit uses GitHub Actions cache API v2 with one scope per image. Trusted `main`
-pushes build all five targets with `type=cacheonly`. The separate tag release job
+pushes build all six targets with `type=cacheonly`. The separate tag release job
 restores these caches with `--github-cache`. Local builds use local BuildKit cache.
 Runtime cache credentials stay in masked runner environment variables. Cache
 warming publishes no images or charts. The default 10 GB storage limit is retained.

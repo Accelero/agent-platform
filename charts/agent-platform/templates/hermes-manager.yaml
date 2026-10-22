@@ -1,0 +1,145 @@
+{{- if .Values.hermesManager.enabled }}
+{{- $manager := .Values.hermesManager }}
+{{- $installation := deepCopy $manager.installation }}
+{{- $_ := required "hermesManager.installation.id is required" $installation.id }}
+{{- $_ := required "hermesManager.installation.issuer is required" $installation.issuer }}
+{{- range $role, $settings := dict "api" $manager.api "controller" $manager.controller "router-auth" $manager.routerAuth }}
+{{- if $settings.enabled }}
+{{- $name := printf "hermes-manager-%s" $role }}
+{{- $config := deepCopy $settings.config }}
+{{- $_ := set $config "installation" $installation }}
+{{- if eq $role "api" }}
+{{- $admin := default dict $config.admin }}
+{{- $_ := set $admin "listen" "0.0.0.0:8443" }}
+{{- $_ := set $admin "uiDirectory" "/usr/share/hermes-manager/ui" }}
+{{- $_ := set $config "admin" $admin }}
+{{- $resolver := default dict $config.resolver }}
+{{- $_ := set $resolver "listen" "0.0.0.0:8444" }}
+{{- $_ := set $config "resolver" $resolver }}
+{{- if $config.execution }}{{- $_ := set $config.execution "listen" "0.0.0.0:8445" }}{{- end }}
+{{- else if eq $role "controller" }}
+{{- $_ := set $config "kubernetes" (dict "source" "inCluster") }}
+{{- $_ := required "controller.serviceAccountName must name a separately bootstrapped least-privilege account" $settings.serviceAccountName }}
+{{- else }}
+{{- $_ := set $config.public "listen" "0.0.0.0:8446" }}
+{{- $_ := set $config.internal "listen" "0.0.0.0:8447" }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels: {{ include "agent-platform.labels" $ | nindent 4 }}
+data:
+  config.json: {{ $config | toJson | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels: {{ include "agent-platform.labels" $ | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/instance: {{ $.Release.Name | quote }}, app.kubernetes.io/name: {{ $name }}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: agent-platform
+        app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+        app.kubernetes.io/name: {{ $name }}
+      annotations:
+        checksum/config: {{ $config | toJson | sha256sum }}
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: {{ eq $role "controller" }}
+      {{- if eq $role "controller" }}
+      serviceAccountName: {{ $settings.serviceAccountName }}
+      {{- end }}
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: {{ $role }}
+        image: {{ required "images.hermes-manager is required" (index $.Values.images "hermes-manager") | quote }}
+        imagePullPolicy: {{ $.Values.imagePullPolicy }}
+        command: [{{ if eq $role "router-auth" }}hermes-router-auth{{ else }}hermes-manager{{ end }}]
+        args: [{{ if ne $role "router-auth" }}{{ $role | quote }}, {{ end }}"--config", "/run/manager/config/config.json"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        resources: {{ toYaml $manager.resources | nindent 10 }}
+        {{- if ne $role "controller" }}
+        ports:
+        {{- range $port := ternary (list 8443 8444 8445) (list 8446 8447) (eq $role "api") }}
+        - {name: {{ printf "tls-%d" $port }}, containerPort: {{ $port }}}
+        {{- end }}
+        readinessProbe:
+          tcpSocket: {port: {{ ternary 8443 8446 (eq $role "api") }}}
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket: {port: {{ ternary 8443 8446 (eq $role "api") }}}
+          initialDelaySeconds: 15
+        {{- end }}
+        volumeMounts:
+        - {name: config, mountPath: /run/manager/config, readOnly: true}
+        - {name: secrets, mountPath: /run/manager/secrets, readOnly: true}
+        - {name: tmp, mountPath: /tmp}
+      volumes:
+      - name: config
+        configMap: {name: {{ $name }}}
+      - name: secrets
+        secret:
+          secretName: {{ required (printf "hermesManager.%s.existingSecret is required" $role) $settings.existingSecret }}
+          defaultMode: 0440
+      - name: tmp
+        emptyDir: {sizeLimit: 64Mi}
+{{- if ne $role "controller" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/instance: {{ $.Release.Name | quote }}, app.kubernetes.io/name: {{ $name }}}
+  ports:
+  {{- range $port := ternary (list 8443 8444 8445) (list 8446 8447) (eq $role "api") }}
+  - {name: {{ printf "tls-%d" $port }}, port: {{ $port }}, targetPort: {{ $port }}}
+  {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/instance: {{ $.Release.Name | quote }}, app.kubernetes.io/name: {{ $name }}}
+  policyTypes: [Ingress]
+  {{- if not (or $manager.ingress.admin $manager.ingress.resolver $manager.ingress.execution $manager.ingress.routerPublic $manager.ingress.routerInternal) }}
+  ingress: []
+  {{- else }}
+  ingress:
+  {{- range $listener, $port := ternary (dict "admin" 8443 "resolver" 8444 "execution" 8445) (dict "routerPublic" 8446 "routerInternal" 8447) (eq $role "api") }}
+  {{- with index $manager.ingress $listener }}
+  - from: {{ toYaml . | nindent 6 }}
+    ports: [{protocol: TCP, port: {{ $port }}}]
+  {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -24,3 +24,5 @@ pub mod sessions;
 pub mod workloads;
 
 pub(crate) mod template_validation;
+
+pub mod directory;

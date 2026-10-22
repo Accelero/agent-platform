@@ -91,6 +91,10 @@ test("protected production editor, cookie mutations and publication obey CSP", a
       },
     }),
   );
+  await page.getByRole("button", { name: "YAML", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Configuration YAML editor" }),
+  ).toContainText("retained: true");
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page).toHaveURL(/\/template-drafts\/[a-f0-9-]+$/);
   await page

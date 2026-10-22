@@ -673,7 +673,10 @@
           "type": "boolean"
         },
         "runtimeVisibility": {
-          "enum": ["private", "public"]
+          "enum": [
+            "private",
+            "public"
+          ]
         },
         "workspace": {
           "type": "object",
@@ -705,6 +708,147 @@
               "default",
               "custom"
             ]
+          }
+        }
+      }
+    },
+    "hermesManager": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "installation",
+        "api",
+        "controller",
+        "routerAuth",
+        "resources",
+        "ingress"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "installation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "epoch",
+            "issuer"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "epoch": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "issuer": {
+              "type": "string"
+            }
+          }
+        },
+        "api": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "existingSecret",
+            "config"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "config": {
+              "type": "object"
+            }
+          }
+        },
+        "controller": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "existingSecret",
+            "config"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "config": {
+              "type": "object"
+            },
+            "serviceAccountName": {
+              "type": "string"
+            }
+          }
+        },
+        "routerAuth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "existingSecret",
+            "config"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "config": {
+              "type": "object"
+            }
+          }
+        },
+        "resources": {
+          "type": "object"
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "admin": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "resolver": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "execution": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "routerPublic": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "routerInternal": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
           }
         }
       }

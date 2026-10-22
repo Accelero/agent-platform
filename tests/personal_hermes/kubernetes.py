@@ -7,6 +7,7 @@ No existing Kubernetes context or deployment credentials are read or modified.
 import argparse
 import json
 import os
+import socket
 import subprocess
 import tempfile
 import time
@@ -36,41 +37,78 @@ def main():
         action="store_true",
         help="Also commission real cached native images inside Kubernetes",
     )
+    parser.add_argument(
+        "--k3d",
+        action="store_true",
+        help="Use a disposable k3d cluster without touching a deployment context",
+    )
     args = parser.parse_args()
     postgres = json.loads(command(["docker", "inspect", args.postgres_container]))[0]
     networks = postgres["NetworkSettings"]["Networks"]
     assert networks, "Disposable PostgreSQL fixture has no network"
     network = "bridge" if "bridge" in networks else next(iter(networks))
     name = "personal-hermes-kube-test-" + uuid.uuid4().hex[:12]
+    if args.k3d:
+        name = "hermes-native-" + uuid.uuid4().hex[:8]
     identifier = None
     try:
-        identifier = command(
-            [
-                "docker",
-                "run",
-                "--detach",
-                "--name",
-                name,
-                "--privileged",
-                "--network",
-                network,
-                "--tmpfs",
-                "/run",
-                "--tmpfs",
-                "/var/run",
-                "--label",
-                "agent-platform.io/fixture=personal-hermes-kubernetes",
-                "--publish",
-                "127.0.0.1::6443",
-                IMAGE,
-                "server",
-                "--disable",
-                "traefik,servicelb,metrics-server",
-                "--tls-san",
-                "127.0.0.1",
-            ],
-            timeout=120,
-        ).strip()
+        if args.k3d:
+            with socket.socket() as port_socket:
+                port_socket.bind(("127.0.0.1", 0))
+                api_port = port_socket.getsockname()[1]
+            command(
+                [
+                    "k3d",
+                    "cluster",
+                    "create",
+                    name,
+                    "--image",
+                    IMAGE,
+                    "--api-port",
+                    f"127.0.0.1:{api_port}",
+                    "--no-lb",
+                    "--kubeconfig-update-default=false",
+                    "--kubeconfig-switch-context=false",
+                    "--wait",
+                    "--timeout",
+                    "120s",
+                ],
+                timeout=180,
+            )
+            identifier = command(
+                ["docker", "inspect", "--format", "{{.Id}}", f"k3d-{name}-server-0"]
+            ).strip()
+            command(
+                ["docker", "network", "connect", f"k3d-{name}", args.postgres_container]
+            )
+        else:
+            identifier = command(
+                [
+                    "docker",
+                    "run",
+                    "--detach",
+                    "--name",
+                    name,
+                    "--privileged",
+                    "--network",
+                    network,
+                    "--tmpfs",
+                    "/run",
+                    "--tmpfs",
+                    "/var/run",
+                    "--label",
+                    "agent-platform.io/fixture=personal-hermes-kubernetes",
+                    "--publish",
+                    "127.0.0.1::6443",
+                    IMAGE,
+                    "server",
+                    "--disable",
+                    "traefik,servicelb,metrics-server",
+                    "--tls-san",
+                    "127.0.0.1",
+                ],
+                timeout=120,
+            ).strip()
         state = json.loads(command(["docker", "inspect", identifier]))[0]
         expected_image = command(
             ["docker", "image", "inspect", IMAGE, "--format", "{{.Id}}"]
@@ -170,7 +208,22 @@ def main():
             "and preconditioned retirement; ServiceAccount bootstrap/admission"
         )
     finally:
-        if identifier:
+        if args.k3d:
+            subprocess.run(
+                [
+                    "docker",
+                    "network",
+                    "disconnect",
+                    f"k3d-{name}",
+                    args.postgres_container,
+                ],
+                capture_output=True,
+                timeout=30,
+            )
+            subprocess.run(
+                ["k3d", "cluster", "delete", name], capture_output=True, timeout=90
+            )
+        elif identifier:
             # Docker can report a transient removal conflict while the server
             # finishes exiting. Retry only this fixture's exact container ID;
             # an inspect/daemon failure is never treated as proof of absence.

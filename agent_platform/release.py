@@ -231,6 +231,26 @@ def build(
         cwd=ROOT,
         timeout=420,
     )
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--entrypoint",
+            "sh",
+            images["hermes-manager"],
+            "-c",
+            'test "$(id -u)" = 10001 && '
+            "test -s /usr/share/hermes-manager/ui/index.html && "
+            "test -x /usr/local/bin/hermes-router-auth && ! command -v node",
+        ],
+        timeout=60,
+    )
     sys.stdout.write("Validating chart.\n")
     sys.stdout.flush()
     chart = prepare_chart(target, images, version, revision)

@@ -539,3 +539,84 @@ test("administrator lookup searches and pages verified identities beyond the ini
     ),
   ).toBeTruthy();
 });
+
+test("YAML and JSON share one lossless draft and syntax errors block writes", async ({
+  page,
+}) => {
+  let sent: unknown;
+  await page.route("**/api/v1/template-definitions/validate", (route) => {
+    sent = route.request().postDataJSON();
+    return route.fulfill({ json: { valid: true, problems: [] } });
+  });
+  await page.goto(
+    "/templates/new?cloneTemplate=inspection-template&cloneVersion=2",
+  );
+  await expect(page.getByText(/Copied configuration only/)).toBeVisible();
+  await page.getByRole("button", { name: "YAML", exact: true }).click();
+  const editor = page.getByRole("textbox", {
+    name: "Configuration YAML editor",
+  });
+  await expect(editor).toContainText("untouched:");
+  await editor.fill(
+    `schemaVersion: 1\nimage: ${definition.image}\nstorageClass: standard\nhomeGib: 8\nworkspaceGib: 16\ncpuMillis: 1000\nmemoryMib: 1024\nadminConfig:\n  advanced: [null, true, "yes"]\n`,
+  );
+  await page.getByRole("button", { name: "JSON", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Configuration JSON editor" }),
+  ).toContainText('"yes"');
+  await page.getByRole("button", { name: "YAML", exact: true }).click();
+  await editor.fill("image: 1\nimage: 2");
+  await expect(
+    page.getByRole("button", { name: "Form", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Save draft", exact: true }),
+  ).toBeDisabled();
+  expect(sent).toBeUndefined();
+});
+test("Keycloak directory lookup retains query pages and selects canonical identity", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/directory-users?*", (route) => {
+    const url = new URL(route.request().url());
+    return route.fulfill({
+      json: {
+        enabled: true,
+        items: [
+          {
+            identity: {
+              issuer,
+              subject: url.searchParams.has("after")
+                ? "directory-next"
+                : "directory-first",
+            },
+            username: "fixture-user",
+            displayName: "Fixture Owner",
+            email: "fixture@example.org",
+            enabled: true,
+            directoryVerified: true,
+          },
+        ],
+        nextCursor: url.searchParams.has("after") ? null : "directory-page-two",
+      },
+    });
+  });
+  await page.goto("/users");
+  await page
+    .getByRole("button", { name: "Keycloak directory", exact: true })
+    .click();
+  await page.getByLabel("Search Keycloak users").fill("fixture");
+  await expect(page).toHaveURL(/q=fixture/);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByText("directory-next", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("directory-next", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Select exact identity" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Selected directory identity" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Create assignment", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+});

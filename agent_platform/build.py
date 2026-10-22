@@ -12,7 +12,14 @@ from agent_platform.command import run
 from agent_platform.privacy import stage_contexts
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGETS = ("hermes", "runtime-manager", "agent-runtime", "multica-backend", "tools")
+TARGETS = (
+    "hermes",
+    "runtime-manager",
+    "agent-runtime",
+    "multica-backend",
+    "tools",
+    "hermes-manager",
+)
 
 
 def _context_arguments(contexts: dict[str, Path]) -> list[str]:
@@ -72,7 +79,7 @@ def warm_cache() -> None:
     output.mkdir(parents=True, exist_ok=True)
     log = output / "build.log"
     print(
-        "Building the five image caches without publishing release artifacts.",
+        "Building the release image caches without publishing release artifacts.",
         flush=True,
     )
     with tempfile.TemporaryDirectory(prefix="contexts-", dir=output) as temporary:

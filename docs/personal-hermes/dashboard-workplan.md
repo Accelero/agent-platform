@@ -436,8 +436,41 @@ and exact-user assignment creation with configuration review and cookie/CSRF
 writes under the production nonce CSP. Disposable native Kubernetes acceptance
 passes template application/removal and desired/observed version readback.
 
-Optional YAML authoring and an external Keycloak directory remain deferred as
-specified. Release publication, chart integration and deployment/realm provisioning
-are outside this local dashboard implementation. The user-selected PostgreSQL-only
+At that checkpoint YAML authoring and external directory search were deferred.
+The optional-feature and chart follow-up below supersedes those deferrals.
+Release publication and deployment/realm provisioning remain separate operations.
+The user-selected PostgreSQL-only
 administrator authority is implemented; Keycloak roles are neither a prerequisite
 nor a fallback.
+
+
+### Optional features and local chart follow-up (2026-10-22)
+
+Implemented YAML 1.2 form/JSON conversion with pointer diagnostics, lossless JSON
+values and strict rejection of aliases, duplicate/non-string keys, tags, nonfinite
+numbers and multiple documents. The HTTP boundary remains canonical JSON.
+Read-only Keycloak directory search uses private service-account credentials,
+verified HTTPS, bounded responses/deadlines and query-bound provider offset pages.
+Directory labels and lookup evidence never grant administrator authority or replace
+verified human-login evidence. Tests cover TLS token exchange, caching, paging,
+outage behavior, label allowlisting and canonical identity selection.
+
+Merged the upstream v0.6.9 changes, preserving legacy worker/template selection and
+profile-on-demand defaults alongside the new personal-instance runtime ID path.
+The source v0.7.0 chart adds opt-in API/dashboard, controller and router-auth roles
+from a sixth finite release image target. Controller access requires a separately
+bootstrapped ServiceAccount; API/router Pods receive no Kubernetes token. Native
+JSON configuration is generated in ConfigMaps and private inputs mount from existing
+Secrets. Each TLS listener has its own ingress peer list; no public ingress,
+implicit database initialization or migration hook is added.
+
+Verification: 38 frontend unit tests, 29 browser workflows, PostgreSQL-backed Rust
+workspace and real-TLS directory adapter tests, 190 Python tests, chart render/security
+checks, generated drift, formatting/lint and privacy. The Docker image and packaged
+Helm chart are tested locally with disposable k3d/PostgreSQL and a synthetic HTTPS
+provider. The fixture verifies actual chart startup, PostgreSQL grant authorization,
+service-token directory lookup, candidate isolation and Pod restart. It does not
+claim live Keycloak realm provisioning or full routing/native lifecycle adoption.
+
+The user requested a built chart and branch push only. No release tag, publication
+or remote deployment is authorized for this follow-up.

@@ -464,3 +464,60 @@ database, changes S3 keys or the backup encryption password, or overrides pendin
 recovery. Failures retain progress and state for retry. A completed mutation with
 an interrupted checkpoint retries only checkpoint publication; it does not replay
 auth writes or automatically resume restored task dispatch.
+
+
+## Rust manager and dashboard
+
+The source v0.7.0 chart adds the opt-in `hermesManager` section and the
+`hermes-manager` image target. The same non-root image contains both Rust
+executables and the compiled dashboard. `api`, `controller` and `routerAuth`
+can be enabled independently; existing legacy workload settings are unchanged.
+The [manager example](../../examples/manager/values.yaml) is a nonsecret shape
+reference for the API/dashboard role. Configure public origins, issuer and exact
+client IDs for your environment. The chart writes native JSON configuration and
+fixes API ports 8443/8444/8445 and router ports 8446/8447.
+
+Supply private files through each role's separately named existing Secret,
+mounted read-only at `/run/manager/secrets`. Database URLs, client secrets, TLS
+keys, encryption keys and any bootstrap identity belong there, never in values,
+ConfigMaps or the chart archive. Keyring files may reference sibling Secret files.
+Use the [operator guide](../../docs/personal-hermes/dashboard.md) for PostgreSQL
+grants and optional read-only Keycloak directory permissions.
+
+Only the controller mounts a Kubernetes token. Before enabling it, render/review
+and apply the manager's namespace/RBAC/admission bootstrap using the documented
+`render-bootstrap` procedure, then supply that existing `serviceAccountName`.
+The chart does not create a privileged catch-all role. Initialize a fresh registry
+with verified inventory, or migrate an existing registry in maintenance, through
+explicit operator commands before starting workloads. No Helm hook automatically
+initializes/migrates a database or grants administrators.
+
+Services are ClusterIP. Configure `hermesManager.ingress` peers independently for
+admin, mTLS resolver, execution, router public and router internal listeners.
+Empty peer lists deny ingress. Configure external ingress separately with correct
+TLS/origins; do not expose the resolver/execution listeners as the admin site.
+Secret rotation requires restarting the affected role. The existing legacy sandbox
+settings are independent; disable `sandbox.enabled` for an API-only installation.
+
+Build and test locally, without publication or an existing deployment kubecontext:
+
+```bash
+uv sync --locked
+uv run python -m agent_platform.manager_build
+helm lint charts/agent-platform
+helm package charts/agent-platform --destination .local/charts
+uv run python -m tests.personal_hermes.dashboard_chart \
+  --chart .local/charts/agent-platform-0.7.0.tgz --image hermes-manager:local
+```
+
+The fixture needs Docker, Helm, OpenSSL and k3d v5.9.0. It creates a disposable
+local digest-pinned k3s cluster, imports the local image and installs the actual
+packaged chart using synthetic TLS/identity/PostgreSQL state. It verifies
+administrator denial/grants, directory service-token isolation and Pod restart,
+then removes its containers/cluster. For full native lifecycle regression on the
+same local toolchain, run the existing Kubernetes fixture with `--k3d --native`
+and a disposable `--postgres-container`. It never reads or changes a deployment
+kubecontext. It is component acceptance, separate from native lifecycle and full
+Keycloak/router adoption. Source chart image defaults remain local `dev` names;
+pass the imported local image as the fixture does. A future explicitly tagged
+release injects all six matching registry digests before packaging/publishing.

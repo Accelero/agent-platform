@@ -1,9 +1,9 @@
 # Personal Hermes implementation status
 
-Status as of 2026-10-21 on `feat/personal-hermes-commissioning`. This is the
+Status as of 2026-10-22 on `feat/personal-hermes-commissioning`. This is the
 current source implementation and evidence index. The chart in this checkout
-remains version 0.6.1 and does not install the new Rust manager or router-auth
-services. No deployment or release qualification is implied by these tests.
+adds opt-in Rust manager and router-auth roles for v0.7.0. Released charts through
+v0.6.9 do not install those services. No deployment or release qualification is implied by these tests.
 
 The [specification](specification.md), [architecture](architecture.md) and
 [delivery plan](plan.md) describe the full target product. Use this page for what
@@ -29,11 +29,11 @@ integration fixes and remaining work.
 | Native configuration and state | Separate home/workspace PVCs; missing-only initialization; create-once credentials; Hermes managed config overrides selected leaves while user config remains on the home PVC | No automatic storage-class migration, volume shrinking or permanent data purge |
 | Shutdown during updates | Kubernetes Recreate rollout; runtime forwards SIGTERM to gateway/dashboard, waits up to 20 seconds and then kills remaining children; Pod grace period is 45 seconds | No update handshake that waits for agent runs to finish or acknowledges a completed application checkpoint; active work can be interrupted |
 | Manager crash recovery | PostgreSQL action journal, leased/fenced claims, frozen renderings, authenticated resource provenance, exact UID/RV checks, uncertain-create recovery and periodic resync | Ownership/admission/manual-recovery faults remain blocked; a deleted or foreign resource is not blindly adopted or replaced; exhaustive crash testing at every external boundary remains open |
-| Administration | Versioned API, Keycloak access-token validation, browser OIDC sessions, CSRF, audit, optimistic mutations and execution configuration endpoints; protected React/TypeScript dashboard with Query/Router, server search/filter/paging, typed assignment/runtime/storage/policy commands, form/JSON template drafts and immutable publication, explicit pinned apply and durable selected batches; PostgreSQL grant administration with bootstrap/recovery and next-request revocation | Owner-status/checkpoint UI, external directory integration, deployed Keycloak/browser and release acceptance remain open |
+| Administration | Versioned API, Keycloak access-token validation, browser OIDC sessions, CSRF, audit, optimistic mutations and execution configuration endpoints; protected React/TypeScript dashboard with Query/Router, server search/filter/paging, typed assignment/runtime/storage/policy commands, form/JSON/YAML template drafts and immutable publication, explicit pinned apply and durable selected batches; PostgreSQL grant administration with bootstrap/recovery and next-request revocation | Owner-status/checkpoint UI, deployed Keycloak/browser and release acceptance remain open |
 | Terminal execution | Database runtime catalog and owner storage/subpaths; profile dashboard `terminal.runtime_id`; instance credential/allowlist enforcement; fenced on-demand v2 worker creation, authenticated pinned SSH readiness, scoped leases and exact-UID retirement/idle cleanup; verified two-owner SSH/file-transfer/denial/retirement integration | Nonempty runtime service-egress resolution, proactive prewarming, combined native/API/routing lifecycle and release acceptance remain open; v1 workers do not get automatic readiness |
 | Routing | Rust resolver/auth processes, Go/Yaegi plugin and isolated Traefik/WebSocket compatibility proofs | Native commissioning does not publish routes; full Keycloak/native/browser/proxy integration remains open |
 | Backup and recovery | Explicit fresh-install namespace/PV scan, schema/installation/epoch gates and retained ownership history | No scheduled backups, snapshot/copy jobs, backup retention, checkpoint coordinator or full data restore implementation; PVC retention is not a backup |
-| Distribution and adoption | Locked source builds and CI checks; reviewed native runtime test image; finite-context multi-stage local/CI manager/UI image build | No released manager/router-auth images or personal-mode chart installation; existing-owner adoption and release acceptance remain open |
+| Distribution and adoption | Locked source builds and CI checks; reviewed native runtime test image; finite-context multi-stage local/CI manager/UI image build | Opt-in source chart installation is locally tested; no published manager image release; existing-owner adoption and release acceptance remain open |
 
 The per-user native Hermes dashboard is supplied by Hermes and runs in each
 instance. It is distinct from the [manager dashboard](dashboard.md).

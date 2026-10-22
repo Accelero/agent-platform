@@ -1,0 +1,51 @@
+# Nonsecret shape reference. Provision the referenced Secret privately.
+sandbox:
+  enabled: false
+hermesManager:
+  enabled: true
+  installation:
+    id: 00000000-0000-4000-8000-000000000001
+    epoch: 1
+    issuer: https://sso.example.org/realms/agents
+  api:
+    existingSecret: hermes-manager-api
+    config:
+      databaseUrlFile: /run/manager/secrets/database-url
+      oidc:
+        jwksUrl: https://sso.example.org/realms/agents/protocol/openid-connect/certs
+      admin:
+        uiDirectory: /usr/share/hermes-manager/ui
+        listen: 0.0.0.0:8443
+        tls:
+          certificateFile: /run/manager/secrets/tls.crt
+          privateKeyFile: /run/manager/secrets/tls.key
+        audience: manager-api
+        allowedClients:
+        - manager-admin
+        browser:
+          databaseUrlFile: /run/manager/secrets/database-url
+          publicOrigin: https://hermes-admin.example.org
+          otherOrigin: https://hermes.example.org
+          clientId: manager-admin
+          clientSecretFile: /run/manager/secrets/client-secret
+          scopes:
+          - openid
+          revocationUrl: https://sso.example.org/realms/agents/protocol/openid-connect/revoke
+          encryptionKeyringFile: /run/manager/secrets/keyring.json
+        directory:
+          clientId: manager-directory-reader
+          clientSecretFile: /run/manager/secrets/directory-client-secret
+      resolver:
+        listen: 0.0.0.0:8444
+        tls:
+          certificateFile: /run/manager/secrets/tls.crt
+          privateKeyFile: /run/manager/secrets/tls.key
+        clientCaFile: /run/manager/secrets/ca.crt
+        serviceIdentity: spiffe://agents.example.org/router-plugin
+        audience: route-api
+        authorizedClient: hermes-router
+      execution:
+        listen: 0.0.0.0:8445
+        tls:
+          certificateFile: /run/manager/secrets/tls.crt
+          privateKeyFile: /run/manager/secrets/tls.key

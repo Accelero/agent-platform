@@ -4,7 +4,7 @@ This is the technical companion to the [feature specification](dashboard-feature
 and [build/authentication guide](dashboard.md). It records the selected direction
 for the implemented dashboard. Installed versions are recorded in the lockfiles;
 the [work plan](dashboard-workplan.md) records the original baseline, resolved
-decisions and acceptance evidence. Optional YAML remains deferred.
+decisions and acceptance evidence. YAML 1.2 uses the pinned `yaml` parser and CodeMirror YAML language support.
 
 ## Stack and responsibility
 
@@ -18,7 +18,7 @@ decisions and acceptance evidence. Optional YAML remains deferred.
 | Structured forms | React Hook Form, `react-hook-form` | Installed for template forms. Field state, dirty/touched tracking, array/object controls and mapping validation errors to fields. |
 | Raw editor and diffs | CodeMirror 6, JSON language and lint/completion extensions | Installed after the Monaco production CSP spike failed. Lazy local chunks, JSON completion, pointer diagnostics and semantic changed-path review. React disposes editor state on unmount. |
 | Browser schema validation | Versioned JSON Schema and Ajv, `ajv` | Installed. Consistent structural checks for form/raw drafts; precompiled validators preserve the script CSP. |
-| Optional YAML authoring | Monaco YAML language integration and a reviewed YAML parser | Deferred until JSON/form editing works. `monaco-yaml` is the candidate language integration; YAML converts to the same JSON data model. |
+| YAML authoring | CodeMirror YAML language support and the pinned `yaml` parser | Installed. Strict JSON-compatible YAML converts to the shared JSON draft with bounded parsing and path diagnostics. |
 | UI primitives | Radix Primitives, scoped `@radix-ui/react-*` packages | Installed Dialog for command/review dialogs with focus and keyboard behavior; native fields provide selects and other controls. |
 | Appearance | Repository CSS and shared design tokens | Existing CSS and reusable table, status and command components. Preserve the current forest-green navigation, light surfaces, spacing and responsive layouts. |
 | API contract | OpenAPI plus `openapi-typescript` | Existing generated TypeScript types. Extend the checked-in contract and regenerate types as endpoints are added. |
@@ -215,7 +215,7 @@ CodeMirror 6. Monaco, its workers and its font are not shipped.
 
 The production CodeMirror build serves seven UI files: `index.html`, CSS, application,
 shared model, bundler runtime, editor and raw-editor chunks. The largest chunk is
-approximately 365 kB (119 kB gzip); the application chunk is approximately 330 kB. No worker
+approximately 378 kB (124 kB gzip); the application chunk is approximately 331 kB. No worker
 or font resource is required. Dependency licenses ship separately in
 `/usr/share/doc/hermes-manager/THIRD_PARTY_NOTICES.txt`. The loader still accepts
 only startup-loaded HTML and flat JS/CSS, at most 32 files, 4 MiB each and 16 MiB
@@ -228,9 +228,10 @@ remains unchanged; `worker-src 'self'` is explicit. There is no `unsafe-inline`,
 editor and Radix dialogs against the Rust HTTPS/OIDC/PostgreSQL fixture and checks
 zero CSP violations, including real cookie/CSRF registration and draft publication.
 
-JSON is the supported raw format. YAML remains a separate optional integration;
-it would need a reviewed parser, JSON-compatible values and duplicate-key/tag/
-alias/resource bounds. It is not installed or presented as validated YAML.
+JSON and YAML are supported raw formats. YAML converts to the same JSON model;
+the pinned parser enforces JSON-compatible values and duplicate-key/tag/alias/
+resource bounds. The API accepts JSON only, so both authoring formats receive
+the same authoritative Rust validation.
 
 ## Components, styling and accessibility
 

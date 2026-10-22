@@ -237,6 +237,7 @@ async fn administration_api_only_workflow_authorizes_every_read_and_mutation(poo
     assert_eq!(view["instanceId"], instance_id);
     for path in [
         "/api/v1/identities",
+        "/api/v1/directory-users",
         "/api/v1/templates",
         "/api/v1/audit-events",
         "/api/v1/assignments?limit=1",

@@ -1129,6 +1129,7 @@ async fn postgres_revocation_denies_existing_cookie_assets_pages_and_bearer_imme
         "/assignments",
         "/assets/app.js",
         "/api/v1/session",
+        "/api/v1/directory-users",
         "/api/v1/assignments",
     ] {
         let response = f

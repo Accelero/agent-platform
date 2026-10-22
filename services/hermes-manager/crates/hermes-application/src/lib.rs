@@ -537,3 +537,5 @@ mod tests {
         assert_eq!(store.0.load(Ordering::SeqCst), 1);
     }
 }
+
+pub mod directory;

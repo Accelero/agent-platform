@@ -17,13 +17,14 @@ describes dashboard/profile selection, scoped on-demand worker creation, pinned
 SSH access and retirement. Nonempty runtime service-egress resolution and wider
 routing/recovery integration remain incomplete. Automated backups remain open.
 The [dashboard](../../docs/personal-hermes/dashboard.md) includes searchable
-administration views, typed commands, form/JSON template drafts, immutable
+administration views, typed commands, form/JSON/YAML template drafts, immutable
 publication, explicit application and durable bulk results. Keycloak authenticates
 identities; PostgreSQL grants define administrators. Its local/CI multi-stage
-image pipeline remains separate from tagged release publication.
+image pipeline now also supplies the opt-in sixth release target.
 The [stack guide](../../docs/personal-hermes/dashboard-stack.md) records the
 installed libraries, schema coverage and production CSP verification.
-The manager is not installed by the 0.6.1 chart. The
+The source v0.7.0 chart supports opt-in API/dashboard, controller and router-auth
+roles; see its [local Docker/k3d guide](../../charts/agent-platform/README.md#rust-manager-and-dashboard). The
 [implementation status](../../docs/personal-hermes/implementation.md) is the
 current capability/evidence index; the
 [specification](../../docs/personal-hermes/specification.md) describes the wider

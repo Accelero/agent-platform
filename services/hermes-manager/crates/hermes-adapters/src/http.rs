@@ -45,6 +45,7 @@ struct AdminState {
     scope: InstallationScope,
     commands: Assignments<PgStore>,
     execution: hermes_application::execution::ExecutionAdministration<PgStore>,
+    directory: Option<Arc<dyn hermes_application::directory::IdentityDirectory>>,
 }
 #[derive(Clone)]
 struct AdminAuth {
@@ -296,6 +297,19 @@ pub fn admin_router_with_dashboard(
     browser: Option<BrowserAuth>,
     dashboard: Option<DashboardAssets>,
 ) -> Result<Router, Error> {
+    admin_router_with_directory(store, scope, policy, tokens, browser, dashboard, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn admin_router_with_directory(
+    store: PgStore,
+    scope: InstallationScope,
+    policy: AdminPolicy,
+    tokens: AccessTokenVerifier,
+    browser: Option<BrowserAuth>,
+    dashboard: Option<DashboardAssets>,
+    directory: Option<Arc<dyn hermes_application::directory::IdentityDirectory>>,
+) -> Result<Router, Error> {
     if dashboard.is_some() && browser.is_none() {
         return Err(Error::Invalid);
     }
@@ -314,6 +328,7 @@ pub fn admin_router_with_dashboard(
         )?,
         store,
         scope,
+        directory,
     });
     let auth = AdminAuth {
         store: state.store.clone(),
@@ -325,6 +340,7 @@ pub fn admin_router_with_dashboard(
     let protected = Router::new()
         .route("/api/v1/session", get(session))
         .route("/api/v1/identities", get(identities))
+        .route("/api/v1/directory-users", get(directory_users))
         .route("/api/v1/templates", get(templates))
         .route(
             "/api/v1/configuration-schemas",
@@ -773,4 +789,38 @@ async fn resolve(
         RouteDecision::Unavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
     };
     (status, Json(decision)).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DirectoryQuery {
+    #[serde(default)]
+    q: String,
+    after: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: u16,
+}
+async fn directory_users(
+    State(state): State<Arc<AdminState>>,
+    query: Result<Query<DirectoryQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let Ok(Query(query)) = query else {
+        return api_error(Error::Invalid);
+    };
+    if query.q.len() > 128
+        || !(1..=100).contains(&query.limit)
+        || query.after.as_ref().is_some_and(|v| v.len() > 256)
+    {
+        return api_error(Error::Invalid);
+    }
+    match &state.directory {
+        Some(directory) => match directory
+            .search(&query.q, query.after.as_deref(), query.limit)
+            .await
+        {
+            Ok(page) => Json(page).into_response(),
+            Err(error) => api_error(error),
+        },
+        None => Json(json!({"enabled":false,"items":[],"nextCursor":null})).into_response(),
+    }
 }

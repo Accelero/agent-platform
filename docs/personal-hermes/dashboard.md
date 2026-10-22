@@ -3,7 +3,7 @@
 The manager serves an authenticated React/TypeScript administration dashboard.
 It provides searchable, filtered and paged assignments, users, terminal runtimes,
 activity, storage bindings and PostgreSQL administrator grants; detail views;
-typed command dialogs; template inspection; and synchronized form/JSON draft
+typed command dialogs; template inspection; and synchronized form/JSON/YAML draft
 authoring with immutable publication and explicit single-assignment or bulk apply.
 
 Keycloak supplies verified identity. PostgreSQL grants are the sole authority
@@ -29,8 +29,10 @@ static UI. It contains no Node/Vite server. Only files explicitly enumerated in
 local environment files, deployment configuration and credentials are excluded.
 Build diagnostics are bounded in `.local/hermes-manager-build.log`.
 
-This is a local/CI image pipeline, separate from the existing five-image tagged
-release. It does not publish an image or install the manager in the Helm chart.
+The same finite input set is now an opt-in `hermes-manager` release target.
+The source v0.7.0 chart can install its API/dashboard, controller and router-auth
+roles independently. Local builds publish nothing. See
+[local chart testing](../../charts/agent-platform/README.md#rust-manager-and-dashboard).
 
 Use [the API configuration example](../../services/hermes-manager/api.example.json)
 as a nonsecret shape reference. Set `admin.uiDirectory` to
@@ -113,8 +115,7 @@ or blob worker is required. Unknown API/auth paths retain their error responses.
 ## Inspection and navigation
 
 Users shows manager-registered identities and verified manager logins, with
-provenance and their current assignment when present. It does not enumerate a
-Keycloak directory. Open a user to create an assignment for that exact identity
+provenance and their current assignment when present. The separate Keycloak directory tab performs optional live lookup. Open a user to create an assignment for that exact identity
 or manage the existing one. Creation reviews the selected immutable template,
 managed overrides and enforced platform settings before submission. Identity
 links from a verified login continue to resolve after assignment creation.
@@ -162,7 +163,7 @@ operation. Pending dispatch can be resumed by the original administrator without
 reapplying accepted members. Polling backs off and stops after ten minutes or a
 terminal result; reopening the durable page starts a fresh observation window.
 
-The JSON editor uses CodeMirror 6 and preserves unknown Hermes fields, explicit
+The JSON and YAML editors use CodeMirror 6 and preserve unknown Hermes fields, explicit
 `null` and omitted values when switching forms. Invalid JSON blocks the form switch.
 Schemas are local and versioned; Ajv validators are compiled at build time. The
 manager envelope is validated completely; the Hermes schema covers reviewed keys
@@ -171,6 +172,54 @@ reported as unvalidated. Server validation remains authoritative, and the UI
 reports schema digest incompatibility. Drafts are kept in memory until saved;
 there is no default browser-storage persistence. Personal prompts, credentials,
 profiles and memory must not be put in shared template configuration.
+
+## YAML authoring
+
+Form, JSON and YAML operate on one draft and send canonical JSON to the existing
+validation/save/publish APIs. YAML uses the pinned local YAML 1.2 parser and
+CodeMirror language support, with schema completion and pointer-addressed errors.
+Unknown fields, strings, booleans, explicit null and omitted settings survive
+conversion. Comments and formatting are authoring details and may be discarded
+on conversion, form edits or saving. Invalid YAML is retained and blocks mode
+changes and writes until corrected.
+
+Only JSON-compatible YAML is accepted: a single mapping document with unique
+string keys, finite safe numbers and bounded size/depth. Anchors, aliases, merge
+keys, explicit tags and multi-document streams are rejected. YAML never becomes
+an arbitrary Kubernetes manifest or a separate server-side configuration format.
+
+## Read-only Keycloak directory
+
+Optionally set `admin.directory` in the private manager API configuration:
+
+```json
+{"clientId":"manager-directory-reader","clientSecretFile":"/run/manager/secrets/directory-client-secret"}
+```
+
+Use a dedicated confidential service-account client in the installation's realm.
+Grant only the Keycloak permissions needed for querying/viewing users (for example
+`realm-management` `query-users` and `view-users`), never user-management or
+role-management privileges. The adapter uses client credentials over verified
+HTTPS; the existing `oidc.caFile` also supplies private-CA trust. Its token and
+read-only users endpoints are derived from the exact configured issuer, including
+any server prefix. Realm names use ASCII letters, digits, dot, underscore or dash.
+Use public subjects, so the provider user ID matches the OIDC subject.
+See [Keycloak's Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/index.html#_users).
+
+Users → Keycloak directory has URL-backed search and bounded, query-bound pages.
+Keycloak controls matching/order; directory changes can shift offset pages. The
+view shows canonical issuer/subject, username, display name, email and provider
+status, and can preselect an enabled exact identity for assignment creation.
+Labels never establish ownership. Results remain in the actor's private memory
+cache; no directory dump or service token is stored in browser storage.
+
+Directory verification means a trusted provider record was read. It does not
+establish signed human-login evidence, create an assignment or grant administration
+permission. Administrator grant targets still need verified login evidence and
+PostgreSQL grants remain the only authority. No Keycloak writes are implemented.
+If lookup is unconfigured the view explains that; provider denial/outage displays
+unavailable rather than an empty directory. Rotate the private Secret and restart
+the API role to reload its service credential.
 
 ## Frontend development and checks
 

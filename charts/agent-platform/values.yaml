@@ -968,6 +968,7 @@ sandbox:
       - 19515
     operatorAppEndpoints: []
 images:
+  hermes-manager: ghcr.io/accelero/agent-platform/hermes-manager:dev
   hermes: ghcr.io/accelero/agent-platform/hermes:dev
   runtime-manager: ghcr.io/accelero/agent-platform/runtime-manager:dev
   agent-runtime: ghcr.io/accelero/agent-platform/agent-runtime:dev
@@ -1105,3 +1106,34 @@ bootstrap:
   envFrom: []
   volumes: []
   volumeMounts: []
+
+# Rust administration and personal-instance control plane; opt in independently.
+hermesManager:
+  enabled: false
+  installation:
+    id: ''
+    epoch: 1
+    issuer: ''
+  api:
+    enabled: true
+    existingSecret: ''
+    config: {}
+  controller:
+    enabled: false
+    existingSecret: ''
+    serviceAccountName: ''
+    config: {}
+  routerAuth:
+    enabled: false
+    existingSecret: ''
+    config: {}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  # NetworkPolicy peers, one independently scoped list for each listener.
+  ingress:
+    admin: []
+    resolver: []
+    execution: []
+    routerPublic: []
+    routerInternal: []

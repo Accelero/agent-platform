@@ -5,8 +5,7 @@ searchable views, typed administration commands, template form/JSON authoring,
 immutable publication, explicit version application and PostgreSQL administrator
 management. The [operator guide](dashboard.md) explains setup and authority;
 the [work plan](dashboard-workplan.md#status) records acceptance evidence and
-implementation scope. Optional YAML and external directory integration remain
-separate extensions.
+implementation scope. YAML authoring and optional read-only Keycloak directory lookup are implemented.
 
 Use the [technology and implementation conventions](dashboard-stack.md) for
 the selected frontend libraries, schema/editor integration, API/state boundaries,
@@ -37,10 +36,9 @@ remain usable on narrow screens and through keyboard navigation.
 | Administrators | Canonical issuer/subject, optional identity labels, effective access, grant source and audit metadata where available | Inspect effective administrator permission and add/revoke access through the chosen authority described below |
 | Activity | Actor, action, affected user/template/assignment, operation, outcome and time | Open related records and redacted change/operation details |
 
-The Users collection consists of manager-registered identities and verified
-manager logins, with their provenance; it must not pretend to contain every Keycloak
-user. Optional Keycloak directory search
-can supply additional identity candidates and descriptive fields. Show whether
+The recorded Users collection consists of manager-registered identities and verified
+manager logins, with their provenance. The separate optional Keycloak directory
+search supplies additional identity candidates and descriptive fields. Show whether
 an identity is directory-verified or manually entered. Exact `(issuer, subject)`
 is authoritative; email/display name are labels and search aids, never ownership
 or authorization keys. A user need not have a Hermes assignment to be an admin,

@@ -9,15 +9,23 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { json, jsonParseLinter } from "@codemirror/lang-json";
 import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import { linter, lintGutter } from "@codemirror/lint";
-import { parseDraft, pointerRange, validateDraft } from "./model";
+import { validateDraft } from "./model";
+import { yaml } from "@codemirror/lang-yaml";
+import {
+  parseConfiguration,
+  configurationRange,
+  type ConfigurationFormat,
+} from "./yaml";
 import type { ConfigurationProblem } from "../../api";
 export default function RawEditor({
   value,
+  format = "json",
   onChange,
   problems = [],
   clientCompatible = true,
 }: {
   value: string;
+  format?: ConfigurationFormat;
   onChange: (value: string) => void;
   problems?: ConfigurationProblem[];
   clientCompatible?: boolean;
@@ -42,12 +50,12 @@ export default function RawEditor({
           lineNumbers(),
           history(),
           keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap]),
-          json(),
+          format === "json" ? json() : yaml(),
           lintGutter(),
-          linter(jsonParseLinter()),
+          ...(format === "json" ? [linter(jsonParseLinter())] : []),
           linter((view) => {
             const text = view.state.doc.toString();
-            const parsed = parseDraft(text);
+            const parsed = parseConfiguration(text, format);
             if (parsed.error)
               return [
                 {
@@ -61,7 +69,7 @@ export default function RawEditor({
               ...(compatible.current ? validateDraft(parsed.value) : []),
               ...serverProblems.current,
             ].map((problem) => ({
-              ...pointerRange(text, problem.pointer),
+              ...configurationRange(text, problem.pointer, format),
               severity: problem.severity,
               message: problem.message,
             }));
@@ -72,7 +80,7 @@ export default function RawEditor({
             )?.content ?? "",
           ),
           EditorView.contentAttributes.of({
-            "aria-label": "Configuration JSON editor",
+            "aria-label": `Configuration ${format.toUpperCase()} editor`,
           }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) changed.current(update.state.doc.toString());
@@ -83,19 +91,25 @@ export default function RawEditor({
               (context) => {
                 if (!compatible.current) return null;
                 const reference = context.matchBefore(
-                  /"(?:storageClass|runtime_id)"\s*:\s*"[^"\n]*/,
+                  format === "json"
+                    ? /"(?:storageClass|runtime_id)"\s*:\s*"[^"\n]*/
+                    : /(?:storageClass|runtime_id):\s*[a-zA-Z0-9_-]*/,
                 );
                 if (reference) {
-                  const opening = reference.text.lastIndexOf('"');
-                  const kind = reference.text.startsWith('"storageClass"')
+                  const opening =
+                    format === "json"
+                      ? reference.text.lastIndexOf('"')
+                      : reference.text.indexOf(":") + 1;
+                  const kind = reference.text.includes("storageClass")
                     ? "storageClass"
                     : "runtime";
                   return lookupReferences(
                     actorRef.current,
                     kind,
-                    reference.text.slice(opening + 1),
+                    reference.text.slice(opening + 1).trim(),
                   ).then((items) => ({
-                    from: reference.from + opening,
+                    from:
+                      reference.from + opening + (format === "yaml" ? 1 : 0),
                     to:
                       context.state.doc.sliceString(
                         context.pos,
@@ -104,7 +118,8 @@ export default function RawEditor({
                         ? context.pos + 1
                         : context.pos,
                     options: items.map((item) => ({
-                      label: JSON.stringify(item.id),
+                      label:
+                        format === "json" ? JSON.stringify(item.id) : item.id,
                       info: item.label,
                       type: "value",
                     })),
@@ -116,10 +131,10 @@ export default function RawEditor({
                   return null;
                 return {
                   from: word.from,
-                  options: schemaOptions(
-                    context.state.doc.toString(),
-                    context.pos,
-                  ),
+                  options:
+                    format === "json"
+                      ? schemaOptions(context.state.doc.toString(), context.pos)
+                      : yamlOptions(context.state.doc.toString(), context.pos),
                 };
               },
             ],
@@ -132,7 +147,7 @@ export default function RawEditor({
       view.destroy();
       editor.current = null;
     };
-  }, []);
+  }, [format]);
   useEffect(() => {
     const view = editor.current;
     if (view && view.state.doc.toString() !== value)
@@ -164,6 +179,32 @@ function schemaOptions(text: string, position: number) {
     schema = schema.properties?.[key] ?? {};
   return Object.entries(schema.properties ?? {}).map(([name, property]) => ({
     label: JSON.stringify(name),
+    type: "property",
+    info:
+      property.description ??
+      `Configuration field (${String(property.type ?? "value")})`,
+  }));
+}
+
+function yamlOptions(text: string, position: number) {
+  const lines = text.slice(0, position).split("\n");
+  const currentIndent = lines.at(-1)!.match(/^ */)![0].length;
+  const path: { key: string; indent: number }[] = [];
+  for (const line of lines.slice(0, -1)) {
+    const match = line.match(/^( *)([a-zA-Z_][a-zA-Z0-9_]*):/);
+    if (!match) continue;
+    while (path.length && path.at(-1)!.indent >= match[1].length) path.pop();
+    path.push({ key: match[2], indent: match[1].length });
+  }
+  const keys = path.filter((p) => p.indent < currentIndent).map((p) => p.key);
+  let schema = (keys[0] === "adminConfig"
+    ? schemas.managed
+    : schemas.template) as unknown as Schema;
+  for (const key of keys[0] === "adminConfig" ? keys.slice(1) : keys)
+    schema = schema.properties?.[key] ?? {};
+  return Object.entries(schema.properties ?? {}).map(([name, property]) => ({
+    label: name,
+    apply: `${name}: `,
     type: "property",
     info:
       property.description ??

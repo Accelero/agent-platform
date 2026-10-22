@@ -8,7 +8,7 @@ use hermes_adapters::{
     auth::{AccessTokenVerifier, TokenPolicy, http_client},
     auth_config::{SessionConfig, read},
     execution_http::execution_router,
-    http::{DashboardAssets, admin_router_with_dashboard, resolver_router},
+    http::{DashboardAssets, admin_router_with_directory, resolver_router},
     postgres::PgStore,
     server::{bind, serve_until, tls_config},
     session_crypto::Purpose,
@@ -61,6 +61,13 @@ struct Admin {
     administrator_role: String,
     browser: Option<SessionConfig>,
     ui_directory: Option<PathBuf>,
+    directory: Option<DirectoryConfig>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DirectoryConfig {
+    client_id: String,
+    client_secret_file: PathBuf,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -185,6 +192,23 @@ async fn run() -> Result<(), Error> {
         management_client: config.admin.management_client,
         administrator_role: config.admin.administrator_role,
     };
+    let directory = if let Some(directory) = config.admin.directory {
+        let secret = read(&directory.client_secret_file, 4096).await?;
+        let secret = zeroize::Zeroizing::new(
+            String::from_utf8(secret.to_vec()).map_err(|_| Error::Invalid)?,
+        );
+        Some(hermes_adapters::directory::KeycloakDirectory::new(
+            &scope.issuer,
+            directory.client_id,
+            secret,
+            client.clone(),
+        )?
+            as std::sync::Arc<
+                dyn hermes_application::directory::IdentityDirectory,
+            >)
+    } else {
+        None
+    };
     let browser = if let Some(browser) = config.admin.browser {
         if !config.admin.allowed_clients.contains(&browser.client_id) {
             return Err(Error::Invalid);
@@ -213,13 +237,14 @@ async fn run() -> Result<(), Error> {
         }
         None => None,
     };
-    let admin = admin_router_with_dashboard(
+    let admin = admin_router_with_directory(
         store.clone(),
         scope.clone(),
         admin_policy,
         admin_tokens,
         browser,
         dashboard,
+        directory,
     )?;
     // Execution credentials are accepted only by this independently bound TLS
     // listener. The public administration and mTLS resolver routers stay scoped.

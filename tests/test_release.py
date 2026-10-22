@@ -16,7 +16,7 @@ def test_requires_real_registry_manifest_digests():
         for name in release.TARGETS
     }
     images = release.image_references(metadata, release.REGISTRY)
-    assert len(images) == 5
+    assert len(images) == 6
     assert all("@sha256:" in value for value in images.values())
     metadata["hermes"] = {"containerimage.config.digest": "sha256:" + "b" * 64}
     with pytest.raises(ValueError, match="registry digest"):
@@ -98,7 +98,7 @@ def test_chart_is_published_last_without_a_custom_release_package(
         for command in commands
         if command[:3] == ["docker", "buildx", "imagetools"]
     ]
-    assert len(promotions) == 5
+    assert len(promotions) == len(release.TARGETS)
     assert all(
         not any("pulumi" in part.lower() for part in command) for command in commands
     )

@@ -1695,6 +1695,25 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
 
+  /api/v1/directory-users:
+    get:
+      operationId: searchDirectoryUsers
+      description: Read-only Keycloak identity candidates. Labels are descriptive; exact issuer/subject is authoritative. Results do not establish signed-login evidence or administrator grants. Provider-defined search/order and bounded offset cursors may shift when the directory changes.
+      parameters:
+      - $ref: '#/components/parameters/ListSearch'
+      - $ref: '#/components/parameters/ListAfter'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Directory page, or enabled=false when unconfigured.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DirectoryPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/InvalidRequest' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
 components:
   securitySchemes:
     AdministratorSession:
@@ -1874,6 +1893,25 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
   schemas:
+    DirectoryUser:
+      type: object
+      additionalProperties: false
+      required: [identity, username, displayName, email, enabled, directoryVerified]
+      properties:
+        identity: { $ref: '#/components/schemas/Identity' }
+        username: { type: [string, 'null'], maxLength: 320 }
+        displayName: { type: [string, 'null'], maxLength: 641 }
+        email: { type: [string, 'null'], maxLength: 320 }
+        enabled: { type: boolean }
+        directoryVerified: { type: boolean, const: true }
+    DirectoryPage:
+      type: object
+      additionalProperties: false
+      required: [enabled, items, nextCursor]
+      properties:
+        enabled: { type: boolean }
+        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/DirectoryUser' } }
+        nextCursor: { $ref: '#/components/schemas/ListCursor' }
     AdministratorInput:
       type: object
       additionalProperties: false

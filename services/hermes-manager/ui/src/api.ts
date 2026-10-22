@@ -10,6 +10,11 @@ export const pageParams = (after?: string | number, extra = {}) => {
   return params.toString();
 };
 export const api = {
+  directoryUsers: (after?: string, signal?: AbortSignal, q = "") =>
+    request<Result<"searchDirectoryUsers">>(
+      `/api/v1/directory-users?${pageParams(after, { q })}`,
+      { signal },
+    ),
   templateObservation: (id: string, signal?: AbortSignal) =>
     request<Result<"getAssignmentTemplateObservation">>(
       `/api/v1/assignments/${encodeURIComponent(id)}/template-observation`,

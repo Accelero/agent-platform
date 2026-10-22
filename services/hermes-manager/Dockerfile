@@ -1,4 +1,4 @@
-# Local/CI build only; adding a versioned release target is a separate change.
+# Shared manager, dashboard and router-auth release image.
 FROM node@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS ui
 WORKDIR /src/services/hermes-manager/ui
 COPY services/hermes-manager/ui/package.json services/hermes-manager/ui/package-lock.json services/hermes-manager/ui/.npmrc ./

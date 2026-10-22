@@ -759,10 +759,41 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/directory-users": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Read-only Keycloak identity candidates. Labels are descriptive; exact issuer/subject is authoritative. Results do not establish signed-login evidence or administrator grants. Provider-defined search/order and bounded offset cursors may shift when the directory changes. */
+    get: operations["searchDirectoryUsers"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    DirectoryUser: {
+      identity: components["schemas"]["Identity"];
+      username: string | null;
+      displayName: string | null;
+      email: string | null;
+      enabled: boolean;
+      /** @constant */
+      directoryVerified: true;
+    };
+    DirectoryPage: {
+      enabled: boolean;
+      items: components["schemas"]["DirectoryUser"][];
+      nextCursor: components["schemas"]["ListCursor"];
+    };
     AdministratorInput: {
       identity: components["schemas"]["Identity"];
       active: boolean;
@@ -3285,6 +3316,36 @@ export interface operations {
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      503: components["responses"]["Unavailable"];
+    };
+  };
+  searchDirectoryUsers: {
+    parameters: {
+      query?: {
+        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
+        q?: components["parameters"]["ListSearch"];
+        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
+        after?: components["parameters"]["ListAfter"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Directory page, or enabled=false when unconfigured. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DirectoryPage"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["InvalidRequest"];
       503: components["responses"]["Unavailable"];
     };
   };

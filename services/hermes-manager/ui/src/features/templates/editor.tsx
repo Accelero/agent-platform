@@ -1,3 +1,8 @@
+import {
+  parseConfiguration,
+  serializeConfiguration,
+  type ConfigurationFormat,
+} from "./yaml";
 import { ReferenceInput } from "../../components/reference";
 import { Fields } from "../../components/command";
 import { registry } from "../../schemas/generated/metadata";
@@ -67,6 +72,7 @@ export default function TemplateEditor() {
   const [saved, setSaved] = useState(raw);
   const [etag, setEtag] = useState<string | null>();
   const [tab, setTab] = useState("Form");
+  const [format, setFormat] = useState<ConfigurationFormat>("json");
   const [serverProblems, setServerProblems] = useState<ConfigurationProblem[]>(
     [],
   );
@@ -84,6 +90,7 @@ export default function TemplateEditor() {
       setDraft(value.definition as Draft);
       const text = JSON.stringify(value.definition, null, 2);
       setRaw(text);
+      setFormat("json");
       setSaved(text);
       setEtag(query.data.etag);
       setPublished(value.publishedVersion);
@@ -134,8 +141,11 @@ export default function TemplateEditor() {
         (remote) => remote.id === local.id && remote.digest === local.digest,
       ),
     );
-  const parsed = parseDraft(raw);
-  const dirty = raw !== saved || templateId !== savedTemplateId;
+  const parsed = parseConfiguration(raw, format);
+  const dirty =
+    !!parsed.error ||
+    JSON.stringify(parsed.value) !== JSON.stringify(parseDraft(saved).value) ||
+    templateId !== savedTemplateId;
   const dirtyRef = useRef(false);
   dirtyRef.current = dirty;
   useEffect(
@@ -145,6 +155,7 @@ export default function TemplateEditor() {
         setTemplateId("");
         setSavedTemplateId("");
         setDraft(initialDefinition);
+        setFormat("json");
         setRaw(JSON.stringify(initialDefinition, null, 2));
         setSaved(JSON.stringify(initialDefinition, null, 2));
         setServerProblems([]);
@@ -170,7 +181,7 @@ export default function TemplateEditor() {
   useEffect(() => form.reset(draft), [draft, form]);
   function update(next: Draft) {
     setDraft(next);
-    setRaw(JSON.stringify(next, null, 2));
+    setRaw(serializeConfiguration(next, format));
     setServerProblems([]);
     setPublishReview(false);
   }
@@ -194,7 +205,7 @@ export default function TemplateEditor() {
       const text = JSON.stringify(result.draft.definition, null, 2);
       setSaved(text);
       setSavedTemplateId(result.draft.templateId);
-      setRaw(text);
+      setRaw(serializeConfiguration(result.draft.definition as Draft, format));
       setDraft(result.draft.definition as Draft);
       setEtag(`"${result.draft.version}"`);
       dirtyRef.current = false;
@@ -324,12 +335,22 @@ export default function TemplateEditor() {
         />
       </label>
       <div className="actions">
-        {["Form", "JSON"].map((name) => (
+        {["Form", "JSON", "YAML"].map((name) => (
           <button
             key={name}
             aria-pressed={tab === name}
-            disabled={name === "Form" && !!parsed.error}
-            onClick={() => setTab(name)}
+            disabled={name !== tab && !!parsed.error}
+            onClick={() => {
+              if (name !== "Form") {
+                const nextFormat = name === "YAML" ? "yaml" : "json";
+                if (nextFormat !== format)
+                  setRaw(
+                    serializeConfiguration(parsed.value ?? draft, nextFormat),
+                  );
+                setFormat(nextFormat);
+              }
+              setTab(name);
+            }}
           >
             {name}
           </button>
@@ -340,17 +361,18 @@ export default function TemplateEditor() {
           !allowed || !!published || save.isPending || publish.isPending
         }
       >
-        {tab === "JSON" ? (
+        {tab !== "Form" ? (
           <Suspense fallback={<p>Loading editor…</p>}>
             <RawEditor
               value={raw}
+              format={format}
               clientCompatible={clientCompatible}
               problems={serverProblems}
               onChange={(text) => {
                 setRaw(text);
                 setServerProblems([]);
                 setPublishReview(false);
-                const parsed = parseDraft(text);
+                const parsed = parseConfiguration(text, format);
                 if (parsed.value) setDraft(parsed.value);
               }}
             />
@@ -565,7 +587,9 @@ export default function TemplateEditor() {
               setTemplateId(current.templateId);
               setSavedTemplateId(current.templateId);
               setDraft(current.definition as Draft);
-              setRaw(text);
+              setRaw(
+                serializeConfiguration(current.definition as Draft, format),
+              );
               setSaved(text);
               setEtag(query.data!.etag);
               setPublished(current.publishedVersion);
@@ -597,7 +621,12 @@ export default function TemplateEditor() {
           disabled={!dirty}
           onClick={() => {
             setTemplateId(savedTemplateId);
-            setRaw(saved);
+            setRaw(
+              serializeConfiguration(
+                parseDraft(saved).value ?? initialDefinition,
+                format,
+              ),
+            );
             const parsed = parseDraft(saved);
             if (parsed.value) setDraft(parsed.value);
             setServerProblems([]);

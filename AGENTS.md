@@ -8,7 +8,7 @@ mutable application state or deployment-specific backup scripts.
 
 - `agent_platform/`: shared BuildKit/cache configuration, release builder and
   bounded command execution.
-- `containers/docker-bake.hcl`: the five supported release image targets.
+- `containers/docker-bake.hcl`: the six supported release image targets.
 - `runtimes/`: Hermes adapters and agent-runtime build sources.
 - `services/`: runtime manager, patched Multica backend and generic operations tools.
 - `tools/platform/`: pinned command-line tools used by runtime images.

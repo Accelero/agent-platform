@@ -8,7 +8,7 @@ function "image" {
 }
 
 group "default" {
-  targets = ["hermes", "runtime-manager", "agent-runtime", "multica-backend", "tools"]
+  targets = ["hermes", "runtime-manager", "agent-runtime", "multica-backend", "tools", "hermes-manager"]
 }
 target "metadata" {
   labels = {
@@ -49,4 +49,11 @@ target "tools" {
   dockerfile = "services/tools/Dockerfile"
   contexts = { multica-backend = "target:multica-backend" }
   tags = [image("tools")]
+}
+
+target "hermes-manager" {
+  inherits = ["metadata"]
+  context = "."
+  dockerfile = "services/hermes-manager/Dockerfile"
+  tags = [image("hermes-manager")]
 }
