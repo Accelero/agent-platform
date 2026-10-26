@@ -1,16 +1,19 @@
 import { test, expect } from "@playwright/test";
-test("protected production editor, cookie mutations and publication obey CSP", async ({
+
+// Run by `hermes-http`'s `production_dashboard_browser_csp` test against the
+// real server: real cookies, CSRF, grants, contract and CSP.
+test("the built dashboard works under the production CSP", async ({
   page,
   context,
 }) => {
   const origin = process.env.MANAGER_E2E_ORIGIN!;
-  const csp: string[] = [];
+  const violations: string[] = [];
   page.on("console", (message) => {
     if (/content security policy|violates.*directive/i.test(message.text()))
-      csp.push(message.text());
+      violations.push(message.text());
   });
   await page.exposeFunction("recordCsp", (directive: string) =>
-    csp.push(directive),
+    violations.push(directive),
   );
   await page.addInitScript(() =>
     document.addEventListener("securitypolicyviolation", (event) => {
@@ -19,128 +22,76 @@ test("protected production editor, cookie mutations and publication obey CSP", a
       ).recordCsp(event.violatedDirective);
     }),
   );
-  await context.addCookies([
-    {
-      name: "__Host-hermes-admin",
-      value: process.env.MANAGER_E2E_SESSION!,
+  await context.addCookies(
+    (
+      [
+        ["__Host-hermes-admin", process.env.MANAGER_E2E_SESSION!],
+        ["__Host-hermes-admin-browser", process.env.MANAGER_E2E_BROWSER!],
+      ] as const
+    ).map(([name, value]) => ({
+      name,
+      value,
       url: origin,
       secure: true,
       httpOnly: true,
-      sameSite: "Lax",
-    },
-    {
-      name: "__Host-hermes-admin-browser",
-      value: process.env.MANAGER_E2E_BROWSER!,
-      url: origin,
-      secure: true,
-      httpOnly: true,
-      sameSite: "Lax",
-    },
-  ]);
-  await page.goto("/templates/new");
-  await page.getByRole("button", { name: "JSON", exact: true }).click();
-  await expect(page.getByLabel("Configuration JSON editor")).toBeVisible();
-  await page.waitForTimeout(1200);
-  await page.goto("/terminal-runtimes");
-  await page
-    .getByRole("button", { name: "Register runtime", exact: true })
-    .click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await page
-    .getByLabel("Runtime: Runtime ID", { exact: true })
-    .fill("fixture-browser-runtime");
-  await page
-    .getByLabel("Image pinned by digest")
-    .fill(`ghcr.io/example/worker@sha256:${"c".repeat(64)}`);
-  await page
-    .getByRole("button", { name: "Confirm change", exact: true })
-    .click();
-  await expect(page.getByText("Change accepted.")).toBeVisible();
-  await page
-    .getByRole("link", { name: "Inspect recorded configuration change" })
-    .click();
+      sameSite: "Lax" as const,
+    })),
+  );
+
+  // A secret, written through the real CSRF-protected API.
+  await page.goto("/secrets");
+  await page.getByLabel("Name").fill("browser-key");
+  await page.getByRole("button", { name: "Write browser-key" }).click();
+  const secret = page.getByRole("dialog");
+  await secret.getByLabel("Value").fill("sk-browser-fixture");
+  await secret.getByRole("button", { name: "Confirm change" }).click();
+  await expect(secret.getByText("Change accepted.")).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("heading", { name: "Redacted change" }),
+    page.getByRole("cell", { name: "browser-key", exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByText('"outcome": "Recorded"', { exact: false }),
-  ).toBeVisible();
-  await page.getByRole("link", { name: "Inspect runtime →" }).click();
-  await expect(
-    page.getByRole("heading", {
-      name: "Complete immutable runtime definition",
-    }),
-  ).toBeVisible();
-  await page.goto("/templates/new");
-  await page
-    .getByLabel("Template ID", { exact: true })
-    .fill("fixture-browser-template");
-  await page.getByRole("button", { name: "JSON", exact: true }).click();
+  expect(await page.content()).not.toContain("sk-browser-fixture");
+
+  // A template: draft in the lazy-loaded editor, then publish.
+  await page.goto("/templates");
+  await page.getByLabel("ID", { exact: true }).fill("browser-template");
+  await page.getByRole("button", { name: "Start draft" }).click();
+  await page.getByRole("tab", { name: "JSON" }).click();
   await page.getByRole("textbox", { name: "Configuration JSON editor" }).fill(
     JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       image: `ghcr.io/example/hermes@sha256:${"a".repeat(64)}`,
-      storageClass: "standard",
-      homeGib: 8,
-      workspaceGib: 16,
-      cpuMillis: 1000,
-      memoryMib: 1024,
-      adminConfig: {
-        terminal: { backend: "managed_execution" },
-        advanced: { retained: true },
-      },
+      resources: { cpuMillis: 1000, memoryMib: 2048 },
+      home: { source: "nvme", sizeGib: 5 },
+      secrets: [{ name: "browser-key", env: "OPENAI_API_KEY" }],
     }),
   );
-  await page.getByRole("button", { name: "YAML", exact: true }).click();
+  await page.getByRole("button", { name: "Validate" }).click();
   await expect(
-    page.getByRole("textbox", { name: "Configuration YAML editor" }),
-  ).toContainText("retained: true");
-  await page.getByRole("button", { name: "Save draft", exact: true }).click();
-  await expect(page).toHaveURL(/\/template-drafts\/[a-f0-9-]+$/);
-  await page
-    .getByRole("button", { name: "Review publication", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Publish version", exact: true })
-    .click();
-  await expect(page.getByText(/Published immutable version 1/)).toBeVisible();
-  await page
-    .getByRole("navigation")
-    .getByRole("link", { name: /Users/ })
-    .click();
-  await page.getByRole("link", { name: "owner-a", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "User details" }),
+    page.getByText("The manager accepts this definition."),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Save as new draft" }).click();
+  await page.getByRole("button", { name: "Publish v1" }).click();
   await page
-    .getByRole("button", { name: "Create assignment", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Create personal instance", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", {
-      name: "Selected template deployment and managed configuration",
-    }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Confirm change", exact: true })
+    .getByRole("dialog")
+    .getByRole("button", { name: "Confirm change" })
     .click();
   await expect(page.getByText("Change accepted.")).toBeVisible();
   await page.keyboard.press("Escape");
-  await page
-    .getByRole("button", { name: "Close identity picker", exact: true })
-    .click();
-  await page
-    .getByRole("link", { name: "Manage assignment and template →" })
-    .click();
-  await expect(
-    page.getByRole("table", { name: "Assignment operations" }),
-  ).toBeVisible();
-  await page.getByRole("link", { name: "commission", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Operation status" }),
-  ).toBeVisible();
-  await expect(page.getByText("Pending", { exact: true })).toBeVisible();
-  expect(csp).toEqual([]);
+  await expect(page.getByText("published", { exact: true })).toBeVisible();
+
+  // Every page renders against the real contract.
+  for (const [path, text] of [
+    ["/users", "Known identities"],
+    ["/assignments", "Assignments"],
+    ["/terminal-backends", "Terminal backends"],
+    ["/storage", "Storage sources"],
+    ["/activity", "template.publish"],
+    ["/administrators", "Administrator grants"],
+  ]) {
+    await page.goto(path);
+    await expect(page.getByText(text).first()).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  }
+  expect(violations).toEqual([]);
 });

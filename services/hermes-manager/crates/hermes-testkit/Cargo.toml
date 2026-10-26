@@ -1,0 +1,29 @@
+[package]
+name = "hermes-testkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Test fixtures only: generated certificates, a fake OIDC provider over real TLS
+# and a token minter. Never a normal dependency of a shipped crate.
+[dependencies]
+axum.workspace = true
+base64.workspace = true
+hyper-util.workspace = true
+jsonschema = { version = "=0.59.0", default-features = false }
+jsonwebtoken.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+serde_json.workspace = true
+serde_yaml_ng = "=0.10.0"
+sha2.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

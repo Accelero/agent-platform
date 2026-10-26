@@ -1,0 +1,81 @@
+{
+  "administration": {
+    "browser": {
+      "clientId": "manager-admin",
+      "clientSecretFile": "/run/hermes/secrets/oidc-client-secret",
+      "databaseUrlFile": "/run/hermes/secrets/session-database-url",
+      "keyringFile": "/run/hermes/config/keyring.json",
+      "otherOrigin": "https://hermes.example.org",
+      "publicOrigin": "https://hermes-admin.example.org",
+      "revocationUrl": "https://sso.example.org/realms/agents/protocol/openid-connect/revoke",
+      "scopes": [
+        "openid"
+      ]
+    },
+    "dashboardDirectory": "/usr/share/hermes-manager/ui",
+    "directory": {
+      "clientId": "manager-directory-reader",
+      "clientSecretFile": "/run/hermes/secrets/directory-client-secret"
+    },
+    "listen": "0.0.0.0:8443",
+    "secretSealingPublicKeyFile": "/run/hermes/secrets/secret-sealing.pub",
+    "tls": {
+      "certificateFile": "/run/hermes/secrets/admin-tls.crt",
+      "privateKeyFile": "/run/hermes/secrets/admin-tls.key"
+    },
+    "tokens": {
+      "audience": "hermes-manager",
+      "authorizedClients": [
+        "manager-admin"
+      ],
+      "jwksUrl": "https://sso.example.org/realms/agents/protocol/openid-connect/certs"
+    }
+  },
+  "dataIdentity": {
+    "gid": 1000,
+    "uid": 1000
+  },
+  "databaseUrlFile": "/run/hermes/secrets/database-url",
+  "execution": {
+    "listen": "0.0.0.0:8445",
+    "tls": {
+      "certificateFile": "/run/hermes/secrets/execution-tls.crt",
+      "privateKeyFile": "/run/hermes/secrets/execution-tls.key"
+    }
+  },
+  "installation": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "issuer": "https://sso.example.org/realms/agents"
+  },
+  "resolver": {
+    "clientCaFile": "/run/hermes/secrets/resolver-client-ca.crt",
+    "gatewayIdentity": "spiffe://agents.example.org/hermes-gateway",
+    "listen": "0.0.0.0:8444",
+    "tls": {
+      "certificateFile": "/run/hermes/secrets/resolver-tls.crt",
+      "privateKeyFile": "/run/hermes/secrets/resolver-tls.key"
+    }
+  },
+  "storageSources": [
+    {
+      "id": "nvme",
+      "storageClass": {
+        "name": "local-nvme"
+      }
+    },
+    {
+      "id": "host-data",
+      "localPath": {
+        "node": "server-1",
+        "root": "/srv/hermes-data"
+      }
+    },
+    {
+      "id": "nas",
+      "nfs": {
+        "root": "/export/homes",
+        "server": "nas.internal"
+      }
+    }
+  ]
+}

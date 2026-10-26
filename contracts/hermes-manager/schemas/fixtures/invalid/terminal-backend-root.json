@@ -1,0 +1,25 @@
+{
+  "image": "ghcr.io/accelero/agent-platform/agent-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "sshContract": "managed-ssh-v2",
+  "uid": 0,
+  "gid": 1000,
+  "resources": {
+    "cpuMillis": 2000,
+    "memoryMib": 4096,
+    "ephemeralGib": 10
+  },
+  "limits": {
+    "idleSeconds": 900,
+    "maxLeaseSeconds": 3600,
+    "maxEnvironments": 4
+  },
+  "mounts": {
+    "workspace": {
+      "mountPath": "/workspace"
+    },
+    "home": {
+      "mountPath": "/home/worker/home",
+      "optional": true
+    }
+  }
+}

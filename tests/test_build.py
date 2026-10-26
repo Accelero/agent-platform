@@ -1,11 +1,15 @@
 """Protect cache isolation, credential handling and release publication boundaries."""
 
+import tomllib
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
 
 from agent_platform import build, release
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
@@ -104,3 +108,18 @@ def test_image_code_parses_on_its_image_python(pattern, version):
     assert files
     for path in files:
         ast.parse(path.read_text(), filename=str(path), feature_version=version)
+
+
+def test_release_images_never_build_fault_injection():
+    """The manager image builds its binaries without features, and the
+    process-aborting test feature is not a default."""
+    manager = ROOT / "services/hermes-manager"
+    dockerfile = (manager / "Dockerfile").read_text()
+    assert "cargo build --release --locked" in dockerfile
+    assert "fault-injection" not in dockerfile
+    assert "--features" not in dockerfile and "--all-features" not in dockerfile
+    features = tomllib.loads(
+        (manager / "crates/hermes-manager/Cargo.toml").read_text()
+    )["features"]
+    assert features["fault-injection"] == []
+    assert "fault-injection" not in features.get("default", [])

@@ -1,0 +1,262 @@
+[
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-controller"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "namespaces"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "patch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "persistentvolumes"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "patch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "rbac.authorization.k8s.io"
+        ],
+        "resources": [
+          "rolebindings"
+        ],
+        "verbs": [
+          "get",
+          "create",
+          "patch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "rbac.authorization.k8s.io"
+        ],
+        "resourceNames": [
+          "hermes-manager-instance"
+        ],
+        "resources": [
+          "clusterroles"
+        ],
+        "verbs": [
+          "bind"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-controller"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "hermes-manager-7d6c0e1a0000-controller"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "hermes-manager-controller",
+        "namespace": "hermes-system"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-instance"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "secrets",
+          "configmaps",
+          "services",
+          "serviceaccounts",
+          "persistentvolumeclaims"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "patch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "patch",
+          "delete"
+        ]
+      },
+      {
+        "apiGroups": [
+          "apps"
+        ],
+        "resources": [
+          "deployments"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "patch",
+          "delete"
+        ]
+      },
+      {
+        "apiGroups": [
+          "apps"
+        ],
+        "resources": [
+          "replicasets"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "events"
+        ],
+        "verbs": [
+          "list"
+        ]
+      },
+      {
+        "apiGroups": [
+          "networking.k8s.io"
+        ],
+        "resources": [
+          "networkpolicies"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "patch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "rbac.authorization.k8s.io"
+        ],
+        "resources": [
+          "rolebindings"
+        ],
+        "verbs": [
+          "get",
+          "patch"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-controller",
+      "namespace": "hermes-system"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "coordination.k8s.io"
+        ],
+        "resources": [
+          "leases"
+        ],
+        "verbs": [
+          "get",
+          "create",
+          "update",
+          "patch"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-controller",
+      "namespace": "hermes-system"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "hermes-manager-7d6c0e1a0000-controller"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "hermes-manager-controller",
+        "namespace": "hermes-system"
+      }
+    ]
+  }
+]

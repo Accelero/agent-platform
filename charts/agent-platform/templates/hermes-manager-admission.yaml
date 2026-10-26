@@ -1,0 +1,161 @@
+{{- /*
+The controller's RBAC and the installation's static admission policies. They
+mirror hermes-render's `admission::rbac` and `admission::policies`; the chart
+tests compare both with the renderer's golden output. The controller can write
+neither.
+*/}}
+{{- if .Values.hermesManager.enabled }}
+{{- $m := include "hermes-manager.model" . | fromJson }}
+{{- $labels := dict "app.kubernetes.io/managed-by" "helm" "app.kubernetes.io/part-of" "hermes-manager" }}
+{{- $controller := printf "'%s'" $m.controllerUser }}
+{{- $prefix := printf "'%s'" $m.namespacePrefix }}
+{{- $id := $m.installationId }}
+{{- $user := "request.userInfo.username" }}
+{{- $subject := list (dict "kind" "ServiceAccount" "name" $m.serviceAccount "namespace" $m.namespace) }}
+{{- $controllerRole := printf "%s-controller" $m.base }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $controllerRole }}
+  labels: {{ toJson $labels }}
+rules:
+- {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch, create, patch]}
+- {apiGroups: [""], resources: [persistentvolumes], verbs: [get, list, watch, create, patch]}
+- {apiGroups: [rbac.authorization.k8s.io], resources: [rolebindings], verbs: [get, create, patch]}
+- {apiGroups: [rbac.authorization.k8s.io], resources: [clusterroles], verbs: [bind], resourceNames: [{{ $m.instanceRole | quote }}]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $controllerRole }}
+  labels: {{ toJson $labels }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $controllerRole }}}
+subjects: {{ toJson $subject }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $m.instanceRole }}
+  labels: {{ toJson $labels }}
+rules:
+- {apiGroups: [""], resources: [secrets, configmaps, services, serviceaccounts, persistentvolumeclaims], verbs: [get, list, watch, create, patch]}
+- {apiGroups: [""], resources: [pods], verbs: [get, list, watch, create, patch, delete]}
+- {apiGroups: [apps], resources: [deployments], verbs: [get, list, watch, create, patch, delete]}
+- {apiGroups: [apps], resources: [replicasets], verbs: [get, list, watch]}
+- {apiGroups: [""], resources: [events], verbs: [list]}
+- {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [get, list, watch, create, patch]}
+- {apiGroups: [rbac.authorization.k8s.io], resources: [rolebindings], verbs: [get, patch]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $controllerRole }}
+  namespace: {{ $m.namespace }}
+  labels: {{ toJson $labels }}
+rules:
+- {apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, create, update, patch]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $controllerRole }}
+  namespace: {{ $m.namespace }}
+  labels: {{ toJson $labels }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $controllerRole }}}
+subjects: {{ toJson $subject }}
+{{- $owned := dict "namespaceSelector" (dict "matchLabels" (dict "agent-platform.io/installation" $id)) }}
+{{- $byController := list (dict "name" "controller" "expression" (printf "%s == %s" $user $controller)) }}
+{{- $containers := "(has(object.spec.initContainers) ? object.spec.containers + object.spec.initContainers : object.spec.containers)" }}
+{{- $approved := list }}
+{{- $sources := dict }}
+{{- range $m.storageSources }}{{- $_ := set $sources .id . }}{{- end }}
+{{- range $sourceId := keys $sources | sortAlpha }}
+{{- $source := index $sources $sourceId }}
+{{- if $source.localPath }}
+{{- $approved = append $approved (printf "(has(object.spec.local) && object.spec.local.path.startsWith('%s/') && has(object.spec.nodeAffinity) && object.spec.nodeAffinity.required.nodeSelectorTerms.all(t, t.matchExpressions.all(e, e.key == 'kubernetes.io/hostname' && e.operator == 'In' && e.values == ['%s'])))" (trimSuffix "/" $source.localPath.root) $source.localPath.node) }}
+{{- else if $source.nfs }}
+{{- $approved = append $approved (printf "(has(object.spec.nfs) && object.spec.nfs.server == '%s' && object.spec.nfs.path.startsWith('%s/'))" $source.nfs.server (trimSuffix "/" $source.nfs.root)) }}
+{{- end }}
+{{- end }}
+{{- $roots := ternary (join " || " $approved) "false" (gt (len $approved) 0) }}
+{{- $policies := list
+  (dict "suffix" "namespaces"
+        "rules" (list (dict "apiGroups" (list "") "apiVersions" (list "*") "resources" (list "namespaces") "operations" (list "CREATE" "UPDATE" "DELETE")))
+        "conditions" list
+        "owned" false
+        "validations" (list
+          (dict "expression" (printf "request.operation == 'DELETE' || !object.metadata.name.startsWith(%s) || %s == %s" $prefix $user $controller) "message" "only the manager controller writes instance namespaces")
+          (dict "expression" (printf "%s != %s || request.operation != 'DELETE'" $user $controller) "message" "the manager controller never deletes namespaces")
+          (dict "expression" (printf "%s != %s || request.operation == 'DELETE' || (object.metadata.name.startsWith(%s) && has(object.metadata.labels) && object.metadata.labels['agent-platform.io/installation'] == '%s' && object.metadata.labels['app.kubernetes.io/managed-by'] == 'hermes-manager' && object.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted' && 'agent-platform.io/instance' in object.metadata.labels && object.metadata.name == %s + object.metadata.labels['agent-platform.io/instance'].replace('-', ''))" $user $controller $prefix $id $prefix) "message" "instance namespaces carry the installation's prefix and labels")))
+  (dict "suffix" "owned-writes"
+        "rules" (list (dict "apiGroups" (list "*") "apiVersions" (list "*") "resources" (list "*") "operations" (list "CREATE" "UPDATE" "DELETE")))
+        "conditions" (list
+          (dict "name" "namespaced" "expression" "(has(request.namespace) && request.namespace != '') || request.resource.resource == 'namespaces'")
+          (dict "name" "not-events" "expression" "request.resource.resource != 'events'"))
+        "owned" true
+        "validations" (list
+          (dict "expression" (printf "%s == %s || %s == 'system:kube-controller-manager' || %s == 'system:kube-scheduler' || %s == 'system:apiserver' || %s.startsWith('system:serviceaccount:kube-system:') || %s.startsWith('system:node:')" $user $controller $user $user $user $user $user) "message" "only the manager controller writes in instance namespaces")))
+  (dict "suffix" "controller-scope"
+        "rules" (list (dict "apiGroups" (list "*") "apiVersions" (list "*") "resources" (list "*") "operations" (list "CREATE" "UPDATE" "DELETE")))
+        "conditions" $byController
+        "owned" false
+        "validations" (list
+          (dict "expression" (printf "request.resource.resource in ['namespaces', 'persistentvolumes'] || (has(request.namespace) && request.namespace.startsWith(%s)) || (has(request.namespace) && request.namespace == '%s' && request.resource.group == 'coordination.k8s.io' && request.resource.resource == 'leases')" $prefix $m.namespace) "message" "the manager controller writes only in instance namespaces")))
+  (dict "suffix" "pods"
+        "rules" (list (dict "apiGroups" (list "") "apiVersions" (list "*") "resources" (list "pods" "pods/ephemeralcontainers") "operations" (list "CREATE" "UPDATE")))
+        "conditions" list
+        "owned" true
+        "validations" (list
+          (dict "expression" (printf "has(object.spec.securityContext) && object.spec.securityContext.runAsNonRoot == true && object.spec.securityContext.runAsUser == %d && object.spec.securityContext.runAsGroup == %d" (int $m.dataIdentity.uid) (int $m.dataIdentity.gid)) "message" "Pods run as the installation's non-root data identity")
+          (dict "expression" (printf "%s.all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false && (!has(c.securityContext.privileged) || c.securityContext.privileged == false) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop && (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0))" $containers) "message" "containers are unprivileged and drop every capability")
+          (dict "expression" (printf "%s.all(c, c.image.matches('^[^@\\\\s]+@sha256:[a-f0-9]{64}$'))" $containers) "message" "images are pinned by digest")
+          (dict "expression" "!(has(object.spec.hostNetwork) && object.spec.hostNetwork) && !(has(object.spec.hostPID) && object.spec.hostPID) && !(has(object.spec.hostIPC) && object.spec.hostIPC)" "message" "Pods use no host namespaces")
+          (dict "expression" "has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false" "message" "Pods carry no Kubernetes token")
+          (dict "expression" "!has(object.spec.volumes) || object.spec.volumes.all(v, has(v.persistentVolumeClaim) || has(v.secret) || has(v.configMap) || has(v.emptyDir) || (has(v.projected) && v.projected.sources.all(s, has(s.secret) || has(s.configMap))))" "message" "volumes are claims, Secrets, ConfigMaps or emptyDirs only")
+          (dict "expression" "!has(object.spec.ephemeralContainers) || size(object.spec.ephemeralContainers) == 0" "message" "no ephemeral containers")))
+  (dict "suffix" "volumes"
+        "rules" (list (dict "apiGroups" (list "") "apiVersions" (list "*") "resources" (list "persistentvolumes") "operations" (list "CREATE" "UPDATE")))
+        "conditions" $byController
+        "owned" false
+        "validations" (list
+          (dict "expression" (printf "object.spec.persistentVolumeReclaimPolicy == 'Retain' && has(object.spec.claimRef) && object.spec.claimRef.namespace.startsWith(%s) && (!has(object.spec.storageClassName) || object.spec.storageClassName == '')" $prefix) "message" "static volumes are retained and bind into instance namespaces")
+          (dict "expression" (printf "!(has(object.spec.local) && (object.spec.local.path.contains('/../') || object.spec.local.path.endsWith('/..'))) && !(has(object.spec.nfs) && (object.spec.nfs.path.contains('/../') || object.spec.nfs.path.endsWith('/..'))) && (%s)" $roots) "message" "static volumes stay under approved storage roots")))
+  (dict "suffix" "rolebindings"
+        "rules" (list (dict "apiGroups" (list "rbac.authorization.k8s.io") "apiVersions" (list "*") "resources" (list "rolebindings") "operations" (list "CREATE" "UPDATE")))
+        "conditions" list
+        "owned" true
+        "validations" (list
+          (dict "expression" (printf "object.roleRef.kind == 'ClusterRole' && object.roleRef.name == '%s' && size(object.subjects) == 1 && object.subjects[0].kind == 'ServiceAccount' && object.subjects[0].name == '%s' && object.subjects[0].namespace == '%s'" $m.instanceRole $m.serviceAccount $m.namespace) "message" "instance namespaces bind only the instance role to the controller")))
+  (dict "suffix" "services"
+        "rules" (list (dict "apiGroups" (list "") "apiVersions" (list "*") "resources" (list "services") "operations" (list "CREATE" "UPDATE")))
+        "conditions" list
+        "owned" true
+        "validations" (list
+          (dict "expression" "(!has(object.spec.type) || object.spec.type == 'ClusterIP') && (!has(object.spec.externalIPs) || size(object.spec.externalIPs) == 0)" "message" "Services stay inside the cluster")))
+}}
+{{- range $policy := $policies }}
+{{- $name := printf "%s-%s" $m.base $policy.suffix }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}
+  labels: {{ toJson $labels }}
+spec:
+  failurePolicy: Fail
+  matchConstraints: {resourceRules: {{ toJson $policy.rules }}}
+  matchConditions: {{ toJson $policy.conditions }}
+  validations: {{ toJson $policy.validations }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}
+  labels: {{ toJson $labels }}
+spec:
+  policyName: {{ $name }}
+  validationActions: [Deny]
+  matchResources: {{ toJson (ternary $owned dict $policy.owned) }}
+{{- end }}
+{{- end }}

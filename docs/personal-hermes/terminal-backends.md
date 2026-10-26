@@ -1,201 +1,233 @@
-# Profile-selected terminal backends
+# Terminal backends
 
-Users can create more Hermes profiles and choose a terminal backend for each one
-in the native Hermes dashboard. The bundled `managed_execution` plugin requests
-that backend from the manager. The manager enforces the instance's approved
-execution policy, creates and retires the worker, and supplies a lease and
-verified SSH endpoint. This page describes the implementation; the wider product
-requirements remain in the [specification](specification.md).
+Status: target behaviour (rewrite in progress). The plugin and its wire
+protocol are already implemented as described. See the
+[implementation status](implementation.md) for how the current manager
+differs.
 
-## Configure an owner and its backend types
+Hermes runs shell commands and file access in terminal backend containers
+over SSH. An administrator defines terminal backends and grants them per
+assignment. The user picks one per Hermes profile. The manager creates the
+container only if the instance's assignment allows that backend, mounts only
+the volumes the assignment binds, and retires the container when it is no
+longer needed.
 
-Terminal configuration is stored in PostgreSQL. The administration API registers
-immutable runtime versions, owner-local storage bindings and an assignment's
-execution policy. A runtime ID such as `python-tools` is a stable backend type
-identifier; its version pins an exact image digest. It is independent of Linux
-UID/GID and Kubernetes Pod UIDs. These inputs use the typed
-[administration contract](../../contracts/hermes-manager/openapi.yaml); the
-manager renders Kubernetes resources rather than accepting arbitrary Pod specs.
-Upgrade the manager schema through migration `0018_worker_ssh_identity.sql`
-using the [maintenance/migration procedure](../../services/hermes-manager/README.md)
-before starting this controller.
+## Define a terminal backend (administrator)
 
-An assignment selects a default runtime and allowed runtime versions. Each
-selection also pins its resources, lease/lifetime limits and owner-specific
-mounts. Storage bindings identify the exact namespace/PVC UID and the permitted
-mount path, optional relative subpath and read/write access. The same runtime
-image can use different owners' PVCs. For example, a binding can permit only
-`projects/example` from the workspace PVC at the worker's `/workspace`.
+A terminal backend has an ID, for example `python-tools`, and immutable
+published versions:
 
-Register runtime definitions using **`sshContract: managed-ssh-v2`** for automatic
-worker provisioning. The repository's agent-runtime image implements this
-contract: non-root `worker`, SSH on port 2222, the selected authorized-key file,
-shell/file transfer helpers and a manager-provisioned SSH server identity. The
-manager mounts only the immutable authorized-key file at `/etc/ssh/authorized_keys/worker`
-with `subPath: worker`, retaining OpenSSH's strict permission checks with an
-image-owned parent directory instead of a group-writable Secret projection. The image
-reads `/etc/ssh/hostkeys/ssh_host_ed25519_key`, copies it to a private 0600 file
-and starts sshd with that identity. Custom images must implement the same
-contract. Historical `managed-ssh-v1` definitions remain readable/registerable,
-but the new controller does not grant automatic SSH readiness for them.
+```json
+{
+  "image": "ghcr.io/accelero/agent-platform/agent-runtime@sha256:<64 hex>",
+  "sshContract": "managed-ssh-v2",
+  "uid": 1000,
+  "gid": 1000,
+  "resources": { "cpuMillis": 2000, "memoryMib": 4096, "ephemeralGib": 10 },
+  "limits": { "idleSeconds": 900, "maxLeaseSeconds": 3600, "maxEnvironments": 4 },
+  "mounts": {
+    "workspace": { "mountPath": "/workspace" },
+    "home":      { "mountPath": "/home/worker/home", "optional": true }
+  },
+  "registrySecret": null
+}
+```
 
-Infrastructure still supplies the manager configuration, HTTPS endpoint/CA,
-keyrings and native-instance templates/mappings described in
-[native commissioning](native-commissioning.md). The controller process also
-needs `/usr/bin/ssh` and a private writable temporary directory for bounded SSH
-probes. No private key is passed in command arguments or logged.
-The Hermes image also supplies the UID 1000 account used by personal Pods so
-the OpenSSH client can resolve its non-root caller.
+- **Image.** The image is pinned by digest. Custom images must implement
+  `managed-ssh-v2`:
+  - non-root user `worker` with the installation data UID/GID;
+  - SSH on port 2222;
+  - the authorized key at `/etc/ssh/authorized_keys/worker`;
+  - the provisioned host key at `/etc/ssh/hostkeys/ssh_host_ed25519_key`;
+  - shell and file transfer.
 
-## Select a backend in Hermes
+  The repository's `agent-runtime` image implements this contract.
+- **UID and GID.** They must equal the installation's data identity
+  (default `1000:1000`), so files on shared volumes stay usable from Hermes
+  and the shell. Versions with other values are rejected.
+- **Mount slots.** Each slot names a volume and the path where it appears in
+  the container. The assignment decides which actual volume fills the slot.
+  A slot is required unless it is marked `optional`. If a required slot is
+  unbound, the backend cannot be used for that instance; nothing is mounted
+  in its place.
+- **Private images.** `registrySecret` names a `registry` admin secret for
+  private registries. The default image is never substituted.
 
-In the native dashboard, select the agent profile and open its Terminal
-settings. Set **`terminal.runtime_id`** to an allowed backend ID, for example
-`python-tools`. Empty selects the manager's configured default. The field is
-provided by the repository's guarded patch to the pinned dashboard schema and
-is saved through the native profile-scoped configuration API:
+A worker that fails is drained and not replaced, and its reason is shown on
+the instance's environments in the dashboard:
+
+| Reason | Cause |
+| --- | --- |
+| `image_unavailable` | The image cannot be pulled: wrong reference or digest, or missing registry credentials |
+| `start_failed` | The container exits or keeps crashing |
+| `contract_failed` | The worker breaks the SSH contract: wrong host key, the instance's key refused, or the shell not running as the data identity |
+
+Hermes receives `422 backend_failed` for that environment. Correct the
+registry secret, or publish a corrected version and select it in the
+assignment; the next acquisition after the failed environment has retired
+starts a new worker.
+
+## Grant backends to an assignment (administrator)
+
+```json
+{
+  "terminal": {
+    "mode": "per_session",
+    "default": "python-tools",
+    "allowed": [
+      { "id": "python-tools", "version": 2 },
+      { "id": "gpu-tools", "version": 1 }
+    ]
+  },
+  "volumes": {
+    "workspace": { "source": "nvme", "sizeGib": 20 },
+    "home": { "source": "nas", "path": "bob" }
+  }
+}
+```
+
+With this grant, Bob's `python-tools` environments mount the shared
+`workspace` at `/workspace` and his network home at `/home/worker/home`. If
+`gpu-tools` declares only the `workspace` slot, its environments mount only
+that.
+
+Saving the assignment validates three things:
+
+- every volume source and path is approved and does not overlap another
+  instance's path;
+- every required slot of every allowed backend is bound;
+- each volume mounted both in Hermes (through the template) and in a backend
+  uses the same path in both.
+
+See [instances](instances.md#volumes-and-mounts) for the volume rules.
+
+`mode` sets the worker lifetime for the instance:
+
+| Mode | Behaviour |
+| --- | --- |
+| `per_session` (default) | One environment per conversation; closing the conversation retires it |
+| `per_profile_on_demand` | One environment per profile, retired after `idleSeconds` without leases |
+| `per_profile_always_running` | One environment per profile, kept without idle retirement once created |
+
+Commands run in the directory the conversation declares under `/workspace`.
+Without one, as in a scheduled job, they start in `/workspace`: Hermes's
+generic default for plugin backends is root's home, which the worker's data
+identity cannot enter. A backend that runs commands without a declared
+directory should therefore mount the `workspace` slot.
+
+Mode is written into the instance's managed configuration, so changing it
+restarts Hermes. Changing allowed backends, their versions or their volumes
+does not restart Hermes; it applies to newly acquired environments.
+
+## Select a backend in Hermes (user)
+
+In the native Hermes dashboard, open a profile's Terminal settings and set
+**`terminal.runtime_id`** to an allowed backend ID, for example `gpu-tools`.
+An empty value uses the assignment's default. The value is stored in that
+profile's `config.yaml` on the private home:
 
 ```yaml
 terminal:
-  runtime_id: python-tools
+  runtime_id: gpu-tools
 ```
 
-The selection is stored in that profile's retained `config.yaml`. Backend
-selection does not authorize an image, mount or extra privileges. The manager's
-current allowlist is authoritative even if a user edits YAML directly. Unknown
-or disallowed IDs fail the acquisition; there is no local or different-image
-fallback. Administrator-managed `terminal.runtime_id` can pin the selection.
+The selection is a request, not a permission:
 
-The required `managed_execution` plugin is bundled in the image so newly created
-profiles can discover it. The managed configuration enables it and pins the
-manager URL, CA, execution token path and SSH client-key path independently of
-mutable profile settings. Additional enabled plugins are infrastructure inputs.
-Personal instances also protect `plugins.disabled` and always load this provider
-from the read-only image. A user/project copy cannot replace it. Profile YAML,
-profile terminal scopes and environment variables cannot select local, Docker,
-built-in SSH or another provider. The managed backend is `managed_execution`;
-that plugin obtains the manager-approved SSH endpoint and host identity.
-Missing or invalid admin policy blocks terminal creation rather than choosing a
-fallback. These are Hermes configuration controls, not a sandbox for arbitrary
-third-party Python plugins running inside the Hermes process.
-Native profile names never widen the credential: profile home, session and
-runtime identity separate worker environments within the authenticated instance.
+- the manager checks it against the current assignment every time an
+  environment is acquired;
+- an unknown or disallowed ID fails the terminal call, with no local or
+  other-backend fallback;
+- editing YAML directly gives the same result;
+- an administrator can pin `terminal.runtime_id` in `adminConfig`.
 
-Changes apply when an environment is acquired; active commands and leases stay
-bound to the runtime/generation already granted. Provider transport caching
-includes the selected runtime and native invocation context.
+Personal instances always use the image-owned `managed_execution` plugin:
+
+- the managed configuration enables it and pins its connection settings;
+- profiles, project copies and environment variables cannot replace it, or
+  select local, Docker or built-in SSH execution;
+- missing or invalid managed configuration blocks terminal use instead of
+  falling back.
 
 ## Plugin–manager interface
 
 The [execution contract](../../contracts/hermes-manager/execution.openapi.yaml)
 is the only interface between the plugin and the manager. The manager rejects
-unknown fields, so the plugin sends exactly these requests under the managed
-`manager_url` (which ends in `/execution`):
+unknown fields.
 
 | Plugin step | Request | Body |
 | --- | --- | --- |
 | A command needs a terminal | `POST /execution/v1/leases/acquire` | `session`, `mode`, `request` (idempotency ID), optional `runtime_id`, `parent_lease`, `runtime` |
 | While the lease is in use | `POST /execution/v1/leases/heartbeat` | `lease` |
 | Turn ends or SSH setup fails | `POST /execution/v1/leases/release` | `lease` |
-| Per-session environment closes | `POST /execution/v1/sessions/close` | `session`, optional `runtime_id`, `runtime` |
+| A per-session environment closes | `POST /execution/v1/sessions/close` | `session`, optional `runtime_id`, `runtime` |
 
-- **Connection and lifetime.** `manager_url`, `token_file`, `ca_file`,
-  `ssh_key`, `mode` and `acquire_timeout_seconds` come only from the managed
-  configuration that the manager writes into `/run/hermes/execution-ca/config.yaml`.
-  Profiles cannot change them. The manager uses `per_session`, so closing a
-  conversation retires its worker. Outside a personal instance the provider
-  reports itself unavailable.
-- **Selection.** Profiles choose only `terminal.runtime_id` (dashboard). They
-  cannot request an image, template, mount or Pod field; the contract has no
-  such fields.
-- **Identity.** The opaque bearer credential alone identifies the instance;
-  requests carry no caller-selected scope. Native profile isolation travels in
-  `runtime.hermes_home`, `session` and `runtime_id`.
-- **Retries.** A `409` (environment pending) or `503` is retried with the same
-  `request` ID until `acquire_timeout_seconds`. Any other status fails the
-  terminal call without fallback.
+- **Connection.** `manager_url` (ending in `/execution`), `token_file`,
+  `ca_file`, `ssh_key`, `mode` and `acquire_timeout_seconds` come only from the
+  managed configuration at `/run/hermes/execution-ca/config.yaml`.
+- **Identity.** The bearer credential alone identifies the instance; no
+  request selects a scope. Profile isolation travels in `runtime.hermes_home`,
+  `session` and `runtime_id`.
+- **Retries.** `409` (pending) and `503` are retried with the same `request`
+  ID until `acquire_timeout_seconds`. Any other status fails the call.
+- **Delegated work.** Subagents join a live parent lease (`parent_lease`) in
+  the same environment.
 
 `tests/test_managed_execution_selection.py` validates every plugin request
-against the contract schemas and paths. Change the contract, the Rust handler
-and the plugin together.
+against the contract. Change the contract, the manager handler and the
+plugin together.
 
 ## Acquisition and SSH
 
-1. The plugin authenticates every manager request with the instance's mounted
-   opaque execution credential over certificate-verified HTTPS. The manager
-   resolves the instance and checks access, policy generation, selected runtime,
-   owner storage and quotas. A requested ID cannot choose another owner.
-2. A new request durably reserves the environment and request identity. The
-   controller commits a reviewed worker intent, creates the Pod, binds its exact
-   UID and journals the start before removing its scheduling gate. Lost replies
-   recover that same authenticated creation rather than creating a duplicate.
-3. Kubernetes readiness is followed by an authenticated SSH login using the
-   instance's client key and the manager-provisioned server public key. The
-   controller checks the worker UID and re-observes the same Pod before recording
-   readiness. Pending workers have no usable lease/endpoint grant.
-4. The execution API returns environment/generation, lease/TTL and SSH
-   `host`, `port`, `user` and `host_key`. The plugin pins that public key in a
-   private known-hosts file for the managed environment/generation. Personal mode
-   rejects a missing host key. The SSH client private key stays in the existing
-   Hermes credential mount and is never returned by the API or mounted in a
-   terminal worker.
-5. Hermes executes commands and transfers files directly over SSH. The manager
-   handles authorization and lifecycle, not command bytes. Lease heartbeats,
-   release and session close remain scoped to the instance/runtime/environment.
+1. The manager authenticates the credential, requires access `enabled` and
+   resolves `runtime_id` within the assignment's allowed versions.
+2. It finds or creates the environment for that instance, backend version,
+   assignment execution generation and session or profile. It returns `409`
+   while the environment is not ready.
+3. The controller creates the worker Pod:
+   - non-root;
+   - no Kubernetes token;
+   - mounts: the bound volumes, the authorized key and the instance's host
+     key.
 
-The SSH server identity is distinct from the client key, derived from retained
-encrypted instance material and projected only to its workers. The current design
-uses a shared server key for that instance's workers; SSH aliases still include
-each environment and generation. Network policy
-allows SSH from the owning Hermes Pod and the control-plane controller; workers
-receive no Kubernetes token. Nonempty runtime service-egress policy still needs
-Service/Endpoint resolution and remains blocked rather than broadly allowed.
+   It waits for readiness, then logs in over SSH with the instance's client
+   key and checks the host key it provisioned. Only then is the environment
+   `Ready`.
+4. The next acquire returns the environment, generation, lease and TTL, plus
+   SSH `host`, `port`, `user` and `host_key`. The plugin pins that host key for
+   that environment and generation, and uses the instance's mounted client
+   key. No private key leaves the Hermes credential mount.
+5. Hermes runs commands and transfers files directly over SSH. The manager
+   never handles command bytes.
 
-## Cleanup and remaining limits
+NetworkPolicy allows SSH to a worker only from its own Hermes Pod and the
+controller.
 
-Native instance readiness and terminal readiness are separate. Periodic native
-resync can complete while workers are pending or active; it neither waits for
-their retirement nor drains a healthy worker. Worker readiness still gates SSH
-grants, and native generation changes/removal retain their separate drain fences.
-Lease acquisition can update usage time while a readiness observer holds its
-claim, without changing that observer's owner, deadline or fence.
+## Changes and cleanup
 
-Session close, access/policy/native-generation changes and lease expiry fence new
-work and enter a durable drain. Live child leases are respected until the
-original drain deadline. The controller journals an exact UID/resource-version
-stop, deletes only that Pod and records retirement after observed absence.
-An uncertain unbound CREATE remains retained for observation rather than being
-discarded on a single 404. PVC data and credential material are retained.
+Environments are retired, by deleting the exact Pod UID and recording the
+retirement only once absence is observed, when:
 
-Ordinary idle cleanup excludes always-running mode. New requests can create a
-new environment after retirement; old request/lease tombstones cannot revive an
-expired environment. Ready workers are periodically re-observed; a missing,
-replaced, terminating or exited Pod enters retirement so its old endpoint cannot
-continue granting new leases. New acquisitions can provision a fresh environment
-after observed retirement. Commands interrupted by worker loss are not replayed.
-Always-running mode currently skips ordinary idle cleanup; provisioning and
-replacement require acquisition work. Proactive prewarming/replenishment without
-a new request is not implemented.
-This does not add coordinated backups, routing or automatic upstream image
-selection.
+- the session closes (`per_session`);
+- the environment is idle (`per_profile_on_demand`);
+- lease expiry leaves no live leases;
+- access is suspended or revoked;
+- the assignment's backends or volumes change and the old environment has no
+  live leases;
+- the Pod is lost, replaced or terminating;
+- the 5-minute drain deadline passes.
 
-## Verification
+Retirement and its effects:
 
-The normal Rust suite covers scoped policy/lease behavior, retirement fencing
-and historical request preservation. Plugin tests cover profile configuration,
-runtime-separated transport caching, retry identity and required SSH identity.
-The passing extended native fixture builds the reviewed images and checks
-the real dashboard schema/configuration handlers, bundled plugin, manager HTTPS
-API, constrained controller, SSH/file transfer, host-key rejection, owner PVC
-subpaths and retirement across two owners and backend types. It verifies three
-allowed workers, a denied backend request and all three retirement/absence
-receipts.
+- Live leases, including joined child leases, are respected until the drain
+  deadline.
+- Expired and released leases are final. A later request creates a new
+  environment instead of reviving the old one.
+- Retirement never touches volume data.
+- Commands interrupted by worker loss are not replayed.
 
-```bash
-uv run python -m tests.personal_hermes.native_runtime --build
-uv run python -m tests.personal_hermes.kubernetes --native
-```
+Not yet supported:
 
-Use the disposable PostgreSQL fixture and toolchain from the
-[verification commands](implementation.md#verification-commands). These tests
-do not substitute for real Keycloak browser login or release qualification.
+- **Prewarming.** A worker is not created before the first request.
+- **Service egress.** Terminal backends get no egress to cluster Services
+  beyond the default NetworkPolicy until approved service egress is
+  implemented.

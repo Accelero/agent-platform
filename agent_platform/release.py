@@ -82,7 +82,11 @@ def render_chart(target: Path, chart: Path) -> None:
         for item in documents
         if item["kind"] in {"Deployment", "StatefulSet", "DaemonSet"}
     }
-    if deployed != {"hermes-manager-api"}:
+    if deployed != {
+        "hermes-manager-api",
+        "hermes-manager-controller",
+        "hermes-gateway",
+    }:
         raise ValueError("The manager example contains deferred or missing workloads.")
     for item in documents:
         if item["kind"] == "PersistentVolumeClaim":
@@ -190,7 +194,8 @@ def build(
             "-c",
             'test "$(id -u)" = 10001 && '
             "test -s /usr/share/hermes-manager/ui/index.html && "
-            "test -x /usr/local/bin/hermes-router-auth && ! command -v node",
+            "test -x /usr/local/bin/hermes-manager && "
+            "test -x /usr/local/bin/hermes-gateway && ! command -v node",
         ],
         timeout=60,
     )

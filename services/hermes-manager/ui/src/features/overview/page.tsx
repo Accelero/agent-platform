@@ -12,7 +12,7 @@ export function Overview() {
             environments you allow.
           </p>
           <Link to="/assignments" className="primary-link">
-            Explore instances <span>→</span>
+            Review assignments <span>→</span>
           </Link>
         </div>
         <div className="orbit" aria-hidden="true">
@@ -23,25 +23,24 @@ export function Overview() {
         </div>
       </section>
       <section className="cards" aria-label="Management areas">
-        <Card number="01" title="Personal instances" href="/assignments">
-          Review user assignments, selected templates and observed lifecycle
-          state.
+        <Card number="01" title="Who gets a Hermes" href="/assignments">
+          Assign an exact identity a template version, volumes and the terminal
+          backends it may use.
         </Card>
-        <Card number="02" title="Approved execution" href="/terminal-runtimes">
-          Inspect versioned terminal types before granting access to an
-          instance.
+        <Card number="02" title="Approved execution" href="/terminal-backends">
+          Publish versioned SSH worker definitions before allowing them.
         </Card>
         <Card number="03" title="Accountable changes" href="/activity">
-          Follow operations through the manager’s administrator audit trail.
+          Every committed change is attributed and recorded.
         </Card>
       </section>
       <section className="scope-note">
         <span className="small-dot" />
         <div>
-          <strong>Your control plane is connected</strong>
+          <strong>Accepted is not yet applied</strong>
           <p>
-            This initial dashboard provides read-only lists. Assignment and
-            policy editors are planned.
+            The manager records each change first; its controller then brings
+            the instance to the new state. Instance phases show the progress.
           </p>
         </div>
         <span className="pill">CONNECTED</span>
@@ -57,7 +56,7 @@ function Card({
 }: {
   number: string;
   title: string;
-  href: "/assignments" | "/terminal-runtimes" | "/activity";
+  href: "/assignments" | "/terminal-backends" | "/activity";
   children: ReactNode;
 }) {
   return (

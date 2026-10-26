@@ -1,64 +1,154 @@
+{{- /*
+The manager's api and controller roles and the gateway. The chart generates
+every role's configuration; secrets come from one existing Secret per role,
+mounted read-only at /run/hermes/secrets with the key names the README lists.
+*/}}
 {{- if .Values.hermesManager.enabled }}
-{{- $manager := .Values.hermesManager }}
-{{- $installation := deepCopy $manager.installation }}
-{{- $_ := required "hermesManager.installation.id is required" $installation.id }}
-{{- $_ := required "hermesManager.installation.issuer is required" $installation.issuer }}
-{{- range $role, $settings := dict "api" $manager.api "controller" $manager.controller "router-auth" $manager.routerAuth }}
-{{- if $settings.enabled }}
-{{- $name := printf "hermes-manager-%s" $role }}
-{{- $config := deepCopy $settings.config }}
-{{- $_ := set $config "installation" $installation }}
-{{- if eq $role "api" }}
-{{- $admin := default dict $config.admin }}
-{{- $_ := set $admin "listen" "0.0.0.0:8443" }}
-{{- /* The dashboard requires browser sessions; without them the API stays API-only. */}}
-{{- if $admin.browser }}{{- $_ := set $admin "uiDirectory" "/usr/share/hermes-manager/ui" }}{{- else }}{{- $_ := unset $admin "uiDirectory" }}{{- end }}
-{{- $_ := set $config "admin" $admin }}
-{{- $resolver := default dict $config.resolver }}
-{{- $_ := set $resolver "listen" "0.0.0.0:8444" }}
-{{- $_ := set $config "resolver" $resolver }}
-{{- if $config.execution }}{{- $_ := set $config.execution "listen" "0.0.0.0:8445" }}{{- end }}
-{{- else if eq $role "controller" }}
-{{- $_ := set $config "kubernetes" (dict "source" "inCluster") }}
-{{- $_ := required "controller.serviceAccountName must name a separately bootstrapped least-privilege account" $settings.serviceAccountName }}
-{{- else }}
-{{- $_ := set $config.public "listen" "0.0.0.0:8446" }}
-{{- $_ := set $config.internal "listen" "0.0.0.0:8447" }}
+{{- $v := .Values.hermesManager }}
+{{- $m := include "hermes-manager.model" . | fromJson }}
+{{- $ns := .Release.Namespace }}
+{{- $secrets := "/run/hermes/secrets" }}
+{{- $configDir := "/run/hermes/config" }}
+{{- $image := required "images.hermes-manager is required" (index .Values.images "hermes-manager") }}
+{{- $publicOrigin := required "hermesManager.publicOrigin is required" $v.publicOrigin }}
+{{- $adminOrigin := required "hermesManager.adminOrigin is required" $v.adminOrigin }}
+{{- $common := dict
+  "installation" (dict "id" $m.installationId "issuer" $m.issuer)
+  "databaseUrlFile" (printf "%s/database-url" $secrets)
+  "storageSources" $m.storageSources
+  "dataIdentity" $m.dataIdentity }}
+{{- if $v.oidcPrivateCa }}{{- $_ := set $common "oidcCaFile" (printf "%s/oidc-ca.crt" $secrets) }}{{- end }}
+{{- $tls := dict "admin" (dict "certificateFile" (printf "%s/admin-tls.crt" $secrets) "privateKeyFile" (printf "%s/admin-tls.key" $secrets)) }}
+{{- $executionUrl := printf "https://hermes-manager-api.%s.svc:8445/execution" $ns }}
+{{- $roles := dict }}
+
+{{- if $v.api.enabled }}
+{{- $api := $v.api }}
+{{- $administration := dict
+  "listen" "0.0.0.0:8443"
+  "tls" $tls.admin
+  "tokens" (dict
+    "jwksUrl" (required "hermesManager.api.tokens.jwksUrl is required" $api.tokens.jwksUrl)
+    "audience" $api.tokens.audience
+    "authorizedClients" $api.tokens.authorizedClients)
+  "secretSealingPublicKeyFile" (printf "%s/secret-sealing.pub" $secrets) }}
+{{- $keyring := "" }}
+{{- if $api.browser.enabled }}
+{{- $browser := dict
+  "databaseUrlFile" (printf "%s/session-database-url" $secrets)
+  "publicOrigin" $adminOrigin
+  "otherOrigin" $publicOrigin
+  "clientId" $api.browser.clientId
+  "scopes" $api.browser.scopes
+  "keyringFile" (printf "%s/keyring.json" $configDir) }}
+{{- if $api.browser.confidential }}{{- $_ := set $browser "clientSecretFile" (printf "%s/oidc-client-secret" $secrets) }}{{- end }}
+{{- with $api.browser.revocationUrl }}{{- $_ := set $browser "revocationUrl" . }}{{- end }}
+{{- $_ := set $administration "browser" $browser }}
+{{- $_ := set $administration "dashboardDirectory" "/usr/share/hermes-manager/ui" }}
+{{- $keyring = include "hermes-manager.keyring" (dict "keys" $api.browser.sessionKeys "dir" $secrets "field" "hermesManager.api.browser.sessionKeys") }}
 {{- end }}
+{{- if $api.directory.enabled }}
+{{- $_ := set $administration "directory" (dict "clientId" (required "hermesManager.api.directory.clientId is required" $api.directory.clientId) "clientSecretFile" (printf "%s/directory-client-secret" $secrets)) }}
+{{- end }}
+{{- $config := merge (dict
+  "administration" $administration
+  "execution" (dict "listen" "0.0.0.0:8445" "tls" (dict "certificateFile" (printf "%s/execution-tls.crt" $secrets) "privateKeyFile" (printf "%s/execution-tls.key" $secrets)))
+  "resolver" (dict
+    "listen" "0.0.0.0:8444"
+    "tls" (dict "certificateFile" (printf "%s/resolver-tls.crt" $secrets) "privateKeyFile" (printf "%s/resolver-tls.key" $secrets))
+    "clientCaFile" (printf "%s/resolver-client-ca.crt" $secrets)
+    "gatewayIdentity" (required "hermesManager.api.gatewayIdentity is required" $api.gatewayIdentity))) (deepCopy $common) }}
+{{- $_ := set $roles "api" (dict "name" "hermes-manager-api" "config" $config "keyring" $keyring "secret" $api.existingSecret "replicas" $api.replicas "args" (list "api") "ports" (dict "admin" 8443 "resolver" 8444 "execution" 8445) "token" false) }}
+{{- end }}
+
+{{- if $v.controller.enabled }}
+{{- $controller := $v.controller }}
+{{- $config := merge (dict
+  "controller" (dict
+    "namespace" $ns
+    "serviceAccount" $m.serviceAccount
+    "instanceRole" $m.instanceRole
+    "secretSealingPrivateKeyFile" (printf "%s/secret-sealing.key" $secrets)
+    "peers" $m.peers
+    "executionUrl" $executionUrl
+    "executionPort" 8445
+    "executionCaFile" (printf "%s/execution-ca.crt" $secrets)
+    "nativeClientId" $v.nativeClientId
+    "publicOrigin" $publicOrigin
+    "serviceEgress" $v.serviceEgress
+    "publicHttps" $v.publicHttps
+    "workers" $controller.workers
+    "resyncSeconds" $controller.resyncSeconds)) (deepCopy $common) }}
+{{- $_ := set $roles "controller" (dict "name" "hermes-manager-controller" "config" $config "keyring" "" "secret" $controller.existingSecret "replicas" 1 "args" (list "controller") "ports" dict "token" true) }}
+{{- end }}
+
+{{- if $v.gateway.enabled }}
+{{- $gateway := $v.gateway }}
+{{- $oidc := dict
+  "clientId" $gateway.oidc.clientId
+  "scopes" $gateway.oidc.scopes
+  "jwksUrl" (required "hermesManager.gateway.oidc.jwksUrl is required" $gateway.oidc.jwksUrl)
+  "audience" $gateway.oidc.audience }}
+{{- if $gateway.oidc.confidential }}{{- $_ := set $oidc "clientSecretFile" (printf "%s/oidc-client-secret" $secrets) }}{{- end }}
+{{- with $gateway.oidc.revocationUrl }}{{- $_ := set $oidc "revocationUrl" . }}{{- end }}
+{{- $config := dict
+  "installation" $common.installation
+  "listen" "0.0.0.0:8443"
+  "tls" (dict "certificateFile" (printf "%s/tls.crt" $secrets) "privateKeyFile" (printf "%s/tls.key" $secrets))
+  "publicOrigin" $publicOrigin
+  "adminOrigin" $adminOrigin
+  "databaseUrlFile" (printf "%s/database-url" $secrets)
+  "oidc" $oidc
+  "keyringFile" (printf "%s/keyring.json" $configDir)
+  "resolver" (dict
+    "url" (printf "https://hermes-manager-api.%s.svc:8444/" $ns)
+    "caFile" (printf "%s/resolver-ca.crt" $secrets)
+    "certificateFile" (printf "%s/resolver-client.crt" $secrets)
+    "privateKeyFile" (printf "%s/resolver-client.key" $secrets))
+  "clusterDomain" $gateway.clusterDomain
+  "maxUploadMib" $gateway.maxUploadMib }}
+{{- if $v.oidcPrivateCa }}{{- $_ := set $config "oidcCaFile" (printf "%s/oidc-ca.crt" $secrets) }}{{- end }}
+{{- $keyring := include "hermes-manager.keyring" (dict "keys" $gateway.sessionKeys "dir" $secrets "field" "hermesManager.gateway.sessionKeys") }}
+{{- $_ := set $roles "gateway" (dict "name" "hermes-gateway" "config" $config "keyring" $keyring "secret" $gateway.existingSecret "replicas" $gateway.replicas "args" (list) "ports" (dict "gateway" 8443) "token" false) }}
+{{- end }}
+
+{{- range $role, $r := $roles }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ $name }}
-  namespace: {{ $.Release.Namespace }}
+  name: {{ $r.name }}
+  namespace: {{ $ns }}
   labels: {{ include "agent-platform.labels" $ | nindent 4 }}
 data:
-  config.json: {{ $config | toJson | quote }}
+  config.json: {{ $r.config | toJson | quote }}
+  {{- with $r.keyring }}
+  keyring.json: {{ . | quote }}
+  {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $name }}
-  namespace: {{ $.Release.Namespace }}
+  name: {{ $r.name }}
+  namespace: {{ $ns }}
   labels: {{ include "agent-platform.labels" $ | nindent 4 }}
 spec:
-  replicas: 1
-  strategy: {type: Recreate}
+  replicas: {{ $r.replicas }}
   selector:
-    matchLabels: {app.kubernetes.io/instance: {{ $.Release.Name | quote }}, app.kubernetes.io/name: {{ $name }}}
+    matchLabels: {app.kubernetes.io/instance: {{ $.Release.Name | quote }}, app.kubernetes.io/name: {{ $r.name }}}
   template:
     metadata:
       labels:
         app.kubernetes.io/part-of: agent-platform
         app.kubernetes.io/instance: {{ $.Release.Name | quote }}
-        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/name: {{ $r.name }}
       annotations:
-        checksum/config: {{ $config | toJson | sha256sum }}
+        checksum/config: {{ printf "%s%s" (toJson $r.config) $r.keyring | sha256sum }}
     spec:
       enableServiceLinks: false
-      automountServiceAccountToken: {{ eq $role "controller" }}
-      {{- if eq $role "controller" }}
-      serviceAccountName: {{ $settings.serviceAccountName }}
+      automountServiceAccountToken: {{ $r.token }}
+      {{- if $r.token }}
+      serviceAccountName: {{ $m.serviceAccount }}
       {{- end }}
       {{- with $.Values.imagePullSecrets }}
       imagePullSecrets: {{ toYaml . | nindent 8 }}
@@ -71,76 +161,163 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
       - name: {{ $role }}
-        image: {{ required "images.hermes-manager is required" (index $.Values.images "hermes-manager") | quote }}
+        image: {{ $image | quote }}
         imagePullPolicy: {{ $.Values.imagePullPolicy }}
-        command: [{{ if eq $role "router-auth" }}hermes-router-auth{{ else }}hermes-manager{{ end }}]
-        args: [{{ if ne $role "router-auth" }}{{ $role | quote }}, {{ end }}"--config", "/run/manager/config/config.json"]
+        command: [{{ ternary "hermes-gateway" "hermes-manager" (eq $role "gateway") }}]
+        args: {{ toJson (concat $r.args (list "--config" (printf "%s/config.json" $configDir))) }}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities: {drop: [ALL]}
-        resources: {{ toYaml $manager.resources | nindent 10 }}
-        {{- if ne $role "controller" }}
+        resources: {{ toYaml $v.resources | nindent 10 }}
+        {{- with $r.ports }}
         ports:
-        {{- range $port := ternary (list 8443 8444 8445) (list 8446 8447) (eq $role "api") }}
-        - {name: {{ printf "tls-%d" $port }}, containerPort: {{ $port }}}
+        {{- range $listener, $port := . }}
+        - {name: {{ $listener }}, containerPort: {{ $port }}}
         {{- end }}
-        readinessProbe:
-          tcpSocket: {port: {{ ternary 8443 8446 (eq $role "api") }}}
-          periodSeconds: 5
-        livenessProbe:
-          tcpSocket: {port: {{ ternary 8443 8446 (eq $role "api") }}}
-          initialDelaySeconds: 15
+        {{- $probe := ternary (dict "httpGet" (dict "path" "/_platform/healthz" "port" 8443 "scheme" "HTTPS")) (dict "tcpSocket" (dict "port" 8443)) (eq $role "gateway") }}
+        readinessProbe: {{ toJson (merge (dict "periodSeconds" 5) $probe) }}
+        livenessProbe: {{ toJson (merge (dict "initialDelaySeconds" 15 "periodSeconds" 10) $probe) }}
         {{- end }}
         volumeMounts:
-        - {name: config, mountPath: /run/manager/config, readOnly: true}
-        - {name: secrets, mountPath: /run/manager/secrets, readOnly: true}
+        - {name: config, mountPath: {{ $configDir }}, readOnly: true}
+        - {name: secrets, mountPath: {{ $secrets }}, readOnly: true}
         - {name: tmp, mountPath: /tmp}
       volumes:
       - name: config
-        configMap: {name: {{ $name }}}
+        configMap: {name: {{ $r.name }}}
       - name: secrets
         secret:
-          secretName: {{ required (printf "hermesManager.%s.existingSecret is required" $role) $settings.existingSecret }}
+          secretName: {{ required (printf "hermesManager.%s.existingSecret is required" $role) $r.secret }}
           defaultMode: 0440
       - name: tmp
         emptyDir: {sizeLimit: 64Mi}
-{{- if ne $role "controller" }}
+{{- if $r.ports }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ $name }}
-  namespace: {{ $.Release.Namespace }}
+  name: {{ $r.name }}
+  namespace: {{ $ns }}
+  labels: {{ include "agent-platform.labels" $ | nindent 4 }}
 spec:
-  type: ClusterIP
-  selector: {app.kubernetes.io/instance: {{ $.Release.Name | quote }}, app.kubernetes.io/name: {{ $name }}}
+  type: {{ ternary $v.gateway.service.type "ClusterIP" (eq $role "gateway") }}
+  selector: {app.kubernetes.io/instance: {{ $.Release.Name | quote }}, app.kubernetes.io/name: {{ $r.name }}}
   ports:
-  {{- range $port := ternary (list 8443 8444 8445) (list 8446 8447) (eq $role "api") }}
-  - {name: {{ printf "tls-%d" $port }}, port: {{ $port }}, targetPort: {{ $port }}}
+  {{- range $listener, $port := $r.ports }}
+  - {name: {{ $listener }}, port: {{ ternary $v.gateway.service.port $port (eq $role "gateway") }}, targetPort: {{ $port }}}
   {{- end }}
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ $name }}
-  namespace: {{ $.Release.Namespace }}
+  name: {{ $r.name }}
+  namespace: {{ $ns }}
+  labels: {{ include "agent-platform.labels" $ | nindent 4 }}
 spec:
   podSelector:
-    matchLabels: {app.kubernetes.io/instance: {{ $.Release.Name | quote }}, app.kubernetes.io/name: {{ $name }}}
+    matchLabels: {app.kubernetes.io/instance: {{ $.Release.Name | quote }}, app.kubernetes.io/name: {{ $r.name }}}
   policyTypes: [Ingress]
-  {{- if not (or $manager.ingress.admin $manager.ingress.resolver $manager.ingress.execution $manager.ingress.routerPublic $manager.ingress.routerInternal) }}
-  ingress: []
-  {{- else }}
-  ingress:
-  {{- range $listener, $port := ternary (dict "admin" 8443 "resolver" 8444 "execution" 8445) (dict "routerPublic" 8446 "routerInternal" 8447) (eq $role "api") }}
-  {{- with index $manager.ingress $listener }}
-  - from: {{ toYaml . | nindent 6 }}
-    ports: [{protocol: TCP, port: {{ $port }}}]
+  {{- $rules := list }}
+  {{- if eq $role "api" }}
+  {{- with $v.ingress.admin }}{{- $rules = append $rules (dict "from" . "ports" (list (dict "protocol" "TCP" "port" 8443))) }}{{- end }}
+  {{- $rules = append $rules (dict "from" (list (dict "podSelector" (dict "matchLabels" $m.peers.gateway))) "ports" (list (dict "protocol" "TCP" "port" 8444))) }}
+  {{- $rules = append $rules (dict "from" (list (dict "namespaceSelector" (dict "matchLabels" (dict "agent-platform.io/installation" $m.installationId)) "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/component" "hermes")))) "ports" (list (dict "protocol" "TCP" "port" 8445))) }}
+  {{- else if eq $role "gateway" }}
+  {{- with $v.ingress.gateway }}{{- $rules = append $rules (dict "from" . "ports" (list (dict "protocol" "TCP" "port" 8443))) }}{{- end }}
   {{- end }}
-  {{- end }}
-  {{- end }}
+  ingress: {{ toJson $rules }}
 {{- end }}
+
+{{- if $v.controller.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $m.serviceAccount }}
+  namespace: {{ $ns }}
+  labels: {{ include "agent-platform.labels" . | nindent 4 }}
+automountServiceAccountToken: false
 {{- end }}
+
+{{- $operations := list }}
+{{- if $v.operations.migrate.enabled }}
+{{- $operations = append $operations (dict "name" "migrate" "args" (list "migrate") "config" "hermes-manager-migrate" "secret" (required "hermesManager.operations.migrate.existingSecret is required" $v.operations.migrate.existingSecret) "token" false) }}
+{{- end }}
+{{- if and $v.operations.initialize.enabled $v.controller.enabled }}
+{{- $operations = append $operations (dict "name" "initialize" "args" (list "initialize") "config" "hermes-manager-controller" "secret" $v.controller.existingSecret "token" true) }}
+{{- end }}
+{{- if and $v.operations.rebindCluster.enabled $v.controller.enabled }}
+{{- $operations = append $operations (dict "name" "rebind-cluster" "args" (list "rebind-cluster") "config" "hermes-manager-controller" "secret" $v.controller.existingSecret "token" true) }}
+{{- end }}
+{{- if $v.operations.grantAdministrator.enabled }}
+{{- $args := list "grant-administrator" "--identity-file" (printf "%s/identity.json" $secrets) }}
+{{- if $v.operations.grantAdministrator.recover }}{{- $args = append $args "--recover" }}{{- end }}
+{{- $operations = append $operations (dict "name" "grant-administrator" "args" $args "config" "hermes-manager-migrate" "secret" (required "hermesManager.operations.grantAdministrator.existingSecret is required" $v.operations.grantAdministrator.existingSecret) "token" false) }}
+{{- end }}
+{{- if or $v.operations.migrate.enabled $v.operations.grantAdministrator.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hermes-manager-migrate
+  namespace: {{ $ns }}
+  labels: {{ include "agent-platform.labels" . | nindent 4 }}
+data:
+  config.json: {{ $common | toJson | quote }}
+{{- end }}
+{{- range $operation := $operations }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "hermes-manager-%s-%d" $operation.name $.Release.Revision }}
+  namespace: {{ $ns }}
+  labels: {{ include "agent-platform.labels" $ | nindent 4 }}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: agent-platform
+        app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+        app.kubernetes.io/name: {{ printf "hermes-manager-%s" $operation.name }}
+    spec:
+      restartPolicy: Never
+      enableServiceLinks: false
+      automountServiceAccountToken: {{ $operation.token }}
+      {{- if $operation.token }}
+      serviceAccountName: {{ $m.serviceAccount }}
+      {{- end }}
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: {{ $operation.name }}
+        image: {{ $image | quote }}
+        imagePullPolicy: {{ $.Values.imagePullPolicy }}
+        command: [hermes-manager]
+        args: {{ toJson (concat $operation.args (list "--config" (printf "%s/config.json" $configDir))) }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        resources: {{ toYaml $v.resources | nindent 10 }}
+        volumeMounts:
+        - {name: config, mountPath: {{ $configDir }}, readOnly: true}
+        - {name: secrets, mountPath: {{ $secrets }}, readOnly: true}
+      volumes:
+      - name: config
+        configMap: {name: {{ $operation.config }}}
+      - name: secrets
+        secret: {secretName: {{ $operation.secret }}, defaultMode: 0440}
 {{- end }}
 {{- end }}

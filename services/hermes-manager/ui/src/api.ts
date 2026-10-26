@@ -1,241 +1,174 @@
 export * from "./api/transport";
 import { request, versioned, type Result } from "./api/transport";
-export type AdminSession = Result<"getAdministrationSession">;
-export type Assignments = Result<"listAssignments">;
-export type Runtimes = Result<"listTerminalRuntimes">;
-export type Audit = Result<"listAuditEvents">;
-export const pageParams = (after?: string | number, extra = {}) => {
-  const params = new URLSearchParams({ limit: "50", ...extra });
-  if (after !== undefined && after !== "") params.set("after", String(after));
+import type { components } from "./generated/api";
+export type Schemas = components["schemas"];
+export type Identity = Schemas["Identity"];
+export type AdminSession = Result<"getSession">;
+export type Assignment = Result<"getAssignment">;
+export type AssignmentSpec = Schemas["AssignmentSpec"];
+export type Instance = Result<"getInstance">;
+export type VersionRef = Schemas["VersionRef"];
+/** Catalog definitions are JSON documents checked by the local schemas. */
+export type Definition = Record<string, unknown>;
+export type CatalogCollection = "templates" | "terminal-backends";
+export type CatalogVersion = Omit<Schemas["TemplateVersion"], "definition"> & {
+  definition: Definition;
+};
+export const pageParams = (
+  after?: string,
+  extra: Record<string, string | undefined> = {},
+) => {
+  const params = new URLSearchParams({ limit: "50" });
+  for (const [key, value] of Object.entries(extra))
+    if (value !== undefined && value !== "") params.set(key, value);
+  if (after) params.set("after", after);
   return params.toString();
 };
+const id = encodeURIComponent;
 export const api = {
-  directoryUsers: (after?: string, signal?: AbortSignal, q = "") =>
-    request<Result<"searchDirectoryUsers">>(
+  session: (signal?: AbortSignal) =>
+    request<AdminSession>("/api/v1/session", { signal }),
+  identities: (after?: string, signal?: AbortSignal, q?: string) =>
+    request<Result<"listIdentities">>(
+      `/api/v1/identities?${pageParams(after, { q })}`,
+      { signal },
+    ),
+  identity: (identityId: string, signal?: AbortSignal) =>
+    request<Result<"getIdentity">>(`/api/v1/identities/${id(identityId)}`, {
+      signal,
+    }),
+  directoryUsers: (after?: string, signal?: AbortSignal, q?: string) =>
+    request<Result<"searchDirectory">>(
       `/api/v1/directory-users?${pageParams(after, { q })}`,
       { signal },
     ),
-  templateObservation: (id: string, signal?: AbortSignal) =>
-    request<Result<"getAssignmentTemplateObservation">>(
-      `/api/v1/assignments/${encodeURIComponent(id)}/template-observation`,
-      { signal },
-    ),
-  runtimeHistory: (
-    id: string,
-    after?: string,
-    signal?: AbortSignal,
-    filters: Record<string, string> = {},
-  ) =>
-    request<Result<"listRuntimeVersionHistory">>(
-      `/api/v1/terminal-runtimes/${encodeURIComponent(id)}/version-history?${pageParams(after, filters)}`,
-      { signal },
-    ),
-  runtime: (id: string, signal?: AbortSignal) =>
-    request<Result<"getTerminalRuntime">>(
-      `/api/v1/terminal-runtimes/${encodeURIComponent(id)}`,
-      { signal },
-    ),
-  bindingReferences: (
-    instanceId: string,
-    q: string,
-    signal?: AbortSignal,
-    after?: string,
-    filters: Record<string, string> = {},
-  ) =>
-    request<Result<"listStorageBindingReferences">>(
-      `/api/v1/configuration-references/storage-bindings?${pageParams(after, { ...filters, instanceId, q })}`,
-      { signal },
-    ),
-  identity: (id: string, signal?: AbortSignal) =>
-    request<Result<"getIdentity">>(
-      `/api/v1/identities/${encodeURIComponent(id)}`,
-      { signal },
-    ),
-  operationDetails: (id: string, signal?: AbortSignal) =>
-    request<Result<"getOperationDetails">>(
-      `/api/v1/operations/${encodeURIComponent(id)}/details`,
-      { signal },
-    ),
-  auditDetails: (id: string, signal?: AbortSignal) =>
-    request<Result<"getAuditDetails">>(
-      `/api/v1/audit-events/${encodeURIComponent(id)}`,
-      { signal },
-    ),
-  operationHistory: (
-    id: string,
-    after?: string,
-    signal?: AbortSignal,
-    filters: Record<string, string> = {},
-  ) =>
-    request<Result<"listAssignmentOperations">>(
-      `/api/v1/assignments/${encodeURIComponent(id)}/operations?${pageParams(after, filters)}`,
-      { signal },
-    ),
-  templateVersion: (id: string, version: number, signal?: AbortSignal) =>
-    request<Result<"getTemplateVersionDefinition">>(
-      `/api/v1/template-definitions/${encodeURIComponent(id)}/versions/${version}`,
-      { signal },
-    ),
-  storageClasses: (q: string, signal?: AbortSignal) =>
-    request<Result<"listApprovedStorageClasses">>(
-      `/api/v1/configuration-references/storage-classes?${pageParams(undefined, { q })}`,
-      { signal },
-    ),
-  templatePreview: (
-    id: string,
-    selection: { templateId: string; templateVersion: number },
-    signal?: AbortSignal,
-  ) =>
-    request<Result<"previewAssignmentTemplate">>(
-      `/api/v1/assignments/${encodeURIComponent(id)}/template-preview?${new URLSearchParams({ templateId: selection.templateId, templateVersion: String(selection.templateVersion) })}`,
-      { signal },
-    ),
-  templateBatch: (id: string, signal?: AbortSignal) =>
-    request<Result<"getTemplateBatch">>(
-      `/api/v1/template-batches/${encodeURIComponent(id)}`,
-      { signal },
-    ),
-  administrators: (
-    after?: string,
-    signal?: AbortSignal,
-    filters: Record<string, string> = {},
-  ) =>
-    request<Result<"listAdministrators">>(
-      `/api/v1/administrators?${pageParams(after, filters)}`,
-      { signal },
-    ),
-  administrator: (id: string, signal?: AbortSignal) =>
-    versioned<Result<"getAdministratorGrant">>(
-      `/api/v1/administrators/${encodeURIComponent(id)}`,
-      { signal },
-    ),
-  administratorCandidates: (signal?: AbortSignal, after?: string, q = "") =>
-    request<Result<"listAdministratorCandidates">>(
-      `/api/v1/administrator-identities?${pageParams(after, { q })}`,
-      { signal },
-    ),
-  schemas: (signal?: AbortSignal) =>
-    request<Result<"getConfigurationSchemas">>(
-      "/api/v1/configuration-schemas",
-      { signal },
-    ),
-  session: (signal?: AbortSignal) =>
-    request<AdminSession>("/api/v1/session", { signal }),
   assignments: (
     after?: string,
     signal?: AbortSignal,
-    filters: Record<string, string> = {},
+    filters: { q?: string; access?: string; templateId?: string } = {},
   ) =>
-    request<Assignments>(`/api/v1/assignments?${pageParams(after, filters)}`, {
+    request<Result<"listAssignments">>(
+      `/api/v1/assignments?${pageParams(after, filters)}`,
+      { signal },
+    ),
+  assignment: (assignmentId: string, signal?: AbortSignal) =>
+    versioned<Assignment>(`/api/v1/assignments/${id(assignmentId)}`, {
       signal,
     }),
-  assignment: (id: string, signal?: AbortSignal) =>
-    versioned<Result<"getAssignment">>(
-      `/api/v1/assignments/${encodeURIComponent(id)}`,
+  instance: (instanceId: string, signal?: AbortSignal) =>
+    request<Instance>(`/api/v1/instances/${id(instanceId)}`, { signal }),
+  environments: (instanceId: string, signal?: AbortSignal) =>
+    request<Result<"listEnvironments">>(
+      `/api/v1/instances/${id(instanceId)}/environments`,
       { signal },
     ),
-  instance: (id: string, signal?: AbortSignal) =>
-    versioned<Result<"getInstance">>(
-      `/api/v1/instances/${encodeURIComponent(id)}`,
-      { signal },
-    ),
-  execution: (id: string, signal?: AbortSignal) =>
-    versioned<Result<"getAssignmentExecution">>(
-      `/api/v1/assignments/${encodeURIComponent(id)}/execution`,
-      { signal },
-    ),
-  runtimes: (
+  orphans: (signal?: AbortSignal) =>
+    request<Result<"listOrphans">>("/api/v1/orphans", { signal }),
+  catalog: (
+    collection: CatalogCollection,
     after?: string,
     signal?: AbortSignal,
-    filters: Record<string, string> = {},
+    q?: string,
   ) =>
-    request<Runtimes>(
-      `/api/v1/terminal-runtimes?${pageParams(after, filters)}`,
+    request<Result<"listTemplates">>(
+      `/api/v1/${collection}?${pageParams(after, { q })}`,
+      { signal },
+    ),
+  versions: (
+    collection: CatalogCollection,
+    catalogId: string,
+    after?: string,
+    signal?: AbortSignal,
+  ) =>
+    request<Result<"listTemplateVersions">>(
+      `/api/v1/${collection}/${id(catalogId)}/versions?${pageParams(after)}`,
+      { signal },
+    ),
+  version: (
+    collection: CatalogCollection,
+    catalogId: string,
+    version: number,
+    signal?: AbortSignal,
+  ) =>
+    versioned<CatalogVersion>(
+      `/api/v1/${collection}/${id(catalogId)}/versions/${version}`,
+      { signal },
+    ),
+  /** Read-only, but a POST: browser sessions still send the CSRF token. */
+  validate: (
+    collection: CatalogCollection,
+    definition: Definition,
+    csrf: string,
+    signal?: AbortSignal,
+  ) =>
+    request<Result<"validateTemplate">>(`/api/v1/${collection}/validate`, {
+      method: "POST",
+      signal,
+      body: JSON.stringify({ definition }),
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+    }),
+  preview: (
+    assignmentId: string,
+    changes: Schemas["AssignmentChanges"],
+    csrf: string,
+    signal?: AbortSignal,
+  ) =>
+    request<Result<"previewAssignment">>(
+      `/api/v1/assignments/${id(assignmentId)}/preview`,
       {
+        method: "POST",
         signal,
+        body: JSON.stringify(changes),
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
       },
     ),
-  runtimeVersions: (id: string, after?: number, signal?: AbortSignal) =>
-    request<Result<"listTerminalRuntimeVersions">>(
-      `/api/v1/terminal-runtimes/${encodeURIComponent(id)}/versions?${pageParams(after)}`,
+  storageSources: (signal?: AbortSignal) =>
+    request<Result<"listStorageSources">>("/api/v1/storage-sources", {
+      signal,
+    }),
+  volumes: (after?: string, signal?: AbortSignal, source?: string) =>
+    request<Result<"listVolumes">>(
+      `/api/v1/volumes?${pageParams(after, { source })}`,
+      { signal },
+    ),
+  secrets: (after?: string, signal?: AbortSignal) =>
+    request<Result<"listSecrets">>(`/api/v1/secrets?${pageParams(after)}`, {
+      signal,
+    }),
+  administrators: (after?: string, signal?: AbortSignal) =>
+    request<Result<"listAdministrators">>(
+      `/api/v1/administrators?${pageParams(after)}`,
+      { signal },
+    ),
+  administrator: (identityId: string, signal?: AbortSignal) =>
+    versioned<Result<"getAdministrator">>(
+      `/api/v1/administrators/${id(identityId)}`,
+      { signal },
+    ),
+  administratorCandidates: (after?: string, signal?: AbortSignal, q?: string) =>
+    request<Result<"listAdministratorCandidates">>(
+      `/api/v1/administrator-candidates?${pageParams(after, { q })}`,
       { signal },
     ),
   audit: (
     after?: string,
     signal?: AbortSignal,
-    filters: Record<string, string> = {},
+    filters: { targetKind?: string; targetId?: string } = {},
   ) =>
-    request<Audit>(`/api/v1/audit-events?${pageParams(after, filters)}`, {
+    request<Result<"listAuditEvents">>(
+      `/api/v1/audit-events?${pageParams(after, filters)}`,
+      { signal },
+    ),
+  auditEvent: (eventId: string, signal?: AbortSignal) =>
+    request<Result<"getAuditEvent">>(`/api/v1/audit-events/${id(eventId)}`, {
       signal,
     }),
-  identities: (
-    after?: string,
-    signal?: AbortSignal,
-    filters: Record<string, string> = {},
-  ) =>
-    request<Result<"listIdentities">>(
-      `/api/v1/identities?${pageParams(after, filters)}`,
-      { signal },
-    ),
-  drafts: (
-    signal?: AbortSignal,
-    after?: string,
-    filters: Record<string, string> = {},
-  ) =>
-    request<Result<"listTemplateDrafts">>(
-      `/api/v1/template-drafts?${pageParams(after, filters)}`,
-      {
-        signal,
-      },
-    ),
-  draft: (id: string, signal?: AbortSignal) =>
-    versioned<Result<"getTemplateDraft">>(
-      `/api/v1/template-drafts/${encodeURIComponent(id)}`,
-      { signal },
-    ),
-  templateDefinitions: (
-    signal?: AbortSignal,
-    after?: string,
-    filters: Record<string, string> = {},
-  ) =>
-    request<Result<"listTemplateDefinitions">>(
-      `/api/v1/template-definitions?${pageParams(after, filters)}`,
-      {
-        signal,
-      },
-    ),
-  templateDefinition: (id: string, signal?: AbortSignal) =>
-    request<Result<"getTemplateDefinition">>(
-      `/api/v1/template-definitions/${encodeURIComponent(id)}`,
-      { signal },
-    ),
-  templates: (
-    signal?: AbortSignal,
-    after?: string,
-    filters: Record<string, string> = {},
-  ) =>
-    request<Result<"listTemplateVersions">>(
-      `/api/v1/template-versions?${pageParams(after, filters)}`,
-      { signal },
-    ),
-  storage: (instanceId: string, after?: string, signal?: AbortSignal) =>
-    request<Result<"listOwnerStorageBindings">>(
-      `/api/v1/storage-bindings?${pageParams(after, { instanceId })}`,
-      { signal },
-    ),
-  storageBinding: (id: string, signal?: AbortSignal) =>
-    versioned<Result<"getOwnerStorageBinding">>(
-      `/api/v1/storage-bindings/${encodeURIComponent(id)}`,
-      { signal },
-    ),
-  operation: (id: string, signal?: AbortSignal) =>
-    request<Result<"getOperation">>(
-      `/api/v1/operations/${encodeURIComponent(id)}`,
-      { signal },
-    ),
   logout: (csrf: string) =>
     request<void>("/auth/logout", {
       method: "POST",
       headers: { "X-CSRF-Token": csrf },
     }),
 };
+/** Display label for an exact identity; labels never replace it. */
+export const identityLabel = (identity: Identity) => identity.subject;
+export const versionLabel = (ref: VersionRef) => `${ref.id} · v${ref.version}`;

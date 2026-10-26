@@ -1,0 +1,208 @@
+openapi: 3.1.0
+info:
+  title: Personal Hermes gateway
+  version: 0.1.0
+  description: >-
+    Public interface of hermes-gateway on the Hermes hostname. The gateway owns
+    `/_platform/*` and intercepts native `POST /auth/logout`; it forwards every
+    other request to the signed-in owner's own instance (see `x-proxy`). It
+    holds no registry state: the manager's resolver (`router.openapi.yaml`)
+    decides every route. Every response under `/_platform/*` is no-store.
+    Provider tokens, session handles and identities never appear in URLs,
+    logs or error bodies.
+servers:
+  - url: https://hermes.example.org
+x-proxy:
+  session: >-
+    Every proxied request needs a valid platform session (both platform
+    cookies). Without one, a safe HTML navigation (`GET` or `HEAD` that accepts
+    `text/html`, not a WebSocket) is redirected with `303` to
+    `/_platform/login?returnTo=<path>`; anything else gets `401`
+    `{"error": "invalid_identity_evidence"}`.
+  resolution: >-
+    The session's verified `(issuer, subject)` is resolved over mTLS with a
+    2-second deadline. A ready decision is cached for at most 5 seconds per
+    session; no other decision is cached.
+  decisions:
+    ready: Forwarded to `http://hermes.<namespace>.svc:8080`, built only from the resolver's destination after checking the installation's namespace format
+    pending: '`202` owner status page that refreshes itself; `instance_blocked` says an administrator is needed'
+    denied: '`403` denial page; no request reaches any instance'
+    unavailable: '`503` page; never a fallback destination'
+  requestHygiene: >-
+    Removed before forwarding: hop-by-hop headers, `Forwarded`, `X-Forwarded-*`,
+    `X-Real-IP`, `X-Hermes-*`, `X-Auth-Request-*`, `X-Remote-*`, `Remote-User`
+    and both platform cookies. The gateway then sets `X-Forwarded-Proto: https`
+    and `X-Forwarded-Host`. `Host`, `Authorization` and native cookies pass
+    through. Request bodies are limited to 64 MiB.
+  responseHygiene: >-
+    Hop-by-hop headers are removed, and so is any `Set-Cookie` that names a
+    platform cookie.
+  revocation: >-
+    WebSockets and streamed responses without a length are re-checked every 5
+    seconds against the session and the resolver. They end when the session
+    ends, when the decision is no longer the same ready route (instance, route
+    generation and authorization version), or after two consecutive failed
+    checks, the second retried one second after the first.
+paths:
+  /_platform/login:
+    get:
+      operationId: beginPlatformLogin
+      parameters:
+        - name: returnTo
+          in: query
+          schema: { type: string, default: '/', maxLength: 2048 }
+          description: Local path to return to; `/_platform`, `/auth` and `/api/` paths are refused
+      responses:
+        '303':
+          description: >-
+            Single-use state, nonce and S256 PKCE stored before the provider
+            redirect. Sets the browser-proof cookie and expires the session
+            cookie; the browser's older sessions and flows end.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+            Set-Cookie: { schema: { type: string } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/Invalid' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /_platform/oidc/callback:
+    get:
+      operationId: completePlatformLogin
+      description: >-
+        Needs the current browser proof and an unused state. The exact issuer
+        and the subject of both tokens are verified. Callback parameters never
+        select a backend and are never reflected.
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string, maxLength: 128 } }
+        - { name: code, in: query, schema: { type: string, maxLength: 4096 } }
+        - { name: iss, in: query, schema: { type: string } }
+        - { name: session_state, in: query, schema: { type: string, maxLength: 1024 } }
+        - { name: error, in: query, schema: { type: string } }
+        - { name: error_description, in: query, schema: { type: string } }
+      responses:
+        '303':
+          description: Opaque platform session stored before the redirect to the return path
+          headers:
+            Location: { schema: { type: string } }
+            Set-Cookie: { schema: { type: string } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /_platform/me:
+    get:
+      operationId: getPlatformSession
+      security: [{ PlatformSession: [] }]
+      responses:
+        '200':
+          description: The verified owner and the session's CSRF token, without provider credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [identity, csrfToken]
+                properties:
+                  identity: { $ref: './router.openapi.yaml#/components/schemas/Identity' }
+                  csrfToken: { $ref: '#/components/schemas/Handle' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /_platform/logout:
+    post:
+      operationId: logoutPlatform
+      security: [{ PlatformSession: [] }]
+      description: >-
+        Needs the exact `Origin` and the session's CSRF token. The session ends
+        before the provider refresh token is revoked on a best-effort basis.
+        Platform and native cookies are expired whether or not the call
+        succeeds, and whether or not the instance is reachable.
+      parameters:
+        - { name: Origin, in: header, required: true, schema: { type: string, format: uri } }
+        - { name: X-CSRF-Token, in: header, required: true, schema: { $ref: '#/components/schemas/Handle' } }
+      responses:
+        '204':
+          description: Session ended; platform and native cookies expired
+          headers:
+            Set-Cookie: { schema: { type: string } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Invalid' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /auth/logout:
+    post:
+      operationId: logoutNative
+      security: [{ PlatformSession: [] }]
+      description: >-
+        Native Hermes's own logout, intercepted. Needs the exact `Origin`. When
+        the owner's instance is ready the request is forwarded first, with a
+        2-second deadline and its response discarded, so native Hermes can
+        revoke its own tokens. Then the platform session ends, platform and
+        native cookies are expired, and the browser goes to
+        `/_platform/signed-out`, even if the instance was unreachable.
+      parameters:
+        - { name: Origin, in: header, required: true, schema: { type: string, format: uri } }
+      responses:
+        '303':
+          description: Signed out; platform and native cookies expired
+          headers:
+            Location: { schema: { type: string, const: /_platform/signed-out } }
+            Set-Cookie: { schema: { type: string } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /_platform/signed-out:
+    get:
+      operationId: platformSignedOut
+      responses:
+        '200':
+          description: Static page with a link to sign in again
+          content:
+            text/html: { schema: { type: string } }
+  /_platform/healthz:
+    get:
+      operationId: gatewayHealth
+      description: Liveness only; checks no dependency
+      responses:
+        '200':
+          description: The process serves requests
+          content:
+            text/plain: { schema: { type: string, const: ok } }
+components:
+  securitySchemes:
+    PlatformSession:
+      type: apiKey
+      in: cookie
+      name: __Host-hermes-platform
+      description: >-
+        Opaque Secure, HttpOnly, SameSite=Lax, host-only cookie, valid only
+        with the matching `__Host-hermes-platform-browser` proof cookie. A
+        duplicated cookie is refused.
+  schemas:
+    Handle: { type: string, pattern: '^[a-f0-9]{64}$', minLength: 64, maxLength: 64 }
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          enum:
+            - invalid_identity_evidence
+            - access_denied
+            - invalid_request
+            - dependency_unavailable
+  responses:
+    Unauthenticated:
+      description: Absent, ambiguous, expired or revoked session
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Wrong `Origin` or CSRF token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Invalid:
+      description: Invalid or oversized request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: Provider, database or refresh contention; nothing is granted
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

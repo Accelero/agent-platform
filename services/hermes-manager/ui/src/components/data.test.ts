@@ -16,16 +16,16 @@ describe("shareable bounded pagination", () => {
       ).toBeLessThanOrEqual(4096);
     }
   });
-  it("accepts numeric and boolean external URL parameters without dropping filters", () => {
+  it("accepts numeric external URL parameters and drops unknown keys", () => {
     const search = validatePage({
-      assigned: true,
-      runtimeVersion: 3,
-      source: "manager",
+      version: 3,
+      source: "nvme",
+      instanceId: "ignored",
       cursors: [],
     });
-    expect(search.assigned).toBe("true");
-    expect(search.runtimeVersion).toBe("3");
-    expect(search.source).toBe("manager");
+    expect(search.version).toBe("3");
+    expect(search.source).toBe("nvme");
+    expect("instanceId" in search).toBe(false);
   });
   it("resets the page offset when filters return to the first page", () => {
     expect(validatePage({ cursors: [], pageOffset: 20 }).pageOffset).toBe(0);

@@ -9,17 +9,35 @@ mutable application state or deployment-specific backup scripts.
 - `agent_platform/`: shared BuildKit/cache configuration, release builder,
   privacy preflight and bounded command execution.
 - `containers/docker-bake.hcl`: the four supported release image targets.
-- `services/hermes-manager/`: Rust manager workspace and React dashboard.
-- `contracts/hermes-manager/`: OpenAPI contracts and template schemas.
+- `services/hermes-manager/`: Rust manager (`api` and `controller` roles),
+  `hermes-gateway` and the React dashboard.
+- `contracts/hermes-manager/`: OpenAPI contracts (administration, execution,
+  route resolution, gateway) and template schemas.
 - `runtimes/hermes/`: per-user Hermes image and the `managed_execution` plugin.
 - `runtimes/agent-runtime/`: default SSH terminal worker image.
-- `plugins/hermes-route-resolver/`: Traefik/Yaegi route resolver.
 - `charts/agent-platform/`: self-contained application chart.
 - `examples/manager/`: nonsecret manager render fixture.
 - `services/multica/`, `vendor/multica/`: optional standalone board backend,
   pinned upstream server source and upstream license notices.
 - `provenance/`: origin revisions, original source hashes and extraction notes.
-- `tests/`: release invariants, plugin/contract tests and acceptance fixtures.
+- `tests/`: release invariants, chart and contract tests and acceptance fixtures.
+
+## Manager design
+
+`docs/personal-hermes/specification.md` (what) and `architecture.md` (how)
+define the manager and gateway. `manager-rewrite.md` records how the previous
+design was replaced. Manager code follows these rules:
+
+- Every desired-state write is a `Command` run through the command envelope.
+- Reconciliation is level-triggered: a pure planner, then idempotent
+  server-side apply.
+- A non-repeatable effect uses one of the five named mechanisms in the
+  architecture. Add a new one only with a design change.
+- `hermes-core` imports no I/O crate.
+- Lifecycle states are typed enums, never string literals.
+- No `serde_json::Value` crosses a port, except opaque `adminConfig`.
+- Every requirement and acceptance row maps to tests in
+  `services/hermes-manager/TESTS.md`.
 
 ## Checks
 

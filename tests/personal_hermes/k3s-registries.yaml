@@ -1,0 +1,6 @@
+# The end-to-end run's private registry: plain HTTP on the fixture network,
+# behind basic authentication (registry_proxy.py). Nothing else is mirrored.
+mirrors:
+  "registry.e2e.test:5000":
+    endpoint:
+      - "http://registry.e2e.test:5000"

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: agent-platform
-description: Rust personal Hermes manager, router authentication and an optional Multica board.
+description: Personal Hermes manager, gateway and an optional Multica board.
 type: application
 version: 0.0.0
 appVersion: "0.0.0"

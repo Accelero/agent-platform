@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { api } from "../../api";
@@ -6,127 +5,64 @@ import { useActorKey } from "../../app/state";
 import {
   CopyId,
   DataTable,
-  ReadState,
-  usePager,
   ListControls,
-  JsonDetails,
+  ReadState,
   StatusBadge,
+  usePager,
 } from "../../components/data";
-import { CreateAssignment } from "../assignments/commands";
+import { CreateAssignment } from "../assignments/editor";
+
 export function UsersPage() {
-  const actor = useActorKey();
-  const pager = usePager();
+  const { search } = usePager();
   const navigate = useNavigate();
-  const directory = pager.search.collection === "directory";
-  const query = useQuery({
-    queryKey: [actor, "identities", pager.after, pager.filters],
-    enabled: !directory,
-    queryFn: ({ signal }) => api.identities(pager.after, signal, pager.filters),
-  });
+  const tab = search.tab === "directory" ? "directory" : "known";
   return (
     <>
-      <div className="actions">
-        {[false, true].map((value) => (
+      <div className="tabs" role="tablist" aria-label="User sources">
+        {(
+          [
+            ["known", "Known identities"],
+            ["directory", "Keycloak directory"],
+          ] as const
+        ).map(([value, label]) => (
           <button
-            key={String(value)}
-            aria-pressed={directory === value}
+            key={value}
+            role="tab"
+            aria-selected={tab === value}
             onClick={() =>
               void navigate({
-                to: "/users",
+                to: ".",
                 search: {
-                  collection: value ? "directory" : "recorded",
+                  tab: value === "known" ? undefined : value,
                   cursors: [],
                 },
               })
             }
           >
-            {value ? "Keycloak directory" : "Recorded identities"}
+            {label}
           </button>
         ))}
       </div>
-      {directory ? (
-        <DirectoryUsers />
-      ) : (
-        <>
-          <CreateAssignment />
-          <ListControls kind="identities" />
-          <ReadState
-            pending={query.isPending}
-            error={query.error}
-            stale={query.isRefetchError}
-          >
-            {query.data && (
-              <>
-                <DataTable
-                  caption="Recorded identities"
-                  rows={query.data.items}
-                  empty="No identities are recorded yet."
-                  columns={[
-                    {
-                      header: "Subject",
-                      cell: ({ row }) => (
-                        <Link to="/users/$id" params={{ id: row.original.id }}>
-                          {row.original.identity.subject}
-                        </Link>
-                      ),
-                    },
-                    { header: "Issuer", accessorFn: (r) => r.identity.issuer },
-                    {
-                      header: "Directory verified",
-                      cell: ({ row }) =>
-                        row.original.directoryVerified
-                          ? "Verified"
-                          : "Not verified",
-                    },
-                    {
-                      header: "Template",
-                      cell: ({ row }) =>
-                        row.original.assignment
-                          ? `${row.original.assignment.template.id} · v${row.original.assignment.template.version}`
-                          : "Unassigned",
-                    },
-                    {
-                      header: "Access",
-                      cell: ({ row }) =>
-                        row.original.assignment ? (
-                          <StatusBadge value={row.original.assignment.access} />
-                        ) : (
-                          "—"
-                        ),
-                    },
-                    {
-                      header: "Instance state",
-                      cell: ({ row }) => row.original.assignment?.state ?? "—",
-                    },
-                    {
-                      header: "Source",
-                      cell: ({ row }) => row.original.assignment?.source ?? "—",
-                    },
-                    {
-                      header: "Record ID",
-                      cell: ({ row }) => <CopyId value={row.original.id} />,
-                    },
-                  ]}
-                />
-                {pager.controls(query.data.nextCursor)}
-              </>
-            )}
-          </ReadState>
-        </>
-      )}
+      {tab === "known" ? <KnownIdentities /> : <Directory />}
     </>
   );
 }
-export function UserDetail() {
-  const { id } = useParams({ strict: false });
+
+function KnownIdentities() {
   const actor = useActorKey();
+  const pager = usePager();
   const query = useQuery({
-    queryKey: [actor, "identity", id],
-    queryFn: ({ signal }) => api.identity(id!, signal),
+    queryKey: [actor, "identities", pager.after, pager.filters.q],
+    queryFn: ({ signal }) =>
+      api.identities(pager.after, signal, pager.filters.q),
   });
   return (
     <>
-      <Link to="/users">← Users</Link>
+      <p>
+        Identities the manager has recorded: everyone with an assignment, and
+        everyone who signed in. Email and names are labels, never keys.
+      </p>
+      <ListControls search="Search identities" />
       <ReadState
         pending={query.isPending}
         error={query.error}
@@ -134,37 +70,52 @@ export function UserDetail() {
       >
         {query.data && (
           <>
-            <h2>User details</h2>
-            <JsonDetails
-              title="Exact identity and provenance"
-              value={{
-                identity: query.data.identity,
-                provenance: query.data.provenance,
-                directoryVerified: query.data.directoryVerified,
-              }}
+            <DataTable
+              caption="Known identities"
+              rows={query.data.items}
+              empty="No identities match."
+              columns={[
+                {
+                  header: "Identity",
+                  cell: ({ row }) => (
+                    <Link to="/users/$id" params={{ id: row.original.id }}>
+                      {row.original.identity.subject}
+                      <small>{row.original.identity.issuer}</small>
+                    </Link>
+                  ),
+                },
+                {
+                  header: "Label",
+                  cell: ({ row }) =>
+                    row.original.displayName ?? row.original.email ?? "—",
+                },
+                {
+                  header: "Signed in",
+                  cell: ({ row }) =>
+                    row.original.verified ? "Yes" : "Not yet",
+                },
+                {
+                  header: "Assignment",
+                  cell: ({ row }) =>
+                    row.original.assignmentId ? (
+                      <Link
+                        to="/assignments/$id"
+                        params={{ id: row.original.assignmentId }}
+                      >
+                        Open
+                      </Link>
+                    ) : (
+                      "None"
+                    ),
+                },
+                {
+                  header: "Administrator",
+                  cell: ({ row }) =>
+                    row.original.administrator ? "Granted" : "—",
+                },
+              ]}
             />
-            <CreateAssignment
-              initialIdentity={query.data.identity}
-              disabled={!!query.data.assignment}
-            />
-            {query.data.assignment ? (
-              <>
-                <JsonDetails
-                  title="Current assignment and instance"
-                  value={query.data.assignment}
-                />
-                <Link
-                  to="/assignments/$id"
-                  params={{ id: query.data.assignment.id }}
-                >
-                  Manage assignment and template →
-                </Link>
-              </>
-            ) : (
-              <>
-                <p>This recorded identity has no assignment.</p>
-              </>
-            )}
+            {pager.controls(query.data.nextCursor)}
           </>
         )}
       </ReadState>
@@ -172,106 +123,134 @@ export function UserDetail() {
   );
 }
 
-function DirectoryUsers() {
+function Directory() {
   const actor = useActorKey();
   const pager = usePager();
-  const navigate = useNavigate();
-  const [selected, setSelected] = useState<{
-    issuer: string;
-    subject: string;
-  }>();
   const query = useQuery({
-    queryKey: [actor, "directory-users", pager.after, pager.search.q],
+    queryKey: [actor, "directory", pager.after, pager.filters.q],
     queryFn: ({ signal }) =>
-      api.directoryUsers(pager.after, signal, pager.search.q),
+      api.directoryUsers(pager.after, signal, pager.filters.q),
   });
   return (
-    <section>
+    <>
       <p>
-        Directory results are verified provider records. Names and email are
-        labels; assignments use the exact issuer and subject. Directory lookup
-        does not grant administration access.
+        A read-only lookup in Keycloak. Finding someone here grants nothing; an
+        assignment or grant must still be created explicitly.
       </p>
-      <label>
-        Search Keycloak users
-        <input
-          type="search"
-          value={pager.search.q ?? ""}
-          maxLength={128}
-          onChange={(e) => {
-            setSelected(undefined);
-            void navigate({
-              to: "/users",
-              search: {
-                collection: "directory",
-                q: e.target.value,
-                cursors: [],
-              },
-            });
-          }}
-        />
-      </label>
+      <ListControls search="Search the directory" />
       <ReadState
         pending={query.isPending}
         error={query.error}
         stale={query.isRefetchError}
       >
         {query.data &&
-          (!query.data.enabled ? (
-            <p>
-              Keycloak directory search is not configured. Recorded identities
-              remain available.
-            </p>
-          ) : (
+          (query.data.enabled ? (
             <>
               <DataTable
-                caption="Keycloak directory users"
+                caption="Directory users"
                 rows={query.data.items}
-                empty="No directory users match this search."
+                empty="No directory users match."
                 columns={[
                   {
                     header: "Identity",
                     cell: ({ row }) => (
                       <>
-                        <strong>{row.original.identity.subject}</strong>
+                        {row.original.identity.subject}
                         <small>{row.original.identity.issuer}</small>
                       </>
                     ),
                   },
-                  { header: "Username", accessorKey: "username" },
-                  { header: "Display name", accessorKey: "displayName" },
-                  { header: "Email", accessorKey: "email" },
                   {
-                    header: "Provider status",
-                    cell: ({ row }) =>
-                      row.original.enabled ? "Enabled" : "Disabled",
+                    header: "Username",
+                    cell: ({ row }) => row.original.username ?? "—",
                   },
                   {
-                    header: "Assignment",
+                    header: "Name",
+                    cell: ({ row }) => row.original.displayName ?? "—",
+                  },
+                  {
+                    header: "Email",
+                    cell: ({ row }) => row.original.email ?? "—",
+                  },
+                  {
+                    header: "Status",
                     cell: ({ row }) => (
-                      <button
-                        disabled={!row.original.enabled}
-                        onClick={() => setSelected(row.original.identity)}
-                      >
-                        Select exact identity
-                      </button>
+                      <StatusBadge
+                        value={row.original.enabled ? "enabled" : "disabled"}
+                      />
                     ),
+                  },
+                  {
+                    header: "Action",
+                    cell: ({ row }) =>
+                      row.original.enabled && (
+                        <CreateAssignment identity={row.original.identity} />
+                      ),
                   },
                 ]}
               />
               {pager.controls(query.data.nextCursor)}
-              {selected && (
-                <section key={JSON.stringify(selected)}>
-                  <JsonDetails
-                    title="Selected directory identity"
-                    value={selected}
-                  />
-                  <CreateAssignment initialIdentity={selected} />
-                </section>
-              )}
             </>
+          ) : (
+            <p role="status">
+              The Keycloak directory is not configured for this installation.
+            </p>
           ))}
       </ReadState>
-    </section>
+    </>
+  );
+}
+
+export function UserDetail() {
+  const { id } = useParams({ from: "/users/$id" });
+  const actor = useActorKey();
+  const query = useQuery({
+    queryKey: [actor, "identity", id],
+    queryFn: ({ signal }) => api.identity(id, signal),
+  });
+  return (
+    <ReadState
+      pending={query.isPending}
+      error={query.error}
+      stale={query.isRefetchError}
+    >
+      {query.data && (
+        <section className="panel detail">
+          <h2>{query.data.identity.subject}</h2>
+          <dl>
+            <dt>Issuer</dt>
+            <dd>
+              <code>{query.data.identity.issuer}</code>
+            </dd>
+            <dt>Subject</dt>
+            <dd>
+              <CopyId value={query.data.identity.subject} />
+            </dd>
+            <dt>Labels</dt>
+            <dd>
+              {[query.data.displayName, query.data.email]
+                .filter(Boolean)
+                .join(" · ") || "None"}
+            </dd>
+            <dt>Signed in to the manager</dt>
+            <dd>{query.data.verified ? "Yes" : "Not yet"}</dd>
+            <dt>Administrator</dt>
+            <dd>{query.data.administrator ? "Granted" : "No grant"}</dd>
+          </dl>
+          <div className="actions">
+            {query.data.assignmentId ? (
+              <Link
+                to="/assignments/$id"
+                params={{ id: query.data.assignmentId }}
+              >
+                Open assignment
+              </Link>
+            ) : (
+              <CreateAssignment identity={query.data.identity} />
+            )}
+          </div>
+        </section>
+      )}
+    </ReadState>
   );
 }

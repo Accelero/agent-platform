@@ -280,3 +280,26 @@ def test_lifetime_mode_comes_only_from_the_managed_configuration(plugin):
     plugin.MANAGED_CONFIG.write_text(json.dumps(managed))
     assert provider.settings()["mode"] == "per_profile_on_demand"
     assert provider.settings()["acquire_timeout_seconds"] == 30
+
+
+def test_workers_start_in_the_workspace_unless_a_directory_is_declared(
+    plugin, monkeypatch
+):
+    """Hermes gives plugin backends root's home when nothing is declared, as in
+    a scheduled run; the non-root worker starts in the workspace instead."""
+    declared = {}
+    for name, values in {
+        "agent.runtime_cwd": {"scoped_session_cwd": lambda: None},
+        "tools.terminal_tool": {"get_session_cwd": lambda task: declared.get(task)},
+    }.items():
+        module = types.ModuleType(name)
+        module.__dict__.update(values)
+        monkeypatch.setitem(sys.modules, name, module)
+    assert plugin.invocation_cwd("/root", "cron") == "/workspace"
+    assert plugin.invocation_cwd("", "cron") == "/workspace"
+    assert plugin.invocation_cwd("/srv/project", "chat") == "/srv/project"
+    declared["chat"] = "/workspace/project"
+    assert plugin.invocation_cwd("/root", "chat") == "/workspace/project"
+    # Every command carries the generic default too, not only the first.
+    assert plugin.command_cwd("/root", "/workspace") == "/workspace"
+    assert plugin.command_cwd("/workspace/src", "/workspace") == "/workspace/src"

@@ -1,0 +1,33 @@
+{
+  "adminOrigin": "https://hermes-admin.example.org",
+  "clusterDomain": "cluster.local",
+  "databaseUrlFile": "/run/hermes/secrets/database-url",
+  "installation": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "issuer": "https://sso.example.org/realms/agents"
+  },
+  "keyringFile": "/run/hermes/config/keyring.json",
+  "listen": "0.0.0.0:8443",
+  "maxUploadMib": 64,
+  "oidc": {
+    "audience": "hermes-gateway",
+    "clientId": "hermes-gateway",
+    "clientSecretFile": "/run/hermes/secrets/oidc-client-secret",
+    "jwksUrl": "https://sso.example.org/realms/agents/protocol/openid-connect/certs",
+    "revocationUrl": "https://sso.example.org/realms/agents/protocol/openid-connect/revoke",
+    "scopes": [
+      "openid"
+    ]
+  },
+  "publicOrigin": "https://hermes.example.org",
+  "resolver": {
+    "caFile": "/run/hermes/secrets/resolver-ca.crt",
+    "certificateFile": "/run/hermes/secrets/resolver-client.crt",
+    "privateKeyFile": "/run/hermes/secrets/resolver-client.key",
+    "url": "https://hermes-manager-api.agents.svc:8444/"
+  },
+  "tls": {
+    "certificateFile": "/run/hermes/secrets/tls.crt",
+    "privateKeyFile": "/run/hermes/secrets/tls.key"
+  }
+}

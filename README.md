@@ -1,27 +1,37 @@
 # Agent platform
 
 Personal Hermes agents on Kubernetes, commissioned and governed by one Rust
-manager.
+manager and installed with one Helm chart.
 
-- **Hermes commissioning.** Infrastructure writes per-user mappings and
-  digest-pinned templates into PostgreSQL. The manager creates one private
-  namespace per user, with retained home and workspace PVCs and a non-root Hermes
-  Deployment. It applies image and configuration updates and retains user state
-  on removal.
-- **Terminal backends.** Users create Hermes profiles and select a terminal
-  backend per profile (`terminal.runtime_id`) in the native dashboard. The bundled
-  `managed_execution` plugin requests that backend from the manager. The manager
-  enforces the instance's allowlist and owner storage policy. It creates the
-  SSH worker on demand, pins its host key and retires it when the session closes,
-  the worker idles or policy changes.
-- **Administration.** The manager's React dashboard and versioned API manage
-  assignments, templates, terminal runtimes, storage bindings and execution
-  policy. Keycloak authenticates administrators; PostgreSQL grants authorize them.
+- **Instances.** Administrators decide which SSO users get a Hermes agent, with
+  which template, volumes and terminal backends. The manager creates a private
+  namespace per user with persistent storage and one always-running Hermes,
+  enforces admin settings (for example the LLM provider) and admin secrets, and
+  retains all data on suspension or revocation.
+- **Terminal backends.** Users pick a terminal backend per Hermes profile
+  (`terminal.runtime_id`). The bundled `managed_execution` plugin requests it
+  from the manager. The manager creates an SSH worker only for backends that
+  user is allowed to use, mounts only the volumes the administrator assigned,
+  and retires the worker when it is no longer needed.
+- **Routing.** One Hermes URL for everyone. A Rust gateway authenticates the
+  user with Keycloak and forwards them to their own instance.
+- **Administration.** A React dashboard on the manager's versioned API.
+  Keycloak authenticates administrators and PostgreSQL grants authorize them.
+  All manager state is in PostgreSQL, and the manager recovers from crashes
+  without duplicating or destroying anything.
 
-Start with the [implementation status](docs/personal-hermes/implementation.md),
-then the [native commissioning guide](docs/personal-hermes/native-commissioning.md)
-and the [terminal backend guide](docs/personal-hermes/terminal-backends.md). The
-plugin–manager wire interface is the
+Read these in order:
+
+1. [specification](docs/personal-hermes/specification.md) (what);
+2. [architecture](docs/personal-hermes/architecture.md) (how);
+3. the guides for [instances](docs/personal-hermes/instances.md),
+   [terminal backends](docs/personal-hermes/terminal-backends.md) and the
+   [dashboard](docs/personal-hermes/dashboard.md).
+
+The [implementation status](docs/personal-hermes/implementation.md) records
+what is proven and what is still open, and the
+[rewrite guide](docs/personal-hermes/manager-rewrite.md) records how the
+previous design was replaced. The plugin–manager wire interface is the
 [execution contract](contracts/hermes-manager/execution.openapi.yaml).
 
 ## Artifacts
@@ -32,25 +42,25 @@ as `0.1.0` through the release pipeline below.
 
 | Image | Role |
 | --- | --- |
-| `ghcr.io/accelero/agent-platform/hermes-manager` | Rust API/dashboard, controller and router-auth executables |
+| `ghcr.io/accelero/agent-platform/hermes-manager` | Rust manager (`api` with the dashboard, `controller`) and `hermes-gateway` |
 | `ghcr.io/accelero/agent-platform/hermes` | Per-user Hermes image with the `managed_execution` plugin |
 | `ghcr.io/accelero/agent-platform/agent-runtime` | Default `managed-ssh-v2` terminal worker image |
 | `ghcr.io/accelero/agent-platform/multica-backend` | Optional standalone Multica board backend; not integrated yet |
 
 The chart `oci://ghcr.io/accelero/agent-platform/charts/agent-platform` pins
-these images by digest. It deploys the manager roles; the controller creates
+these images by digest. It deploys the manager roles and the gateway, with the
+controller's RBAC and the static admission policies; the controller creates
 per-user resources. See the [chart guide](charts/agent-platform/README.md).
 
 ## Layout
 
-- `services/hermes-manager/`: Rust workspace (domain, application, adapters,
-  executables) and the React/TypeScript dashboard.
-- `contracts/hermes-manager/`: administration, execution, router and router-auth
-  OpenAPI contracts and template schemas.
+- `services/hermes-manager/`: Rust manager, gateway and the React/TypeScript
+  dashboard; `TESTS.md` maps every requirement to its tests.
+- `contracts/hermes-manager/`: administration, execution, route resolution and
+  gateway OpenAPI contracts and template schemas.
 - `runtimes/hermes/`: Hermes image, personal init/run entrypoints, terminal
   policy patches and the `managed_execution` plugin.
 - `runtimes/agent-runtime/`: SSH terminal worker image.
-- `plugins/hermes-route-resolver/`: Traefik/Yaegi route resolver for future routing.
 - `charts/agent-platform/`: application chart.
 - `services/multica/`, `vendor/multica/`: optional board backend and pinned upstream source.
 - `agent_platform/`: release builder, privacy preflight and bounded commands.

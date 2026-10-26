@@ -11,58 +11,48 @@ import {
 import { ErrorNotice } from "../components/data";
 const navigation = [
   ["/", "Overview"],
-  ["/assignments", "Instances"],
   ["/users", "Users"],
-  ["/templates", "Templates"],
-  ["/terminal-runtimes", "Terminal backends"],
-  ["/storage-bindings", "Storage bindings"],
+  ["/assignments", "Assignments"],
+  ["/templates", "Hermes templates"],
+  ["/terminal-backends", "Terminal backends"],
+  ["/storage", "Storage"],
+  ["/secrets", "Secrets"],
   ["/activity", "Activity"],
   ["/administrators", "Administrators"],
 ] as const;
 const titles: Record<string, [string, string]> = {
-  "/operations": [
-    "Operation inspection",
-    "Track reconciliation outcomes and verified journal steps.",
-  ],
-  "/administrators": [
-    "Administrators",
-    "Manage PostgreSQL administration grants for exact Keycloak identities.",
-  ],
-  "/template-drafts": [
-    "Template draft",
-    "Edit, validate and publish an immutable version.",
-  ],
-  "/template-batches": [
-    "Bulk template application",
-    "Inspect durable results for the explicitly selected assignments.",
-  ],
   "/": [
     "A place for every agent.",
-    "Manage personal Hermes instances and their approved execution environments.",
-  ],
-  "/assignments": [
-    "Personal instances",
-    "Assignments connect an exact Keycloak identity to its own Hermes instance.",
+    "Manage personal Hermes instances and the terminal backends they may use.",
   ],
   "/users": [
     "Users",
-    "Exact identities recorded by the manager and their directory verification.",
+    "Exact identities known to the manager, and the optional Keycloak directory.",
+  ],
+  "/assignments": [
+    "Assignments",
+    "Who gets a Hermes instance: template version, volumes, terminal backends and admin settings.",
   ],
   "/templates": [
-    "Template definitions",
-    "Inspect deployment settings, managed configuration and immutable catalog versions.",
+    "Hermes templates",
+    "Versioned instance definitions with their enforced admin settings.",
   ],
-  "/terminal-runtimes": [
+  "/terminal-backends": [
     "Terminal backends",
-    "The approved runtime catalog available to assignment policies.",
+    "Versioned SSH worker definitions that assignments may allow.",
   ],
-  "/storage-bindings": [
-    "Storage bindings",
-    "Inspect approved storage for an exact instance.",
+  "/storage": [
+    "Storage",
+    "Approved storage sources from the installation and the volumes on them.",
   ],
-  "/activity": [
-    "Manager activity",
-    "An administrator-attributed record of committed changes.",
+  "/secrets": [
+    "Admin secrets",
+    "Write-only values sealed to the controller. Values are never shown.",
+  ],
+  "/activity": ["Activity", "An attributed record of every committed change."],
+  "/administrators": [
+    "Administrators",
+    "PostgreSQL grants for exact Keycloak identities.",
   ],
 };
 export function Layout() {

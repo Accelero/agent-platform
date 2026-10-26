@@ -165,7 +165,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     InvalidRequest:
-      description: Strict bounded request validation failed; submitted content is never reflected
+      description: Strict bounded request validation failed, or the backend's worker failed (`backend_failed`); submitted content is never reflected
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -287,4 +287,8 @@ components:
       properties:
         error:
           type: string
-          enum: [invalid_identity_evidence, access_denied, not_found, environment_pending, idempotency_conflict, lease_not_live, invalid_request, maintenance, registry_unavailable, dependency_unavailable]
+          enum: [invalid_identity_evidence, access_denied, not_found, environment_pending, idempotency_conflict, lease_not_live, invalid_request, backend_failed, maintenance, registry_unavailable, dependency_unavailable]
+          description: >-
+            `backend_failed` (422, acquisition only): the backend's worker cannot
+            be pulled, started or reached under managed-ssh-v2. It is reported
+            in the instance's environments, and no other image is used.

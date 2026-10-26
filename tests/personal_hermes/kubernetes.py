@@ -29,6 +29,181 @@ def command(args, timeout=30):
     return result.stdout
 
 
+WORKER_TAG = "hermes-next-worker:test"
+
+
+def import_image(identifier, tag, temporary, reuse=False):
+    """Imports a local Docker image into k3s; returns its digest reference.
+
+    With `reuse`, an image the cluster already has under `tag` is kept, for
+    repeated development runs on one cluster.
+    """
+    reference = tag if "/" in tag.split(":")[0] else "docker.io/library/" + tag
+    if reuse:
+        listing = command(["docker", "exec", identifier, "ctr", "images", "list"])
+        for line in listing.splitlines():
+            if line.split()[0] == reference:
+                return reference.rsplit(":", 1)[0] + "@" + line.split()[2]
+    archive = Path(temporary) / (tag.replace("/", "_").replace(":", "_") + ".tar")
+    command(["docker", "save", "--output", str(archive), tag], timeout=600)
+    name = "/tmp/" + archive.name
+    command(["docker", "cp", str(archive), f"{identifier}:{name}"], timeout=600)
+    archive.unlink()
+    command(
+        ["docker", "exec", identifier, "ctr", "images", "import", name], timeout=900
+    )
+    command(["docker", "exec", identifier, "rm", name])
+    listing = command(["docker", "exec", identifier, "ctr", "images", "list"])
+    digest = next(
+        line.split()[2] for line in listing.splitlines() if line.split()[0] == reference
+    )
+    assert digest.startswith("sha256:")
+    pinned = reference.rsplit(":", 1)[0] + "@" + digest
+    command(["docker", "exec", identifier, "ctr", "images", "tag", reference, pinned])
+    return pinned
+
+
+def import_worker_image(identifier, temporary):
+    """Builds runtimes/agent-runtime, imports it and returns a digest reference."""
+    command(
+        [
+            "docker",
+            "build",
+            "--quiet",
+            "--tag",
+            WORKER_TAG,
+            str(ROOT / "runtimes/agent-runtime"),
+        ],
+        timeout=600,
+    )
+    return import_image(identifier, WORKER_TAG, temporary)
+
+
+def start_k3s(network, name):
+    """Starts a digest-pinned k3s server container; returns its ID."""
+    return command(
+        [
+            "docker",
+            "run",
+            "--detach",
+            "--name",
+            name,
+            "--privileged",
+            "--network",
+            network,
+            "--tmpfs",
+            "/run",
+            "--tmpfs",
+            "/var/run",
+            "--label",
+            "agent-platform.io/fixture=personal-hermes-kubernetes",
+            "--volume",
+            f"{ROOT / 'tests/personal_hermes/k3s-registries.yaml'}"
+            ":/etc/rancher/k3s/registries.yaml:ro",
+            "--publish",
+            "127.0.0.1::6443",
+            IMAGE,
+            "server",
+            "--disable",
+            "traefik,servicelb,metrics-server",
+            "--tls-san",
+            "127.0.0.1",
+        ],
+        timeout=120,
+    ).strip()
+
+
+def wait_ready(identifier):
+    """Waits for the API server; returns a kubeconfig reaching it from here.
+
+    The kubeconfig holds fixture credentials: keep it in memory or private
+    temporary files only.
+    """
+    state = json.loads(command(["docker", "inspect", identifier]))[0]
+    expected_image = command(
+        ["docker", "image", "inspect", IMAGE, "--format", "{{.Id}}"]
+    ).strip()
+    assert state["Image"] == expected_image
+    port = state["NetworkSettings"]["Ports"]["6443/tcp"][0]
+    assert port["HostIp"] == "127.0.0.1"
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        try:
+            probe = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    identifier,
+                    "/bin/kubectl",
+                    "--kubeconfig",
+                    "/etc/rancher/k3s/k3s.yaml",
+                    "--request-timeout=3s",
+                    "get",
+                    "--raw",
+                    "/readyz",
+                ],
+                capture_output=True,
+                timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            probe = None
+        if (
+            probe is not None
+            and probe.returncode == 0
+            and probe.stdout.strip() == b"ok"
+        ):
+            break
+        state = json.loads(command(["docker", "inspect", identifier]))[0]
+        assert state["State"]["Running"], "Disposable Kubernetes server stopped"
+        time.sleep(0.5)
+    else:
+        raise AssertionError("Disposable Kubernetes server did not become ready")
+    # This output includes fixture credentials. Keep it in memory/files only.
+    config = yaml.safe_load(
+        command(["docker", "exec", identifier, "cat", "/etc/rancher/k3s/k3s.yaml"])
+    )
+    config["clusters"][0]["cluster"]["server"] = f"https://127.0.0.1:{port['HostPort']}"
+    config["contexts"][0]["name"] = "personal-hermes-manager-tests"
+    config["current-context"] = "personal-hermes-manager-tests"
+    return config
+
+
+def remove_container(identifier):
+    """Removes exactly this fixture container."""
+    # Docker can report a transient removal conflict while the server
+    # finishes exiting. Retry only this fixture's exact container ID;
+    # an inspect/daemon failure is never treated as proof of absence.
+    for attempt in range(3):
+        try:
+            removed = subprocess.run(
+                ["docker", "rm", "--force", "--volumes", identifier],
+                capture_output=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            # The daemon may finish after its CLI loses the response.
+            # Observe this exact container before retrying removal.
+            removed = None
+        if removed is not None and removed.returncode == 0:
+            break
+        remaining = command(
+            [
+                "docker",
+                "ps",
+                "--all",
+                "--no-trunc",
+                "--filter",
+                f"id={identifier}",
+                "--format",
+                "{{.ID}}",
+            ]
+        )
+        if not remaining.strip():
+            break
+        assert attempt < 2, "Disposable Kubernetes fixture cleanup failed"
+        time.sleep(0.2)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--postgres-container", default="personal-hermes-manager-tests")
@@ -82,81 +257,8 @@ def main():
                 ["docker", "network", "connect", f"k3d-{name}", args.postgres_container]
             )
         else:
-            identifier = command(
-                [
-                    "docker",
-                    "run",
-                    "--detach",
-                    "--name",
-                    name,
-                    "--privileged",
-                    "--network",
-                    network,
-                    "--tmpfs",
-                    "/run",
-                    "--tmpfs",
-                    "/var/run",
-                    "--label",
-                    "agent-platform.io/fixture=personal-hermes-kubernetes",
-                    "--publish",
-                    "127.0.0.1::6443",
-                    IMAGE,
-                    "server",
-                    "--disable",
-                    "traefik,servicelb,metrics-server",
-                    "--tls-san",
-                    "127.0.0.1",
-                ],
-                timeout=120,
-            ).strip()
-        state = json.loads(command(["docker", "inspect", identifier]))[0]
-        expected_image = command(
-            ["docker", "image", "inspect", IMAGE, "--format", "{{.Id}}"]
-        ).strip()
-        assert state["Image"] == expected_image
-        port = state["NetworkSettings"]["Ports"]["6443/tcp"][0]
-        assert port["HostIp"] == "127.0.0.1"
-        deadline = time.monotonic() + 120
-        while time.monotonic() < deadline:
-            try:
-                probe = subprocess.run(
-                    [
-                        "docker",
-                        "exec",
-                        identifier,
-                        "/bin/kubectl",
-                        "--kubeconfig",
-                        "/etc/rancher/k3s/k3s.yaml",
-                        "--request-timeout=3s",
-                        "get",
-                        "--raw",
-                        "/readyz",
-                    ],
-                    capture_output=True,
-                    timeout=5,
-                )
-            except subprocess.TimeoutExpired:
-                probe = None
-            if (
-                probe is not None
-                and probe.returncode == 0
-                and probe.stdout.strip() == b"ok"
-            ):
-                break
-            state = json.loads(command(["docker", "inspect", identifier]))[0]
-            assert state["State"]["Running"], "Disposable Kubernetes server stopped"
-            time.sleep(0.5)
-        else:
-            raise AssertionError("Disposable Kubernetes server did not become ready")
-        # This output includes fixture credentials. Keep it in memory/files only.
-        config = yaml.safe_load(
-            command(["docker", "exec", identifier, "cat", "/etc/rancher/k3s/k3s.yaml"])
-        )
-        config["clusters"][0]["cluster"]["server"] = (
-            f"https://127.0.0.1:{port['HostPort']}"
-        )
-        config["contexts"][0]["name"] = "personal-hermes-manager-tests"
-        config["current-context"] = "personal-hermes-manager-tests"
+            identifier = start_k3s(network, name)
+        config = wait_ready(identifier)
         postgres_port = (
             command(["docker", "port", args.postgres_container, "5432/tcp"])
             .strip()
@@ -174,22 +276,43 @@ def main():
             environment["DATABASE_URL"] = (
                 f"postgres://hermes_test@127.0.0.1:{postgres_port}/hermes_test"
             )
-            build = subprocess.run(
-                ["cargo", "build", "-p", "hermes-manager", "--locked", "--offline"],
-                cwd=ROOT / "services/hermes-manager",
-                env=environment,
-                timeout=300,
+            # The rewrite's adapter tests run in-process as the controller's
+            # real ServiceAccount; no binary is needed. The worker test
+            # needs the repository's terminal backend image in the cluster.
+            environment["HERMES_TEST_WORKER_IMAGE"] = import_worker_image(
+                identifier, temporary
             )
-            assert build.returncode == 0, "Controller process fixture build failed"
-            environment["HERMES_TEST_MANAGER_BINARY"] = str(
-                ROOT / "services/hermes-manager/target/debug/hermes-manager"
-            )
+            environment["HERMES_TEST_K3S_CONTAINER"] = identifier
+            environment["HERMES_TEST_POSTGRES_CONTAINER"] = args.postgres_container
             result = subprocess.run(
                 [
                     "cargo",
                     "test",
+                    "-p",
+                    "hermes-kube",
                     "--test",
-                    "kubernetes",
+                    "cluster",
+                    "--locked",
+                    "--",
+                    "--ignored",
+                    "--test-threads",
+                    "2",
+                ],
+                cwd=ROOT / "services/hermes-manager",
+                env=environment,
+                timeout=600,
+            )
+            assert result.returncode == 0, "Real Kubernetes adapter test failed"
+            result = subprocess.run(
+                [
+                    "cargo",
+                    "test",
+                    "-p",
+                    "hermes-manager",
+                    "--features",
+                    "fault-injection",
+                    "--test",
+                    "controller_process",
                     "--locked",
                     "--",
                     "--ignored",
@@ -198,15 +321,16 @@ def main():
                 env=environment,
                 timeout=600,
             )
-            assert result.returncode == 0, "Real Kubernetes ownership test failed"
+            assert result.returncode == 0, "Controller process test failed"
+            print(
+                "PASS: server-side apply, admission and RBAC under the real "
+                "ServiceAccount, preconditioned delete, leader election, "
+                "controller aborts at every fault point"
+            )
             if args.native:
-                from tests.personal_hermes.native_commissioning import run_fixture
+                from tests.personal_hermes.native_e2e import run_e2e
 
-                run_fixture(identifier, args.postgres_container, temporary)
-        print(
-            "PASS: isolated Kubernetes creation recovery, namespace/UID ownership "
-            "and preconditioned retirement; ServiceAccount bootstrap/admission"
-        )
+                run_e2e(identifier, temporary, environment)
     finally:
         if args.k3d:
             subprocess.run(
@@ -224,38 +348,7 @@ def main():
                 ["k3d", "cluster", "delete", name], capture_output=True, timeout=90
             )
         elif identifier:
-            # Docker can report a transient removal conflict while the server
-            # finishes exiting. Retry only this fixture's exact container ID;
-            # an inspect/daemon failure is never treated as proof of absence.
-            for attempt in range(3):
-                try:
-                    removed = subprocess.run(
-                        ["docker", "rm", "--force", "--volumes", identifier],
-                        capture_output=True,
-                        timeout=30,
-                    )
-                except subprocess.TimeoutExpired:
-                    # The daemon may finish after its CLI loses the response.
-                    # Observe this exact container before retrying removal.
-                    removed = None
-                if removed is not None and removed.returncode == 0:
-                    break
-                remaining = command(
-                    [
-                        "docker",
-                        "ps",
-                        "--all",
-                        "--no-trunc",
-                        "--filter",
-                        f"id={identifier}",
-                        "--format",
-                        "{{.ID}}",
-                    ]
-                )
-                if not remaining.strip():
-                    break
-                assert attempt < 2, "Disposable Kubernetes fixture cleanup failed"
-                time.sleep(0.2)
+            remove_container(identifier)
 
 
 if __name__ == "__main__":

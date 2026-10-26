@@ -1,27 +1,21 @@
 openapi: 3.1.0
 info:
   title: Personal Hermes manager administration API
-  version: 0.1.0
+  version: 1.0.0
   description: >-
-    Versioned administration boundary, in development. The API authenticates
-    Keycloak access
-    tokens for the configured management audience, authorized client and
-    installation-scoped PostgreSQL administrator grant. Keycloak role claims and personal assignments, realm membership,
-    service certificates and asserted headers grant no administrator permission.
-    Require a signed Keycloak user-session sid; client-credentials tokens are
-    unsupported. Management/router OIDC clients must disable service accounts.
-    Optional browser OIDC sessions use S256 PKCE, server-side encrypted tokens,
-    opaque host-only HttpOnly cookies and the same API. Cookie mutations require
-    the exact administration Origin and X-CSRF-Token from GET /api/v1/session.
-    Do not combine cookie and bearer credentials. The protected dashboard shares this boundary.
-    Every response is no-store. Request bodies and headers are each limited to
-    16 KiB. Unknown or duplicate JSON/query fields are rejected. Mutations commit
-    desired state or immutable approved references, actor-scoped idempotency and
-    audit before returning 202. Assignment lifecycle commands also commit an
-    operation; execution policy changes preserve desired/applied generations. Native
-    files, histories, provider credentials and arbitrary Kubernetes specs are
-    absent from this contract. Resolver requests use the separate router contract
-    and mTLS listener; execution credentials cannot call this API.
+    Administration of personal Hermes instances: who gets an instance, on which
+    template, with which volumes, terminal backends, admin settings and admin
+    secrets. Callers authenticate with a Keycloak access token for the
+    administration audience, or with the browser session from /auth/login.
+    Authority comes only from the caller's current PostgreSQL administrator
+    grant. Cookie and bearer credentials are never combined; browser mutations
+    need the exact administration Origin and the session's X-CSRF-Token. Every
+    mutation needs an Idempotency-Key; updates and deletes of versioned
+    resources need If-Match with the quoted version from the ETag. Mutations
+    commit desired state, the idempotency receipt and an audit event together
+    before responding. Every response is no-store; request bodies and headers
+    are each limited to 16 KiB. Secret values are write-only and never
+    returned.
 servers:
   - url: https://hermes-admin.example.org
 security:
@@ -36,19 +30,19 @@ paths:
         - name: returnTo
           in: query
           schema: { type: string, maxLength: 2048, default: '/' }
-          description: Local UI path only; auth, API and platform paths are rejected
+          description: Local dashboard path; authentication, API and platform paths are refused
       responses:
         '303':
-          description: Committed single-use PKCE/state flow, then provider redirect; previous browser sessions invalidated
+          description: Single-use PKCE flow committed; redirect to the identity provider
           headers:
             Location: { schema: { type: string, format: uri } }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
+        '422': { $ref: '#/components/responses/Invalid' }
         '503': { $ref: '#/components/responses/Unavailable' }
   /auth/oidc/callback:
     get:
       operationId: completeAdministratorLogin
       security: []
-      description: Browser proof and current single-use state required; codes and provider errors are never reflected
+      description: Needs the browser proof cookie of the flow; codes and provider errors are never reflected
       parameters:
         - { name: state, in: query, required: true, schema: { type: string, maxLength: 128 } }
         - { name: code, in: query, schema: { type: string, maxLength: 4096 } }
@@ -58,7 +52,7 @@ paths:
         - { name: error_description, in: query, schema: { type: string } }
       responses:
         '303':
-          description: Committed opaque administrator session, then local UI redirect
+          description: Session created for an identity with an active grant; redirect to the dashboard
           headers:
             Location: { schema: { type: string } }
         '401': { $ref: '#/components/responses/Unauthenticated' }
@@ -69,587 +63,70 @@ paths:
       operationId: logoutAdministrator
       security:
         - AdministratorSession: []
-      description: Exact Origin and session CSRF required; durable session revocation precedes best-effort provider token revocation
       parameters:
-        - { name: Origin, in: header, required: true, schema: { type: string, format: uri } }
-        - { name: X-CSRF-Token, in: header, required: true, schema: { type: string, pattern: '^[a-f0-9]{64}$' } }
+        - { name: Origin, in: header, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/Csrf' }
       responses:
-        '204': { description: Session revoked and browser cookies expired }
+        '204': { description: Session revoked and cookies expired }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '503': { $ref: '#/components/responses/Unavailable' }
   /api/v1/session:
     get:
-      operationId: getAdministrationSession
+      operationId: getSession
       responses:
         '200':
-          description: Verified human administrator and permitted actions
+          description: The authenticated administrator
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Session'
+              schema: { $ref: '#/components/schemas/Session' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/identities:
     get:
       operationId: listIdentities
-      description: Exact registered subjects. Directory verification is false unless a configured read-only directory
-        adapter has verified the subject. Email never selects, links or transfers an assignment.
+      description: Identities the manager knows from sign-ins, grants and assignments
       parameters:
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/AccessFilter'
-      - $ref: '#/components/parameters/StateFilter'
-      - $ref: '#/components/parameters/TemplateFilter'
-      - $ref: '#/components/parameters/SourceFilter'
-      - $ref: '#/components/parameters/AssignedFilter'
-      - $ref: '#/components/parameters/IdentityFilter'
-      responses:
-        '200':
-          description: Bounded registered-identity page
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    items:
-                      $ref: '#/components/schemas/IdentityView'
-                  nextCursor:
-                    $ref: '#/components/schemas/ListCursor'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/assignments/{id}/template-preview:
-    get:
-      operationId: previewAssignmentTemplate
-      parameters:
-        - { $ref: '#/components/parameters/Id' }
-        - { name: templateId, in: query, required: true, schema: { type: string } }
-        - { name: templateVersion, in: query, required: true, schema: { type: integer, minimum: 1 } }
-      responses:
-        '200':
-          description: Explicit selected scope and pinned versions; acknowledgement is separate from rollout completion.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TemplatePreview' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/assignments/{id}/template:
-    post:
-      operationId: setAssignmentTemplate
-      parameters:
-        - { $ref: '#/components/parameters/Id' }
-        - { $ref: '#/components/parameters/IdempotencyKey' }
-        - { $ref: '#/components/parameters/IfMatch' }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/TemplateSelection' }
-      responses:
-        '202':
-          description: Explicit selected scope and pinned versions; acknowledgement is separate from rollout completion.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Accepted' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/template-batches/preview:
-    post:
-      operationId: previewTemplateBatch
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/TemplateBatch' }
-      responses:
-        '200':
-          description: Explicit selected scope and pinned versions; acknowledgement is separate from rollout completion.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TemplateBatchPreview' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/template-batches:
-    post:
-      operationId: applyTemplateBatch
-      parameters:
-        - { $ref: '#/components/parameters/IdempotencyKey' }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/TemplateBatch' }
-      responses:
-        '202':
-          description: Explicit selected scope and pinned versions; acknowledgement is separate from rollout completion.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TemplateBatchAccepted' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/template-batches/{id}:
-    get:
-      operationId: getTemplateBatch
-      parameters:
-        - { $ref: '#/components/parameters/Id' }
-      responses:
-        '200':
-          description: Explicit selected scope and pinned versions; acknowledgement is separate from rollout completion.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TemplateBatchView' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/template-batches/{id}/resume:
-    post:
-      operationId: resumeTemplateBatch
-      description: Resume only pending members of the original actor's durable batch, preserving target, preconditions and child idempotency keys.
-      parameters:
-        - { $ref: '#/components/parameters/Id' }
-        - { $ref: '#/components/parameters/IdempotencyKey' }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { type: object, additionalProperties: false }
-      responses:
-        '202':
-          description: Pending dispatch resumed; accepted members are never applied twice.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TemplateBatchAccepted' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/administrators:
-    get:
-      operationId: listAdministrators
-      parameters:
-        - { $ref: '#/components/parameters/ListAfter' }
+        - { $ref: '#/components/parameters/Search' }
+        - { $ref: '#/components/parameters/After' }
         - { $ref: '#/components/parameters/Limit' }
-        - { $ref: '#/components/parameters/ListSearch' }
-        - { $ref: '#/components/parameters/ListSort' }
       responses:
         '200':
-          description: PostgreSQL is the sole administrator authority. OIDC roles do not grant access. Changes require administrator.manage and verified identity evidence; the last recoverable administrator is protected.
-          headers:
-            ETag: { $ref: '#/components/headers/ETag' }
+          description: One page
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AdministratorPage' }
+              schema: { $ref: '#/components/schemas/IdentityPage' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-    post:
-      operationId: createAdministratorGrant
-      parameters:
-        - { $ref: '#/components/parameters/IdempotencyKey' }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/AdministratorInput' }
-      responses:
-        '202':
-          description: PostgreSQL is the sole administrator authority. OIDC roles do not grant access. Changes require administrator.manage and verified identity evidence; the last recoverable administrator is protected.
-          headers:
-            ETag: { $ref: '#/components/headers/ETag' }
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AdministratorAccepted' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/administrators/{id}:
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/identities/{identityId}:
     get:
-      operationId: getAdministratorGrant
+      operationId: getIdentity
       parameters:
-        - { $ref: '#/components/parameters/Id' }
+        - { $ref: '#/components/parameters/IdentityId' }
       responses:
         '200':
-          description: PostgreSQL is the sole administrator authority. OIDC roles do not grant access. Changes require administrator.manage and verified identity evidence; the last recoverable administrator is protected.
-          headers:
-            ETag: { $ref: '#/components/headers/ETag' }
+          description: The identity
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AdministratorGrant' }
+              schema: { $ref: '#/components/schemas/IdentitySummary' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-    patch:
-      operationId: updateAdministratorGrant
-      parameters:
-        - { $ref: '#/components/parameters/Id' }
-        - { $ref: '#/components/parameters/IdempotencyKey' }
-        - { $ref: '#/components/parameters/IfMatch' }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/AdministratorInput' }
-      responses:
-        '202':
-          description: PostgreSQL is the sole administrator authority. OIDC roles do not grant access. Changes require administrator.manage and verified identity evidence; the last recoverable administrator is protected.
-          headers:
-            ETag: { $ref: '#/components/headers/ETag' }
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AdministratorAccepted' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/administrator-identities:
+  /api/v1/directory-users:
     get:
-      operationId: listAdministratorCandidates
+      operationId: searchDirectory
+      description: Read-only Keycloak lookup. A result is a candidate, not an assignment or a grant.
       parameters:
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
+        - { $ref: '#/components/parameters/Search' }
+        - { $ref: '#/components/parameters/After' }
+        - { $ref: '#/components/parameters/Limit' }
       responses:
         '200':
-          description: PostgreSQL is the sole administrator authority. OIDC roles do not grant access. Changes require administrator.manage and verified identity evidence; the last recoverable administrator is protected.
-          headers:
-            ETag: { $ref: '#/components/headers/ETag' }
+          description: One page; `enabled` is false when no directory is configured
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AdministratorCandidates' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/template-drafts:
-    get:
-      operationId: listTemplateDrafts
-      responses:
-        '200':
-          description: Versioned manager-owned draft; saving and publishing do not apply to live assignments. Published
-            drafts and catalog versions are immutable.
-          headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    items:
-                      $ref: '#/components/schemas/TemplateDraft'
-                  nextCursor:
-                    $ref: '#/components/schemas/ListCursor'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-        '422':
-          $ref: '#/components/responses/InvalidConfiguration'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-      parameters:
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/PublicationFilter'
-    post:
-      operationId: createTemplateDraft
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TemplateDraftInput'
-      responses:
-        '202':
-          description: Versioned manager-owned draft; saving and publishing do not apply to live assignments. Published
-            drafts and catalog versions are immutable.
-          headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TemplateDraftAccepted'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-        '422':
-          $ref: '#/components/responses/InvalidConfiguration'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/template-drafts/{id}:
-    parameters:
-      - { $ref: '#/components/parameters/Id' }
-    get:
-      operationId: getTemplateDraft
-      responses:
-        '200':
-          description: Versioned manager-owned draft; saving and publishing do not apply to live assignments. Published drafts and catalog versions are immutable.
-          headers:
-            ETag: { $ref: '#/components/headers/ETag' }
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TemplateDraft' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidConfiguration' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-    patch:
-      operationId: updateTemplateDraft
-      parameters:
-        - { $ref: '#/components/parameters/IdempotencyKey' }
-        - { $ref: '#/components/parameters/IfMatch' }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/TemplateDraftInput' }
-      responses:
-        '202':
-          description: Versioned manager-owned draft; saving and publishing do not apply to live assignments. Published drafts and catalog versions are immutable.
-          headers:
-            ETag: { $ref: '#/components/headers/ETag' }
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TemplateDraftAccepted' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidConfiguration' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/template-drafts/{id}/publish:
-    parameters:
-      - { $ref: '#/components/parameters/Id' }
-    post:
-      operationId: publishTemplateDraft
-      parameters:
-        - { $ref: '#/components/parameters/IdempotencyKey' }
-        - { $ref: '#/components/parameters/IfMatch' }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { type: object, additionalProperties: false }
-      responses:
-        '202':
-          description: Versioned manager-owned draft; saving and publishing do not apply to live assignments. Published drafts and catalog versions are immutable.
-          headers:
-            ETag: { $ref: '#/components/headers/ETag' }
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TemplateDraftAccepted' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidConfiguration' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/template-definitions:
-    get:
-      operationId: listTemplateDefinitions
-      responses:
-        '200':
-          description: Bounded typed definitions with safe diagnostics; infrastructure rows are read-only.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    items:
-                      $ref: '#/components/schemas/TemplateDefinitionView'
-                  nextCursor:
-                    $ref: '#/components/schemas/ListCursor'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-      parameters:
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/SourceFilter'
-  /api/v1/template-definitions/validate:
-    post:
-      operationId: validateTemplateDefinition
-      description: Offline validation only. Does not persist, fetch references, execute images or commission resources. Unknown managed keys remain unvalidated.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/TemplateDefinition' }
-      responses:
-        '200':
-          description: Valid typed envelope and reviewed managed settings; other settings have no schema coverage.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required: [valid, schemaId, revision, coverage, problems]
-                properties:
-                  valid: { type: boolean, const: true }
-                  schemaId: { type: string }
-                  revision: { type: integer }
-                  coverage: { type: string, enum: [reviewed_keys, envelope_only] }
-                  problems: { type: array, maxItems: 0, items: { $ref: '#/components/schemas/ConfigurationProblem' } }
-        '422': { $ref: '#/components/responses/InvalidConfiguration' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /api/v1/template-definitions/{templateId}:
-    parameters:
-      - { name: templateId, in: path, required: true, schema: { type: string, maxLength: 63 } }
-    get:
-      operationId: getTemplateDefinition
-      responses:
-        '200':
-          description: Typed effective definition, immutable catalog history and assigned-user count. No rejected input, manifests or credential values.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TemplateDefinitionView' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/configuration-schemas:
-    get:
-      operationId: getConfigurationSchemas
-      responses:
-        '200':
-          description: Reviewed local schema IDs, revisions, content digests and compatible image digests. No remote schema retrieval.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required: [schemas]
-                properties:
-                  schemas:
-                    type: array
-                    items:
-                      type: object
-                      additionalProperties: false
-                      required: [id, revision, digest, compatibleImageDigests]
-                      properties:
-                        id: { type: string }
-                        revision: { type: integer }
-                        digest: { type: string }
-                        compatibleImageDigests: { type: array, items: { type: string } }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-  /api/v1/templates:
-    get:
-      operationId: listInstanceTemplates
-      responses:
-        '200':
-          description: Approved immutable template versions, without manifests or secrets
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required: [items, nextCursor]
-                properties:
-                  items: { type: array, maxItems: 1000, items: { $ref: '#/components/schemas/TemplateView' } }
-                  nextCursor: { type: 'null' }
+              schema: { $ref: '#/components/schemas/DirectoryPage' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '503': { $ref: '#/components/responses/Unavailable' }
@@ -657,89 +134,53 @@ paths:
     get:
       operationId: listAssignments
       parameters:
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
-      - name: access
-        in: query
-        schema:
-          $ref: '#/components/schemas/Access'
-      - name: state
-        in: query
-        schema:
-          $ref: '#/components/schemas/InstanceState'
-      - name: templateId
-        in: query
-        schema:
-          type: string
-          maxLength: 63
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/SourceFilter'
-      - $ref: '#/components/parameters/IdentityFilter'
-      - $ref: '#/components/parameters/RuntimeFilter'
-      - $ref: '#/components/parameters/RuntimeVersionFilter'
+        - { $ref: '#/components/parameters/Search' }
+        - name: access
+          in: query
+          schema: { $ref: '#/components/schemas/Access' }
+        - name: templateId
+          in: query
+          schema: { $ref: '#/components/schemas/Name' }
+        - { $ref: '#/components/parameters/After' }
+        - { $ref: '#/components/parameters/Limit' }
       responses:
         '200':
-          description: Bounded assignment page
+          description: One page
           content:
             application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    items:
-                      $ref: '#/components/schemas/Assignment'
-                  nextCursor:
-                    $ref: '#/components/schemas/ListCursor'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
+              schema: { $ref: '#/components/schemas/AssignmentPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Invalid' }
     post:
       operationId: createAssignment
-      description: Explicit administrator action. Enabling enqueues proactive commissioning; authentication alone
-        cannot enroll. If templateVersion is omitted, pin the latest approved compatible version in the mutation transaction.
-        Replay returns that original pinned result even if the catalog changes.
       parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      - $ref: '#/components/parameters/RequestId'
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/CreateAssignment'
+            schema: { $ref: '#/components/schemas/CreateAssignment' }
       responses:
         '202':
-          $ref: '#/components/responses/Accepted'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/assignments/{id}:
-    parameters:
-      - { $ref: '#/components/parameters/Id' }
+          description: Committed; the controller commissions the instance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssignmentReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Invalid' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/v1/assignments/{assignmentId}:
     get:
       operationId: getAssignment
+      parameters:
+        - { $ref: '#/components/parameters/AssignmentId' }
       responses:
         '200':
-          description: Current assignment, with a strong version ETag
+          description: The assignment and its instance status
           headers:
             ETag: { $ref: '#/components/headers/ETag' }
           content:
@@ -748,1239 +189,1016 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Unavailable' }
     patch:
-      operationId: setAssignmentAccess
-      description: >-
-        Identity and instance IDs are immutable. Suspension/revocation deny
-        routing from committed access immediately, fence earlier work, and
-        retain data. Purge is a separate lifecycle command.
+      operationId: updateAssignment
+      description: Replaces the given fields; the identity and instance never change
       parameters:
+        - { $ref: '#/components/parameters/AssignmentId' }
         - { $ref: '#/components/parameters/IfMatch' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
-        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Csrf' }
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [access]
-              properties:
-                access: { $ref: '#/components/schemas/Access' }
+            schema: { $ref: '#/components/schemas/AssignmentChanges' }
       responses:
-        '202': { $ref: '#/components/responses/Accepted' }
+        '202':
+          description: Committed; the controller reconciles the instance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssignmentReceipt' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
+        '412': { $ref: '#/components/responses/Stale' }
+        '422': { $ref: '#/components/responses/Invalid' }
         '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/instances/{id}:
-    parameters:
-      - { $ref: '#/components/parameters/Id' }
-    get:
-      operationId: getInstance
+  /api/v1/assignments/{assignmentId}/preview:
+    post:
+      operationId: previewAssignment
+      description: Checks proposed changes without committing them
+      parameters:
+        - { $ref: '#/components/parameters/AssignmentId' }
+        - { $ref: '#/components/parameters/Csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssignmentChanges' }
       responses:
         '200':
-          description: Instance metadata without native content or credentials
-          headers:
-            ETag: { $ref: '#/components/headers/ETag' }
+          description: Whether the change is valid and what it would restart
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssignmentPreview' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/assignments/{assignmentId}/retry:
+    post:
+      operationId: retryAssignment
+      description: Asks the controller to reconcile again without changing desired state
+      parameters:
+        - { $ref: '#/components/parameters/AssignmentId' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      responses:
+        '202':
+          description: Committed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssignmentReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/Stale' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/v1/assignment-rollouts:
+    post:
+      operationId: rolloutTemplate
+      description: Applies one template version to selected assignments, each as its own change. Retrying with the same key repeats only the members that did not commit.
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Rollout' }
+      responses:
+        '200':
+          description: The result of every member
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RolloutResult' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/instances/{instanceId}:
+    get:
+      operationId: getInstance
+      parameters:
+        - { $ref: '#/components/parameters/InstanceId' }
+      responses:
+        '200':
+          description: Desired and observed state of the instance
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Instance' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/instances/{id}/reconcile:
-    parameters:
-      - { $ref: '#/components/parameters/Id' }
-    post:
-      operationId: retryInstanceReconciliation
-      description: >-
-        Audited bounded retry under current desired access. It cannot enable a
-        suspended/revoked owner, replace ownership, or accept manifests.
+  /api/v1/instances/{instanceId}/environments:
+    get:
+      operationId: listEnvironments
+      description: Terminal environments and lease counts, without command content or credentials
       parameters:
-        - { $ref: '#/components/parameters/IfMatch' }
-        - { $ref: '#/components/parameters/IdempotencyKey' }
-        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/InstanceId' }
+      responses:
+        '200':
+          description: The instance's environments
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvironmentList' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/orphans:
+    get:
+      operationId: listOrphans
+      description: >-
+        Namespaces and PersistentVolumes carrying this installation's label
+        that belong to no recorded instance, as the controller last saw them.
+        They are never adopted or deleted.
+      responses:
+        '200':
+          description: The latest orphan report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrphanReport' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/templates:
+    get:
+      operationId: listTemplates
+      parameters:
+        - { $ref: '#/components/parameters/Search' }
+        - { $ref: '#/components/parameters/After' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CatalogPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/templates/validate:
+    post:
+      operationId: validateTemplate
+      parameters:
+        - { $ref: '#/components/parameters/Csrf' }
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
-            schema: { type: object, additionalProperties: false }
+            schema: { $ref: '#/components/schemas/TemplateDraft' }
       responses:
-        '202': { $ref: '#/components/responses/Accepted' }
+        '200':
+          description: Validation against installation settings; nothing is stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Validation' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/templates/{catalogId}/versions:
+    get:
+      operationId: listTemplateVersions
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/After' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Versions, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createTemplateDraft
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TemplateDraft' }
+      responses:
+        '201':
+          description: The next version, as a draft
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/templates/{catalogId}/versions/{version}:
+    get:
+      operationId: getTemplateVersion
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/Version' }
+      responses:
+        '200':
+          description: One version; the ETag is its revision
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TemplateVersion' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: editTemplateDraft
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/Version' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TemplateDraft' }
+      responses:
+        '200':
+          description: The draft's new revision
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionReceipt' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '412': { $ref: '#/components/responses/StaleVersion' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-  /api/v1/operations/{id}:
-    parameters:
-      - { $ref: '#/components/parameters/Id' }
-    get:
-      operationId: getOperation
+        '412': { $ref: '#/components/responses/Stale' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/templates/{catalogId}/versions/{version}/publish:
+    post:
+      operationId: publishTemplate
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/Version' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
       responses:
         '200':
-          description: Durable lifecycle progress, without external response bodies
+          description: Validated and frozen
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Operation' }
+              schema: { $ref: '#/components/schemas/VersionReceipt' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/Stale' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/templates/{catalogId}/versions/{version}/withdraw:
+    post:
+      operationId: withdrawTemplate
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/Version' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      responses:
+        '200':
+          description: No longer selectable; existing pins keep it
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/Stale' }
+  /api/v1/terminal-backends:
+    get:
+      operationId: listTerminalBackends
+      parameters:
+        - { $ref: '#/components/parameters/Search' }
+        - { $ref: '#/components/parameters/After' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CatalogPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/terminal-backends/validate:
+    post:
+      operationId: validateTerminalBackend
+      parameters:
+        - { $ref: '#/components/parameters/Csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BackendDraft' }
+      responses:
+        '200':
+          description: Validation against installation settings; nothing is stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Validation' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/terminal-backends/{catalogId}/versions:
+    get:
+      operationId: listTerminalBackendVersions
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/After' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Versions, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createTerminalBackendDraft
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BackendDraft' }
+      responses:
+        '201':
+          description: The next version, as a draft
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/terminal-backends/{catalogId}/versions/{version}:
+    get:
+      operationId: getTerminalBackendVersion
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/Version' }
+      responses:
+        '200':
+          description: One version; the ETag is its revision
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackendVersion' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: editTerminalBackendDraft
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/Version' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BackendDraft' }
+      responses:
+        '200':
+          description: The draft's new revision
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/Stale' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/terminal-backends/{catalogId}/versions/{version}/publish:
+    post:
+      operationId: publishTerminalBackend
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/Version' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      responses:
+        '200':
+          description: Validated and frozen
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/Stale' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/terminal-backends/{catalogId}/versions/{version}/withdraw:
+    post:
+      operationId: withdrawTerminalBackend
+      parameters:
+        - { $ref: '#/components/parameters/CatalogId' }
+        - { $ref: '#/components/parameters/Version' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      responses:
+        '200':
+          description: No longer selectable; existing pins keep it
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/Stale' }
+  /api/v1/storage-sources:
+    get:
+      operationId: listStorageSources
+      description: Installation configuration; read-only
+      responses:
+        '200':
+          description: The approved sources
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageSourceList' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/volumes:
+    get:
+      operationId: listVolumes
+      description: Every assigned volume, for reviewing paths and sizes per source
+      parameters:
+        - name: source
+          in: query
+          schema: { $ref: '#/components/schemas/Name' }
+        - { $ref: '#/components/parameters/After' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VolumePage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/secrets:
+    get:
+      operationId: listSecrets
+      parameters:
+        - { $ref: '#/components/parameters/After' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Secret metadata; values are never returned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SecretPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/secrets/{secretName}:
+    put:
+      operationId: writeSecret
+      description: Writes a new version. The kind is fixed when the secret is created. Instances that use the secret restart to receive it.
+      parameters:
+        - { $ref: '#/components/parameters/SecretName' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SecretWrite' }
+      responses:
+        '200':
+          description: The new version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SecretReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Invalid' }
         '503': { $ref: '#/components/responses/Unavailable' }
+    delete:
+      operationId: deleteSecret
+      description: Deletes every version of a secret nothing references
+      parameters:
+        - { $ref: '#/components/parameters/SecretName' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SecretReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/Stale' }
+  /api/v1/administrators:
+    get:
+      operationId: listAdministrators
+      parameters:
+        - { $ref: '#/components/parameters/After' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdministratorPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: grantAdministrator
+      description: Needs a grant that can manage administrators. The target must have signed in once.
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GrantRequest' }
+      responses:
+        '201':
+          description: Granted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GrantReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /api/v1/administrators/{identityId}:
+    get:
+      operationId: getAdministrator
+      parameters:
+        - { $ref: '#/components/parameters/IdentityId' }
+      responses:
+        '200':
+          description: The grant
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Administrator' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateAdministrator
+      description: Changes or revokes a grant; the last active manager cannot be removed
+      parameters:
+        - { $ref: '#/components/parameters/IdentityId' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/Csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GrantChange' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GrantReceipt' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/Stale' }
+  /api/v1/administrator-candidates:
+    get:
+      operationId: listAdministratorCandidates
+      description: Identities that have signed in and hold no grant
+      parameters:
+        - { $ref: '#/components/parameters/Search' }
+        - { $ref: '#/components/parameters/After' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentityPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/audit-events:
     get:
       operationId: listAuditEvents
       parameters:
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
-      - name: action
-        in: query
-        schema:
-          type: string
-          maxLength: 128
-      - name: actor
-        in: query
-        schema:
-          type: string
-          maxLength: 255
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/AssignmentFilter'
-      responses:
-        '200':
-          description: Immutable actor-attributed audit, without credentials
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    items:
-                      $ref: '#/components/schemas/AuditEvent'
-                  nextCursor:
-                    $ref: '#/components/schemas/ListCursor'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/terminal-runtimes:
-    get:
-      operationId: listTerminalRuntimes
-      description: Bounded latest approved definition for each runtime ID, ordered by
-        ID.
-      responses:
-        '200':
-          description: Bounded latest approved definition for each runtime ID, ordered
-            by ID.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    minItems: 0
-                    items:
-                      $ref: '#/components/schemas/RuntimeDefinition'
-                  nextCursor:
-                    type:
-                    - string
-                    - 'null'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-        - { $ref: '#/components/parameters/ListSearch' }
-        - { $ref: '#/components/parameters/ListSort' }
-        - { $ref: '#/components/parameters/ListAfter' }
+        - name: targetKind
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: targetId
+          in: query
+          schema: { type: string, maxLength: 128 }
+        - { $ref: '#/components/parameters/After' }
         - { $ref: '#/components/parameters/Limit' }
-
-    post:
-      operationId: registerTerminalRuntime
-      description: Register an immutable approved runtime image and bounded worker policy;
-        no raw Pod specs or credential values.
-      responses:
-        '202':
-          description: Register an immutable approved runtime image and bounded worker
-            policy; no raw Pod specs or credential values.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExecutionAccepted'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      - $ref: '#/components/parameters/RequestId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RuntimeDefinition'
-  /api/v1/terminal-runtimes/{id}/versions:
-    get:
-      operationId: listTerminalRuntimeVersions
-      description: Immutable approved versions ordered by version. after is exclusive.
       responses:
         '200':
-          description: Immutable approved versions ordered by version. after is exclusive.
+          description: Newest first
           content:
             application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    minItems: 0
-                    items:
-                      $ref: '#/components/schemas/RuntimeDefinition'
-                  nextCursor:
-                    type:
-                    - integer
-                    - 'null'
-                    format: int64
-                    minimum: 1
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-      - name: after
-        in: query
-        schema:
-          type: integer
-          format: int64
-          minimum: 0
-        description: Exclusive version cursor, default 0
-      - $ref: '#/components/parameters/Limit'
-    post:
-      operationId: registerTerminalRuntimeVersion
-      description: Register immutable version; runtime.id in the body must equal the
-        path ID.
-      responses:
-        '202':
-          description: Register immutable version; runtime.id in the body must equal
-            the path ID.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExecutionAccepted'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      - $ref: '#/components/parameters/RequestId'
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RuntimeDefinition'
-  /api/v1/storage-bindings:
-    get:
-      operationId: listOwnerStorageBindings
-      description: Latest binding versions for exactly one registered instance namespace
-        and UID. No inline storage or credential material.
-      responses:
-        '200':
-          description: Latest binding versions for exactly one registered instance namespace
-            and UID. No inline storage or credential material.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    minItems: 0
-                    items:
-                      $ref: '#/components/schemas/StorageBinding'
-                  nextCursor:
-                    type:
-                    - string
-                    - 'null'
-                    format: uuid
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-      - name: instanceId
-        in: query
-        required: true
-        schema:
-          type: string
-          format: uuid
-      - $ref: '#/components/parameters/After'
-      - $ref: '#/components/parameters/Limit'
-    post:
-      operationId: registerOwnerStorageBinding
-      description: Register version 1 of an owner-bound existing PVC reference. Namespace
-        name and UID must match the immutable instance owner.
-      responses:
-        '202':
-          description: Register version 1 of an owner-bound existing PVC reference.
-            Namespace name and UID must match the immutable instance owner.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExecutionAccepted'
-          headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      - $ref: '#/components/parameters/RequestId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/StorageBinding'
-  /api/v1/storage-bindings/{id}:
-    get:
-      operationId: getOwnerStorageBinding
-      description: Latest registered immutable binding version.
-      responses:
-        '200':
-          description: Latest registered immutable binding version.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StorageBinding'
-          headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-      - $ref: '#/components/parameters/Id'
-    patch:
-      operationId: updateOwnerStorageBinding
-      description: Append the next immutable binding version. The ID and owner cannot
-        change; body.version must equal If-Match plus one. Existing desired policy remains
-        pinned until a separate policy update.
-      responses:
-        '202':
-          description: Append the next immutable binding version. The ID and owner cannot
-            change; body.version must equal If-Match plus one. Existing desired policy
-            remains pinned until a separate policy update.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExecutionAccepted'
-          headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      - $ref: '#/components/parameters/RequestId'
-      - $ref: '#/components/parameters/Id'
-      - $ref: '#/components/parameters/IfMatch'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/StorageBinding'
-  /api/v1/assignments/{id}/execution:
-    get:
-      operationId: getAssignmentExecution
-      description: Inspect desired resolved policy and independently applied generation.
-        Returns 404 before any policy exists; appliedGeneration remains zero until trusted
-        activation.
-      responses:
-        '200':
-          description: Inspect desired resolved policy and independently applied generation.
-            Returns 404 before any policy exists; appliedGeneration remains zero until
-            trusted activation.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExecutionPolicyView'
-          headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-      - $ref: '#/components/parameters/Id'
-    patch:
-      operationId: setAssignmentExecution
-      description: Commit a new desired policy using approved immutable runtime and
-        owner storage references. If-Match is the current assignment version. This does
-        not activate workers or publish readiness.
-      responses:
-        '202':
-          description: Commit a new desired policy using approved immutable runtime
-            and owner storage references. If-Match is the current assignment version.
-            This does not activate workers or publish readiness.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExecutionAccepted'
-          headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      - $ref: '#/components/parameters/RequestId'
-      - $ref: '#/components/parameters/Id'
-      - $ref: '#/components/parameters/IfMatch'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssignmentExecution'
-  /api/v1/instances/{id}/pull-secret-bindings:
-    post:
-      operationId: registerOwnerPullSecretBinding
-      description: Register an existing owner-namespace Secret name and UID, never credential
-        values. Body instanceId must equal the path ID.
-      responses:
-        '202':
-          description: Register an existing owner-namespace Secret name and UID, never
-            credential values. Body instanceId must equal the path ID.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExecutionAccepted'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '412':
-          $ref: '#/components/responses/StaleVersion'
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      - $ref: '#/components/parameters/RequestId'
-      - $ref: '#/components/parameters/Id'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PullSecretBinding'
-  /api/v1/identities/{id}:
-    get:
-      operationId: getIdentity
-      parameters:
-      - $ref: '#/components/parameters/Id'
-      responses:
-        '200':
-          description: Authorized, bounded and redacted manager inspection.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IdentityView'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/assignments/{id}/operations:
-    get:
-      operationId: listAssignmentOperations
-      parameters:
-      - $ref: '#/components/parameters/Id'
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/StateFilter'
-      responses:
-        '200':
-          description: Authorized, bounded and redacted manager inspection.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OperationPage'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/operations/{id}/details:
-    get:
-      operationId: getOperationDetails
-      parameters:
-      - $ref: '#/components/parameters/Id'
-      responses:
-        '200':
-          description: Authorized, bounded and redacted manager inspection.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OperationDetails'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/audit-events/{id}:
-    get:
-      operationId: getAuditDetails
-      parameters:
-      - $ref: '#/components/parameters/Id'
-      responses:
-        '200':
-          description: Authorized, bounded and redacted manager inspection.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuditDetails'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/template-definitions/{id}/versions/{version}:
-    get:
-      operationId: getTemplateVersionDefinition
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: version
-        in: path
-        required: true
-        schema:
-          type: integer
-          minimum: 1
-      responses:
-        '200':
-          description: Authorized, bounded and redacted manager inspection.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TemplateVersionDefinition'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/configuration-references/storage-classes:
-    get:
-      operationId: listApprovedStorageClasses
-      parameters:
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      responses:
-        '200':
-          description: Authorized, bounded and redacted manager inspection.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StorageClassPage'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/terminal-runtimes/{id}:
-    get:
-      operationId: getTerminalRuntime
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          maxLength: 63
-      responses:
-        '200':
-          description: Approved exact reference.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RuntimeDefinition'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/configuration-references/storage-bindings:
-    get:
-      operationId: listStorageBindingReferences
-      parameters:
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      - name: instanceId
-        in: query
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Approved exact reference.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    items:
-                      $ref: '#/components/schemas/StorageBinding'
-                  nextCursor:
-                    $ref: '#/components/schemas/ListCursor'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/template-versions:
-    get:
-      operationId: listTemplateVersions
-      description: Search and ID/version order with query-bound keyset cursors; legacy numeric-cursor endpoints remain
-        available.
-      parameters:
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      - $ref: '#/components/parameters/TemplateFilter'
-      responses:
-        '200':
-          description: Bounded immutable versions.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    items:
-                      $ref: '#/components/schemas/TemplateView'
-                  nextCursor:
-                    $ref: '#/components/schemas/ListCursor'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/terminal-runtimes/{id}/version-history:
-    get:
-      operationId: listRuntimeVersionHistory
-      description: Search and ID/version order with query-bound keyset cursors; legacy numeric-cursor endpoints remain
-        available.
-      parameters:
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListSort'
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          maxLength: 63
-      responses:
-        '200':
-          description: Bounded immutable versions.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - items
-                - nextCursor
-                properties:
-                  items:
-                    type: array
-                    maxItems: 100
-                    items:
-                      $ref: '#/components/schemas/RuntimeDefinition'
-                  nextCursor:
-                    $ref: '#/components/schemas/ListCursor'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-  /api/v1/assignments/{id}/template-observation:
-    get:
-      operationId: getAssignmentTemplateObservation
-      parameters:
-      - $ref: '#/components/parameters/Id'
-      responses:
-        '200':
-          description: Desired pin and last observed immutable operation snapshot; null means unobserved.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required:
-                - desiredTemplate
-                - observedTemplate
-                - desiredGeneration
-                - observedGeneration
-                - state
-                properties:
-                  desiredTemplate:
-                    $ref: '#/components/schemas/TemplateVersion'
-                  observedTemplate:
-                    anyOf:
-                    - $ref: '#/components/schemas/TemplateVersion'
-                    - type: 'null'
-                  desiredGeneration:
-                    type: integer
-                  observedGeneration:
-                    type: integer
-                  state:
-                    $ref: '#/components/schemas/InstanceState'
-                  conditions:
-                    type: object
-                    additionalProperties:
-                      type: string
-                      enum:
-                      - native_ready
-                      - dependency_unavailable
-                      - ownership_conflict
-                      - initialization_uncertain
-                      - policy_unavailable
-                      - review_required
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-
-  /api/v1/directory-users:
-    get:
-      operationId: searchDirectoryUsers
-      description: Read-only Keycloak identity candidates. Labels are descriptive; exact issuer/subject is authoritative. Results do not establish signed-login evidence or administrator grants. Provider-defined search/order and bounded offset cursors may shift when the directory changes.
-      parameters:
-      - $ref: '#/components/parameters/ListSearch'
-      - $ref: '#/components/parameters/ListAfter'
-      - $ref: '#/components/parameters/Limit'
-      responses:
-        '200':
-          description: Directory page, or enabled=false when unconfigured.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DirectoryPage' }
+              schema: { $ref: '#/components/schemas/AuditPage' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '422': { $ref: '#/components/responses/InvalidRequest' }
-        '503': { $ref: '#/components/responses/Unavailable' }
-
+  /api/v1/audit-events/{eventId}:
+    get:
+      operationId: getAuditEvent
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: One event with its redacted change
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditEvent' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 components:
   securitySchemes:
-    AdministratorSession:
-      type: apiKey
-      in: cookie
-      name: __Host-hermes-admin
-      description: Opaque Secure/HttpOnly/SameSite=Lax cookie, bound to a separate opaque __Host-hermes-admin-browser proof cookie
     AdministratorAccessToken:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Verified Keycloak access token; ID tokens are not accepted
+      description: Keycloak user access token for the administration audience
+    AdministratorSession:
+      type: apiKey
+      in: cookie
+      name: __Host-hermes-admin
+      description: Opaque browser session; also needs the __Host-hermes-admin-browser proof cookie
+  headers:
+    ETag:
+      description: The quoted version of the resource
+      schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
   parameters:
-    ListAfter:
-      name: after
-      in: query
-      description: Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422.
-      schema: { type: string, maxLength: 2048 }
-    ListSearch:
-      name: q
-      in: query
-      description: Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax.
-      schema: { type: string, maxLength: 128 }
-    ListSort:
-      name: sort
-      in: query
-      description: Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it.
-      schema: { type: string, enum: [id, '-id'], default: id }
-    Id:
-      name: id
-      in: path
-      required: true
-      schema: { type: string, format: uuid }
-    After:
-      name: after
-      in: query
-      required: false
-      schema: { type: string, format: uuid }
-    Limit:
-      name: limit
-      in: query
-      required: false
-      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
       schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$' }
-      description: Exact actor/operation-scoped key; changed payload or If-Match conflicts
+      description: One intended change. Repeating it with the same body returns the original result.
     IfMatch:
       name: If-Match
       in: header
       required: true
       schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
-      description: Strong version ETag from the assignment/instance response; no wildcard/weak/list form
-    RequestId:
-      name: X-Request-ID
+    Csrf:
+      name: X-CSRF-Token
       in: header
-      required: false
-      schema: { type: string, format: uuid }
-      description: Nonzero request UUID; generated server-side if absent
-    SourceFilter:
-      name: source
+      schema: { type: string, pattern: '^[a-f0-9]{64}$' }
+      description: Required for browser-session mutations; ignored for bearer requests
+    Search:
+      name: q
       in: query
-      schema:
-        type: string
-        enum:
-        - infrastructure
-        - manager
-    AssignedFilter:
-      name: assigned
+      schema: { type: string, maxLength: 128 }
+    After:
+      name: after
       in: query
-      schema:
-        type: boolean
-    IdentityFilter:
+      schema: { type: string, maxLength: 256 }
+      description: The previous page's nextCursor
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    IdentityId:
       name: identityId
-      in: query
-      schema:
-        type: string
-        format: uuid
-    RuntimeFilter:
-      name: runtimeId
-      in: query
-      schema:
-        type: string
-        maxLength: 63
-    RuntimeVersionFilter:
-      name: runtimeVersion
-      in: query
-      schema:
-        type: integer
-        minimum: 1
-    AssignmentFilter:
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AssignmentId:
       name: assignmentId
-      in: query
-      schema:
-        type: string
-        format: uuid
-    PublicationFilter:
-      name: publication
-      in: query
-      schema:
-        type: string
-        enum:
-        - draft
-        - published
-    AccessFilter:
-      name: access
-      in: query
-      schema:
-        type: string
-        enum:
-        - enabled
-        - suspended
-        - revoked
-    StateFilter:
-      name: state
-      in: query
-      schema:
-        type: string
-    TemplateFilter:
-      name: templateId
-      in: query
-      schema:
-        type: string
-        maxLength: 63
-  headers:
-    ETag:
-      schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
-      description: Strong optimistic assignment version
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    InstanceId:
+      name: instanceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CatalogId:
+      name: catalogId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Name' }
+    Version:
+      name: version
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    SecretName:
+      name: secretName
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Name' }
   responses:
-    InvalidConfiguration:
-      description: Bounded path-addressed configuration errors; messages never contain submitted values.
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ValidationProblem' }
-    Accepted:
-      description: Mutation and pending work committed durably
-      headers:
-        ETag: { $ref: '#/components/headers/ETag' }
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Accepted' }
     Unauthenticated:
-      description: Missing, invalid, expired or incorrectly targeted access token
+      description: No valid credential
+      headers:
+        WWW-Authenticate: { schema: { type: string } }
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Forbidden:
-      description: Valid token without the configured management-client administrator role
+      description: No current grant, or a CSRF or Origin failure
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     NotFound:
-      description: Registered object not found in this installation
+      description: Not found
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Conflict:
-      description: Existing assignment or changed input for an already used idempotency key
+      description: Conflicts with current state or an earlier request with this key
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-    StaleVersion:
-      description: If-Match is valid but no longer current; no mutation committed
+    Stale:
+      description: If-Match does not match the current version
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-    InvalidRequest:
-      description: Malformed, missing required header, unknown field or unapproved configuration
+    Invalid:
+      description: Malformed input, or configuration that fails validation (with problems)
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Unavailable:
-      description: Dependency, maintenance or registry recovery gate denies the operation
+      description: A dependency is unavailable
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
   schemas:
+    Name:
+      type: string
+      minLength: 1
+      maxLength: 63
+      pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+    Identity:
+      $ref: './router.openapi.yaml#/components/schemas/Identity'
+    Timestamp:
+      type: string
+      format: date-time
+    Access:
+      type: string
+      enum: [enabled, suspended, revoked]
+    VersionRef:
+      type: object
+      additionalProperties: false
+      required: [id, version]
+      properties:
+        id: { $ref: '#/components/schemas/Name' }
+        version: { type: integer, minimum: 1 }
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [pointer, code, severity]
+      properties:
+        pointer: { type: string, description: JSON pointer into the submitted document }
+        code: { type: string }
+        severity: { type: string, enum: [error] }
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum:
+            - access_denied
+            - administrator_grant_exists
+            - administrators_exist
+            - assignment_exists
+            - backend_unavailable
+            - concurrent_change
+            - dependency_unavailable
+            - foreign_issuer
+            - idempotency_conflict
+            - identity_not_verified
+            - invalid_configuration
+            - invalid_identity
+            - invalid_identity_evidence
+            - invalid_name
+            - invalid_request
+            - invalid_secret_value
+            - last_administrator
+            - not_found
+            - registry_unavailable
+            - secret_in_use
+            - stale_version
+            - template_unavailable
+            - version_not_draft
+        problems:
+          type: array
+          maxItems: 64
+          items: { $ref: '#/components/schemas/Problem' }
+    Session:
+      type: object
+      additionalProperties: false
+      required: [actor, permittedActions, csrfToken]
+      properties:
+        actor: { $ref: '#/components/schemas/Identity' }
+        permittedActions:
+          type: array
+          items: { type: string, enum: [administer, administrator.manage] }
+        csrfToken: { type: [string, 'null'], description: Null for bearer requests }
+    IdentitySummary:
+      type: object
+      additionalProperties: false
+      required: [id, identity, displayName, email, verified, assignmentId, administrator]
+      properties:
+        id: { type: string, format: uuid }
+        identity: { $ref: '#/components/schemas/Identity' }
+        displayName: { type: [string, 'null'] }
+        email: { type: [string, 'null'], description: A label, never a key }
+        verified: { type: boolean, description: Has signed in to the manager at least once }
+        assignmentId: { type: [string, 'null'], format: uuid }
+        administrator: { type: boolean }
+    IdentityPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/IdentitySummary' } }
+        nextCursor: { type: [string, 'null'] }
     DirectoryUser:
       type: object
       additionalProperties: false
-      required: [identity, username, displayName, email, enabled, directoryVerified]
+      required: [identity, username, displayName, email, enabled]
       properties:
         identity: { $ref: '#/components/schemas/Identity' }
-        username: { type: [string, 'null'], maxLength: 320 }
-        displayName: { type: [string, 'null'], maxLength: 641 }
-        email: { type: [string, 'null'], maxLength: 320 }
+        username: { type: [string, 'null'] }
+        displayName: { type: [string, 'null'] }
+        email: { type: [string, 'null'] }
         enabled: { type: boolean }
-        directoryVerified: { type: boolean, const: true }
     DirectoryPage:
       type: object
       additionalProperties: false
       required: [enabled, items, nextCursor]
       properties:
         enabled: { type: boolean }
-        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/DirectoryUser' } }
-        nextCursor: { $ref: '#/components/schemas/ListCursor' }
-    AdministratorInput:
+        items: { type: array, items: { $ref: '#/components/schemas/DirectoryUser' } }
+        nextCursor: { type: [string, 'null'] }
+    Volume:
+      $ref: './schemas/template-v2.json#/$defs/volume'
+    TerminalGrant:
       type: object
       additionalProperties: false
-      required: [identity, active, canManageAdministrators]
+      properties:
+        mode:
+          type: string
+          enum: [per_session, per_profile_on_demand, per_profile_always_running]
+          default: per_session
+        default: { $ref: '#/components/schemas/Name' }
+        allowed:
+          type: object
+          description: Terminal backend ID to version
+          propertyNames: { $ref: '#/components/schemas/Name' }
+          additionalProperties: { type: integer, minimum: 1 }
+    SecretReference:
+      $ref: './schemas/template-v2.json#/$defs/secretReference'
+    AssignmentSpec:
+      type: object
+      additionalProperties: false
+      required: [access, template]
+      properties:
+        access: { $ref: '#/components/schemas/Access' }
+        template: { $ref: '#/components/schemas/VersionRef' }
+        volumes:
+          type: object
+          propertyNames: { $ref: '#/components/schemas/Name' }
+          additionalProperties: { $ref: '#/components/schemas/Volume' }
+        terminal: { $ref: '#/components/schemas/TerminalGrant' }
+        adminConfig: { type: object, description: Overrides layered over the template's admin settings }
+        secrets: { type: array, maxItems: 32, items: { $ref: '#/components/schemas/SecretReference' } }
+    CreateAssignment:
+      type: object
+      additionalProperties: false
+      required: [identity, spec]
       properties:
         identity: { $ref: '#/components/schemas/Identity' }
-        active: { type: boolean }
-        canManageAdministrators: { type: boolean }
-    AdministratorGrant:
+        spec: { $ref: '#/components/schemas/AssignmentSpec' }
+    AssignmentChanges:
       type: object
       additionalProperties: false
-      required: [id, identity, active, canManageAdministrators, version, source]
+      properties:
+        access: { $ref: '#/components/schemas/Access' }
+        template: { $ref: '#/components/schemas/VersionRef' }
+        volumes:
+          type: object
+          propertyNames: { $ref: '#/components/schemas/Name' }
+          additionalProperties: { $ref: '#/components/schemas/Volume' }
+        terminal: { $ref: '#/components/schemas/TerminalGrant' }
+        adminConfig: { type: object }
+        secrets: { type: array, maxItems: 32, items: { $ref: '#/components/schemas/SecretReference' } }
+    AssignmentReceipt:
+      type: object
+      additionalProperties: false
+      required: [assignmentId, instanceId, version]
+      properties:
+        assignmentId: { type: string, format: uuid }
+        instanceId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+    AssignmentPreview:
+      type: object
+      additionalProperties: false
+      required: [valid, problems, restartsHermes, recreatesTerminals]
+      properties:
+        valid: { type: boolean }
+        problems: { type: array, items: { $ref: '#/components/schemas/Problem' } }
+        restartsHermes: { type: boolean }
+        recreatesTerminals: { type: boolean }
+    Phase:
+      type: string
+      enum: [provisioning, ready, stopping, retained, blocked]
+    Condition:
+      type: object
+      additionalProperties: false
+      required: [type, status, reason]
+      properties:
+        type: { type: string, enum: [storage, nativeInit, nativeAuth, terminal] }
+        status: { type: string, enum: ['true', 'false', unknown] }
+        reason: { type: string, maxLength: 64 }
+    Instance:
+      type: object
+      additionalProperties: false
+      required: [id, assignmentId, namespace, desiredGeneration, observedGeneration, executionGeneration, phase, blockedReason, conditions, observedAt]
+      properties:
+        id: { type: string, format: uuid }
+        assignmentId: { type: string, format: uuid }
+        namespace: { type: string }
+        desiredGeneration: { type: integer, minimum: 1 }
+        observedGeneration: { type: integer, minimum: 0 }
+        executionGeneration: { type: integer, minimum: 1 }
+        phase: { $ref: '#/components/schemas/Phase' }
+        blockedReason: { type: [string, 'null'] }
+        conditions: { type: array, items: { $ref: '#/components/schemas/Condition' } }
+        observedAt: { oneOf: [{ $ref: '#/components/schemas/Timestamp' }, { type: 'null' }] }
+    AssignmentSummary:
+      type: object
+      additionalProperties: false
+      required: [id, identity, access, template, version, instanceId, phase]
       properties:
         id: { type: string, format: uuid }
         identity: { $ref: '#/components/schemas/Identity' }
-        active: { type: boolean }
-        canManageAdministrators: { type: boolean }
+        access: { $ref: '#/components/schemas/Access' }
+        template: { $ref: '#/components/schemas/VersionRef' }
         version: { type: integer, minimum: 1 }
-        source: { type: string, const: postgresql }
-    AdministratorPage:
+        instanceId: { type: string, format: uuid }
+        phase: { $ref: '#/components/schemas/Phase' }
+    AssignmentPage:
       type: object
       additionalProperties: false
       required: [items, nextCursor]
       properties:
-        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/AdministratorGrant' } }
-        nextCursor: { $ref: '#/components/schemas/ListCursor' }
-    AdministratorCandidates:
+        items: { type: array, items: { $ref: '#/components/schemas/AssignmentSummary' } }
+        nextCursor: { type: [string, 'null'] }
+    Assignment:
       type: object
       additionalProperties: false
-      required: [items]
-      properties:
-        nextCursor: { $ref: '#/components/schemas/ListCursor' }
-        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/Identity' } }
-    AdministratorAccepted:
-      type: object
-      additionalProperties: false
-      required: [id, version, operationId]
+      required: [id, identityId, identity, spec, version, instance]
       properties:
         id: { type: string, format: uuid }
+        identityId: { type: string, format: uuid }
+        identity: { $ref: '#/components/schemas/Identity' }
+        spec: { $ref: '#/components/schemas/AssignmentSpec' }
         version: { type: integer, minimum: 1 }
-        operationId: { type: string, format: uuid }
-    TemplateSelection:
+        instance: { $ref: '#/components/schemas/Instance' }
+    Rollout:
       type: object
       additionalProperties: false
-      required: [templateId, templateVersion]
+      required: [template, items]
       properties:
-        templateId: { type: string, maxLength: 63 }
-        templateVersion: { type: integer, minimum: 1 }
-    TemplatePreview:
-      type: object
-      additionalProperties: false
-      required: [assignmentId, expectedVersion, currentTemplate, proposedTemplate, currentDefinition, proposedDefinition, restart, eligible, blockedReasons]
-      properties:
-        assignmentId: { type: string, format: uuid }
-        expectedVersion: { type: integer, minimum: 1 }
-        currentTemplate: { $ref: '#/components/schemas/TemplateVersion' }
-        proposedTemplate: { $ref: '#/components/schemas/TemplateVersion' }
-        currentDefinition: { anyOf: [{ $ref: '#/components/schemas/TemplateDefinition' }, { type: 'null' }] }
-        proposedDefinition: { $ref: '#/components/schemas/TemplateDefinition' }
-        restart: { type: boolean }
-        eligible: { type: boolean }
-        blockedReasons: { type: array, items: { type: string } }
-    TemplateBatch:
-      type: object
-      additionalProperties: false
-      required: [selection, members]
-      properties:
-        selection: { $ref: '#/components/schemas/TemplateSelection' }
-        members:
+        template: { $ref: '#/components/schemas/VersionRef' }
+        items:
           type: array
           minItems: 1
           maxItems: 50
@@ -1991,947 +1209,315 @@ components:
             properties:
               assignmentId: { type: string, format: uuid }
               expectedVersion: { type: integer, minimum: 1 }
-    TemplateBatchPreview:
+    RolloutResult:
+      type: object
+      additionalProperties: false
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [assignmentId, outcome, receipt, error]
+            properties:
+              assignmentId: { type: string, format: uuid }
+              outcome: { type: string, enum: [accepted, rejected] }
+              receipt: { oneOf: [{ $ref: '#/components/schemas/AssignmentReceipt' }, { type: 'null' }] }
+              error: { oneOf: [{ $ref: '#/components/schemas/Error' }, { type: 'null' }] }
+    Environment:
+      type: object
+      additionalProperties: false
+      required: [id, backend, mode, session, generation, state, failure, leases, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        backend: { $ref: '#/components/schemas/VersionRef' }
+        mode: { type: string, enum: [per_session, per_profile_on_demand, per_profile_always_running] }
+        session: { type: [string, 'null'] }
+        generation: { type: integer, minimum: 1 }
+        state: { type: string, enum: [pending, starting, ready, draining, retired] }
+        failure:
+          type: [string, 'null']
+          enum: [image_unavailable, start_failed, contract_failed, null]
+          description: Why the worker failed; it drains and no other image replaces it
+        leases: { type: integer, minimum: 0 }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    EnvironmentList:
       type: object
       additionalProperties: false
       required: [items]
       properties:
-        items: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/TemplatePreview' } }
-    TemplateBatchAccepted:
+        items: { type: array, maxItems: 256, items: { $ref: '#/components/schemas/Environment' } }
+    Orphan:
       type: object
       additionalProperties: false
-      required: [id, operationId]
+      required: [kind, name, uid, firstSeenAt, lastSeenAt]
       properties:
-        id: { type: string, format: uuid }
-        operationId: { type: string, format: uuid }
-    TemplateBatchView:
+        kind: { type: string, enum: [namespace, persistent_volume] }
+        name: { type: string, minLength: 1, maxLength: 253 }
+        uid: { type: string, minLength: 1, maxLength: 128 }
+        firstSeenAt: { $ref: '#/components/schemas/Timestamp' }
+        lastSeenAt: { $ref: '#/components/schemas/Timestamp' }
+    OrphanReport:
       type: object
       additionalProperties: false
-      required: [id, state, items, actor, selection]
+      required: [scannedAt, items]
       properties:
-        actor: { $ref: '#/components/schemas/Identity' }
-        selection: { $ref: '#/components/schemas/TemplateSelection' }
-        id: { type: string, format: uuid }
-        state: { type: string, enum: [Pending, Succeeded, Failed] }
-        items:
-          type: array
-          maxItems: 50
-          items:
-            type: object
-            additionalProperties: false
-            required: [assignmentId, expectedVersion, state, operationId, errorCode]
-            properties:
-              assignmentId: { type: string, format: uuid }
-              expectedVersion: { type: integer }
-              state: { type: string, enum: [Pending, Accepted, Failed] }
-              operationId: { type: [string, 'null'], format: uuid }
-              errorCode: { type: [string, 'null'] }
-    TemplateDraftInput:
+        scannedAt:
+          description: When the controller last completed a scan; null before the first one
+          oneOf:
+            - { $ref: '#/components/schemas/Timestamp' }
+            - { type: 'null' }
+        items: { type: array, maxItems: 500, items: { $ref: '#/components/schemas/Orphan' } }
+    CatalogSummary:
       type: object
       additionalProperties: false
-      required: [templateId, definition]
+      required: [id, versions, latestPublished, draft, assignments]
       properties:
-        templateId: { type: string, maxLength: 63, pattern: '^[a-z][a-z0-9-]{0,62}$' }
-        definition: { $ref: '#/components/schemas/TemplateDefinition' }
+        id: { $ref: '#/components/schemas/Name' }
+        versions: { type: integer, minimum: 1 }
+        latestPublished: { type: [integer, 'null'] }
+        draft: { type: [integer, 'null'], description: The newest draft version, if any }
+        assignments: { type: integer, minimum: 0, description: Assignments pinning any version }
+    CatalogPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CatalogSummary' } }
+        nextCursor: { type: [string, 'null'] }
+    VersionState:
+      type: string
+      enum: [draft, published, withdrawn]
+    VersionSummary:
+      type: object
+      additionalProperties: false
+      required: [id, version, state, revision, updatedAt, assignments]
+      properties:
+        id: { $ref: '#/components/schemas/Name' }
+        version: { type: integer, minimum: 1 }
+        state: { $ref: '#/components/schemas/VersionState' }
+        revision: { type: integer, minimum: 1 }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
+        assignments: { type: integer, minimum: 0 }
+    VersionPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/VersionSummary' } }
+        nextCursor: { type: [string, 'null'] }
     TemplateDraft:
       type: object
       additionalProperties: false
-      required: [id, templateId, definition, version, publishedVersion]
+      required: [definition]
       properties:
-        id: { type: string, format: uuid }
-        templateId: { type: string }
-        definition: { $ref: '#/components/schemas/TemplateDefinition' }
-        version: { type: integer, minimum: 1 }
-        publishedVersion: { type: [integer, 'null'], minimum: 1 }
-    TemplateDraftAccepted:
+        definition: { $ref: './schemas/template-v2.json' }
+    BackendDraft:
       type: object
       additionalProperties: false
-      required: [draft, operationId]
+      required: [definition]
       properties:
-        draft: { $ref: '#/components/schemas/TemplateDraft' }
-        operationId: { type: string, format: uuid }
-    ConfigurationProblem:
-      type: object
-      additionalProperties: false
-      required: [pointer, code, severity, message]
-      properties:
-        pointer: { type: string, maxLength: 2048 }
-        code: { type: string }
-        severity: { type: string, enum: [error, warning] }
-        message: { type: string }
-    ValidationProblem:
-      type: object
-      additionalProperties: false
-      required: [error, problems]
-      properties:
-        error: { type: string, const: invalid_configuration }
-        problems: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/ConfigurationProblem' } }
-    Identity:
-      $ref: './router.openapi.yaml#/components/schemas/Identity'
-    Access:
-      type: string
-      enum: [enabled, suspended, revoked]
-    ListCursor:
-      type: [string, 'null']
-      maxLength: 2048
-    Cursor:
-      type: [string, 'null']
-      format: uuid
-    Session:
-      type: object
-      additionalProperties: false
-      required: [actor, permittedActions, csrfToken]
-      properties:
-        actor: { $ref: '#/components/schemas/Identity' }
-        permittedActions: { type: array, items: { type: string, enum: [administrator.manage, template.draft.create, template.draft.update, template.publish, assignment.set_template, assignment.create, assignment.set_access, instance.retry, execution.runtime.register, execution.storage.register, execution.storage.update, execution.pull-secret.register, execution.policy.set] } }
-        csrfToken: { type: [string, 'null'], description: Null for bearer API-only authentication }
-    CreateAssignment:
-      type: object
-      additionalProperties: false
-      required: [identity, access, templateId]
-      properties:
-        identity: { $ref: '#/components/schemas/Identity' }
-        access: { $ref: '#/components/schemas/Access' }
-        templateId: { type: string, minLength: 1, maxLength: 63, pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$' }
-        templateVersion: { type: integer, format: int64, minimum: 1 }
+        definition: { $ref: './schemas/terminal-backend-v1.json' }
     TemplateVersion:
       type: object
       additionalProperties: false
-      required: [id, version]
+      required: [id, version, state, revision, updatedAt, assignments, definition]
       properties:
-        id: { type: string }
-        version: { type: integer, format: int64, minimum: 1 }
-    TemplateView:
+        id: { $ref: '#/components/schemas/Name' }
+        version: { type: integer, minimum: 1 }
+        state: { $ref: '#/components/schemas/VersionState' }
+        revision: { type: integer, minimum: 1 }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
+        assignments: { type: integer, minimum: 0 }
+        definition: { $ref: './schemas/template-v2.json' }
+    BackendVersion:
       type: object
       additionalProperties: false
-      required: [id, version, image, nativePort, nativeScheme]
+      required: [id, version, state, revision, updatedAt, assignments, definition]
       properties:
-        id: { type: string }
-        version: { type: integer, format: int64, minimum: 1 }
-        image: { type: string, pattern: '^.+@sha256:[0-9a-f]{64}$' }
-        nativePort: { type: integer, minimum: 1, maximum: 65535 }
-        nativeScheme: { type: string, enum: [http, https] }
-    TemplateDefinition:
+        id: { $ref: '#/components/schemas/Name' }
+        version: { type: integer, minimum: 1 }
+        state: { $ref: '#/components/schemas/VersionState' }
+        revision: { type: integer, minimum: 1 }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
+        assignments: { type: integer, minimum: 0 }
+        definition: { $ref: './schemas/terminal-backend-v1.json' }
+    VersionReceipt:
       type: object
       additionalProperties: false
-      required: [schemaVersion, image, storageClass, homeGib, workspaceGib, cpuMillis, memoryMib]
+      required: [id, version, revision]
       properties:
-        schemaVersion: { type: integer, const: 1 }
-        image: { type: string, pattern: '^.+@sha256:[0-9a-f]{64}$' }
-        storageClass: { type: string, maxLength: 63 }
-        homeGib: { type: integer, minimum: 1, maximum: 1048576 }
-        workspaceGib: { type: integer, minimum: 1, maximum: 1048576 }
-        cpuMillis: { type: integer, minimum: 10, maximum: 64000 }
-        memoryMib: { type: integer, minimum: 128, maximum: 262144 }
-        adminConfig: { type: object, additionalProperties: true }
-    TemplateDefinitionView:
+        id: { $ref: '#/components/schemas/Name' }
+        version: { type: integer, minimum: 1 }
+        revision: { type: integer, minimum: 1 }
+    Validation:
       type: object
       additionalProperties: false
-      required:
-      - id
-      - source
-      - definition
-      - condition
-      - rejectedDefinition
-      - versions
-      - assignedUserCount
-      - redactedPaths
+      required: [valid, problems]
       properties:
-        id:
-          type: string
-        source:
-          type: string
-          enum:
-          - infrastructure
-          - manager
-        definition:
-          anyOf:
-          - $ref: '#/components/schemas/TemplateDefinition'
-          - type: 'null'
-        condition:
-          type:
-          - string
-          - 'null'
-          enum:
-          - invalid_definition
-          - null
-        rejectedDefinition:
-          anyOf:
-          - type: object
-            additionalProperties: false
-            required:
-            - code
-            properties:
-              code:
-                type: string
-                const: invalid_definition
-          - type: 'null'
-        versions:
-          type: array
-          maxItems: 1000
-          items:
-            type: object
-            additionalProperties: false
-            required:
-            - version
-            - digest
-            properties:
-              version:
-                type: integer
-                minimum: 1
-              digest:
-                type: string
-                pattern: ^[a-f0-9]{64}$
-        assignedUserCount:
-          type: integer
-          minimum: 0
-        redactedPaths:
-          type: array
-          items:
-            type: string
-        publicationState:
-          type: string
-          enum:
-          - published
-          - pending
-          - rejected
-          - catalog_only
-        schemaCoverage:
-          type: string
-          enum:
-          - reviewed_keys
-          - envelope_only
-    IdentityView:
+        valid: { type: boolean }
+        problems: { type: array, items: { $ref: '#/components/schemas/Problem' } }
+    StorageSource:
       type: object
       additionalProperties: false
-      required:
-      - id
-      - identity
-      - directoryVerified
-      - provenance
-      - assignment
+      required: [id]
       properties:
-        id:
-          type: string
-          format: uuid
-        identity:
-          $ref: '#/components/schemas/Identity'
-        directoryVerified:
-          type: boolean
-        provenance:
-          type: string
-          enum: [manager_record, verified_authentication]
-        assignment:
-          anyOf:
-          - $ref: '#/components/schemas/Assignment'
-          - type: 'null'
-    Assignment:
+        id: { $ref: '#/components/schemas/Name' }
+        storageClass:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name: { type: string }
+        localPath:
+          type: object
+          additionalProperties: false
+          required: [node, root]
+          properties:
+            node: { type: string }
+            root: { type: string }
+        nfs:
+          type: object
+          additionalProperties: false
+          required: [server, root]
+          properties:
+            server: { type: string }
+            root: { type: string }
+    StorageSourceList:
       type: object
       additionalProperties: false
-      required: [id, identity, access, template, version, instanceId, namespace, desiredGeneration, observedGeneration, state, source]
+      required: [items, dataIdentity]
       properties:
-        source: { type: string, enum: [infrastructure, manager] }
-        id: { type: string, format: uuid }
+        items: { type: array, items: { $ref: '#/components/schemas/StorageSource' } }
+        dataIdentity:
+          type: object
+          additionalProperties: false
+          required: [uid, gid]
+          properties:
+            uid: { type: integer }
+            gid: { type: integer }
+    VolumeUse:
+      type: object
+      additionalProperties: false
+      required: [assignmentId, identity, name, source, path, sizeGib, readOnly]
+      properties:
+        assignmentId: { type: string, format: uuid }
         identity: { $ref: '#/components/schemas/Identity' }
-        access: { $ref: '#/components/schemas/Access' }
-        template: { $ref: '#/components/schemas/TemplateVersion' }
-        version: { type: integer, format: int64, minimum: 1 }
-        instanceId: { type: string, format: uuid }
-        namespace: { type: string }
-        desiredGeneration: { type: integer, format: int64, minimum: 1 }
-        observedGeneration: { type: integer, format: int64, minimum: 0 }
-        state: { $ref: '#/components/schemas/InstanceState' }
-    InstanceState:
+        name: { $ref: '#/components/schemas/Name' }
+        source: { $ref: '#/components/schemas/Name' }
+        path: { type: [string, 'null'] }
+        sizeGib: { type: [integer, 'null'] }
+        readOnly: { type: boolean }
+    VolumePage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/VolumeUse' } }
+        nextCursor: { type: [string, 'null'] }
+    SecretKind:
       type: string
-      enum: [Pending, Provisioning, Ready, Blocked, Suspending, Suspended, Retained, Deleting, Deleted, Error]
-    Instance:
+      enum: [env, file, registry]
+    SecretSummary:
       type: object
       additionalProperties: false
-      required: [id, assignmentId, namespace, desiredGeneration, observedGeneration, state, version]
+      required: [name, kind, version, updatedAt, references]
       properties:
-        id: { type: string, format: uuid }
-        assignmentId: { type: string, format: uuid }
-        namespace: { type: string }
-        desiredGeneration: { type: integer, format: int64, minimum: 1 }
-        observedGeneration: { type: integer, format: int64, minimum: 0 }
-        state: { $ref: '#/components/schemas/InstanceState' }
-        version: { type: integer, format: int64, minimum: 1 }
-    Accepted:
+        name: { $ref: '#/components/schemas/Name' }
+        kind: { $ref: '#/components/schemas/SecretKind' }
+        version: { type: integer, minimum: 1 }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
+        references: { type: integer, minimum: 0, description: Catalog versions and assignments naming it }
+    SecretPage:
       type: object
       additionalProperties: false
-      required: [assignmentId, instanceId, operationId, version]
+      required: [items, nextCursor]
       properties:
-        assignmentId: { type: string, format: uuid }
-        instanceId: { type: string, format: uuid }
-        operationId: { type: string, format: uuid }
-        version: { type: integer, format: int64, minimum: 1 }
-    Operation:
+        items: { type: array, items: { $ref: '#/components/schemas/SecretSummary' } }
+        nextCursor: { type: [string, 'null'] }
+    SecretWrite:
       type: object
       additionalProperties: false
-      required: [id, instanceId, kind, generation, state, attempt, nextAttemptAt]
+      required: [kind, value]
       properties:
-        id: { type: string, format: uuid }
-        instanceId: { type: [string, 'null'], format: uuid }
-        kind: { type: string, enum: [commission, suspend, revoke, retry, template.publish, template.draft.save, assignment.set_template, batch.apply, administrator.grant, administrator.revoke, administrator.bootstrap, administrator.recover] }
-        generation: { type: integer, format: int64, minimum: 1 }
-        state: { type: string, enum: [Pending, Running, Waiting, RetryAt, Succeeded, Blocked, Failed, Superseded] }
-        attempt: { type: integer, minimum: 0 }
-        nextAttemptAt: { type: integer, format: int64, description: Database-time Unix seconds }
+        kind: { $ref: '#/components/schemas/SecretKind' }
+        value: { type: string, minLength: 1, maxLength: 8192, writeOnly: true }
+    SecretReceipt:
+      type: object
+      additionalProperties: false
+      required: [name, version]
+      properties:
+        name: { $ref: '#/components/schemas/Name' }
+        version: { type: integer, minimum: 1 }
+    Administrator:
+      type: object
+      additionalProperties: false
+      required: [identityId, identity, active, canManageAdministrators, version, updatedAt]
+      properties:
+        identityId: { type: string, format: uuid }
+        identity: { $ref: '#/components/schemas/Identity' }
+        active: { type: boolean }
+        canManageAdministrators: { type: boolean }
+        version: { type: integer, minimum: 1 }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
+    AdministratorPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Administrator' } }
+        nextCursor: { type: [string, 'null'] }
+    GrantRequest:
+      type: object
+      additionalProperties: false
+      required: [identity, canManageAdministrators]
+      properties:
+        identity: { $ref: '#/components/schemas/Identity' }
+        canManageAdministrators: { type: boolean }
+    GrantChange:
+      type: object
+      additionalProperties: false
+      required: [active, canManageAdministrators]
+      properties:
+        active: { type: boolean }
+        canManageAdministrators: { type: boolean }
+    GrantReceipt:
+      type: object
+      additionalProperties: false
+      required: [identityId, version]
+      properties:
+        identityId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+    AuditActor:
+      type: object
+      additionalProperties: false
+      required: [kind, identity]
+      properties:
+        kind: { type: string, enum: [administrator, operator, controller] }
+        identity: { oneOf: [{ $ref: '#/components/schemas/Identity' }, { type: 'null' }] }
     AuditEvent:
       type: object
       additionalProperties: false
-      required:
-      - id
-      - actor
-      - action
-      - assignmentId
-      - operationId
-      - requestId
-      - version
-      - occurredAt
-      - outcome
+      required: [id, occurredAt, actor, action, target, requestId, change]
       properties:
-        id:
-          type: string
-          format: uuid
-        actor:
-          $ref: '#/components/schemas/Identity'
-        entityType:
-          type:
-          - string
-          - 'null'
-        entityId:
-          type:
-          - string
-          - 'null'
-        action:
-          type: string
-        assignmentId:
-          type:
-          - string
-          - 'null'
-          format: uuid
-        operationId:
-          type:
-          - string
-          - 'null'
-          format: uuid
-        requestId:
-          type: string
-          format: uuid
-        version:
-          type: integer
-          format: int64
-          minimum: 1
-        occurredAt:
-          type: integer
-          format: int64
-          description: Database-time Unix seconds
-        outcome:
-          type: string
-    Error:
-      type: object
-      additionalProperties: false
-      required: [error]
-      properties:
-        error:
-          type: string
-          enum: [administrator_grant_exists, identity_not_verified, last_administrator, ownership_conflict, storage_migration_required, invalid_request, invalid_identity_evidence, access_denied, idempotency_conflict, assignment_exists, not_found, stale_version, template_unavailable, maintenance, registry_unavailable, dependency_unavailable]
-    RuntimeRef:
-      type: object
-      additionalProperties: false
-      required:
-      - id
-      - version
-      properties:
-        id:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-        version:
-          type: integer
-          format: int64
-          minimum: 1
-    WorkerResources:
-      type: object
-      additionalProperties: false
-      required:
-      - cpuMillis
-      - memoryMib
-      - ephemeralStorageMib
-      properties:
-        cpuMillis:
-          type: integer
-          format: int64
-          minimum: 10
-          maximum: 64000
-        memoryMib:
-          type: integer
-          format: int64
-          minimum: 64
-          maximum: 262144
-        ephemeralStorageMib:
-          type: integer
-          format: int64
-          minimum: 64
-          maximum: 1048576
-    ServiceEgress:
-      type: object
-      additionalProperties: false
-      required:
-      - namespace
-      - service
-      - port
-      properties:
-        namespace:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-        service:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-        port:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 65535
-    RuntimeDefinition:
-      type: object
-      additionalProperties: false
-      required:
-      - schemaVersion
-      - runtime
-      - image
-      - sshContract
-      - uid
-      - gid
-      - serviceAccount
-      - resources
-      - locale
-      - egress
-      - pullSecretNames
-      properties:
-        schemaVersion:
-          type: integer
-          const: 1
-        runtime:
-          $ref: '#/components/schemas/RuntimeRef'
-        image:
-          type: string
-          pattern: ^.+@sha256:[0-9a-f]{64}$
-        sshContract:
-          type: string
-          enum: [managed-ssh-v1, managed-ssh-v2]
-        uid:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 65535
-        gid:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 65535
-        serviceAccount:
-          type: string
-          const: worker
-        resources:
-          $ref: '#/components/schemas/WorkerResources'
-        locale:
-          type: string
-          enum:
-          - C.UTF-8
-          - en_US.UTF-8
-        egress:
-          type: array
-          maxItems: 16
-          minItems: 0
-          items:
-            $ref: '#/components/schemas/ServiceEgress'
-        pullSecretNames:
-          type: array
-          maxItems: 4
-          minItems: 0
-          items:
-            type: string
-            minLength: 1
-            maxLength: 63
-            pattern: ^[a-z][a-z0-9-]{0,62}$
-          uniqueItems: true
-    PermittedMount:
-      type: object
-      additionalProperties: false
-      required:
-      - path
-      - readOnly
-      properties:
-        path:
-          type: string
-          description: Absolute approved container mount path; no reserved platform paths
-            or overlaps.
-        readOnly:
-          type: boolean
-        subPath:
-          type:
-          - string
-          - 'null'
-          description: Optional confined relative subpath; no dot, parent, absolute or
-            backslash components.
-    StorageBinding:
-      type: object
-      additionalProperties: false
-      required:
-      - id
-      - version
-      - instanceId
-      - namespace
-      - namespaceUid
-      - pvcName
-      - pvcUid
-      - backingStorageId
-      - external
-      - required
-      - backup
-      - mounts
-      properties:
-        id:
-          type: string
-          format: uuid
-        version:
-          type: integer
-          format: int64
-          minimum: 1
-        instanceId:
-          type: string
-          format: uuid
-        namespace:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-        namespaceUid:
-          type: string
-          minLength: 1
-          maxLength: 128
-        pvcName:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-        pvcUid:
-          type: string
-          minLength: 1
-          maxLength: 128
-        backingStorageId:
-          type: string
-          format: uuid
-          description: Opaque inventory ID; never a filesystem/server path.
-        external:
-          type: boolean
-        required:
-          type: boolean
-        backup:
-          type: string
-          enum:
-          - platform_checkpoint
-          - external
-          - excluded
-        mounts:
-          type: array
-          maxItems: 16
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/PermittedMount'
-    PullSecretBinding:
-      type: object
-      additionalProperties: false
-      required:
-      - instanceId
-      - namespace
-      - namespaceUid
-      - name
-      - uid
-      properties:
-        instanceId:
-          type: string
-          format: uuid
-        namespace:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-        namespaceUid:
-          type: string
-          minLength: 1
-          maxLength: 128
-        name:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-        uid:
-          type: string
-          minLength: 1
-          maxLength: 128
-    MountSelection:
-      type: object
-      additionalProperties: false
-      required:
-      - bindingId
-      - bindingVersion
-      - mount
-      properties:
-        bindingId:
-          type: string
-          format: uuid
-        bindingVersion:
-          type: integer
-          format: int64
-          minimum: 1
-        mount:
-          $ref: '#/components/schemas/PermittedMount'
-    AllowedRuntime:
-      type: object
-      additionalProperties: false
-      required:
-      - runtime
-      - resources
-      - mounts
-      properties:
-        limits:
-          $ref: '#/components/schemas/ExecutionLimits'
-        runtime:
-          $ref: '#/components/schemas/RuntimeRef'
-        resources:
-          $ref: '#/components/schemas/WorkerResources'
-        mounts:
-          type: array
-          maxItems: 16
-          minItems: 0
-          items:
-            $ref: '#/components/schemas/MountSelection'
-    AssignmentExecution:
-      type: object
-      additionalProperties: false
-      required:
-      - defaultRuntimeId
-      - allowed
-      properties:
-        defaultRuntimeId:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-        allowed:
-          type: array
-          maxItems: 16
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/AllowedRuntime'
-    ResolvedMount:
-      type: object
-      additionalProperties: false
-      required:
-      - binding
-      - mount
-      properties:
-        binding:
-          $ref: '#/components/schemas/StorageBinding'
-        mount:
-          $ref: '#/components/schemas/PermittedMount'
-    ResolvedRuntime:
-      type: object
-      additionalProperties: false
-      required:
-      - definition
-      - definitionDigest
-      - resources
-      - mounts
-      - pullSecrets
-      properties:
-        limits:
-          $ref: '#/components/schemas/ExecutionLimits'
-        definition:
-          $ref: '#/components/schemas/RuntimeDefinition'
-        definitionDigest:
-          type: string
-          pattern: ^[a-f0-9]{64}$
-        resources:
-          $ref: '#/components/schemas/WorkerResources'
-        mounts:
-          type: array
-          maxItems: 16
-          minItems: 0
-          items:
-            $ref: '#/components/schemas/ResolvedMount'
-        pullSecrets:
-          type: array
-          maxItems: 4
-          minItems: 0
-          items:
-            $ref: '#/components/schemas/PullSecretBinding'
-    ResolvedPolicy:
-      type: object
-      additionalProperties: false
-      required:
-      - installationId
-      - instanceId
-      - namespace
-      - namespaceUid
-      - generation
-      - defaultRuntimeId
-      - runtimes
-      properties:
-        installationId:
-          type: string
-          format: uuid
-        instanceId:
-          type: string
-          format: uuid
-        namespace:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-        namespaceUid:
-          type: string
-          minLength: 1
-          maxLength: 128
-        generation:
-          type: integer
-          format: int64
-          minimum: 1
-        defaultRuntimeId:
-          type: string
-          minLength: 1
-          maxLength: 63
-          pattern: ^[a-z][a-z0-9-]{0,62}$
-        runtimes:
-          type: array
-          maxItems: 16
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/ResolvedRuntime'
-    ExecutionPolicyView:
-      type: object
-      additionalProperties: false
-      required:
-      - assignmentId
-      - assignmentVersion
-      - desiredGeneration
-      - appliedGeneration
-      - state
-      - desired
-      - digest
-      properties:
-        assignmentId:
-          type: string
-          format: uuid
-        assignmentVersion:
-          type: integer
-          format: int64
-          minimum: 1
-        desiredGeneration:
-          type: integer
-          format: int64
-          minimum: 1
-        appliedGeneration:
-          type: integer
-          format: int64
-          minimum: 0
-        state:
-          type: string
-          enum:
-          - Pending
-          - Reconciling
-          - Waiting
-          - Applied
-        desired:
-          $ref: '#/components/schemas/ResolvedPolicy'
-        applied:
-          description: Immutable snapshot at appliedGeneration; null until trusted activation.
-          anyOf:
-          - $ref: '#/components/schemas/ResolvedPolicy'
-          - type: 'null'
-        digest:
-          type: string
-          pattern: ^[a-f0-9]{64}$
-    ExecutionAccepted:
-      type: object
-      additionalProperties: false
-      required:
-      - eventId
-      - assignmentVersion
-      - policyGeneration
-      - policyDigest
-      properties:
-        eventId:
-          type: string
-          format: uuid
-        assignmentVersion:
-          type:
-          - integer
-          - 'null'
-          format: int64
-          minimum: 1
-        policyGeneration:
-          type:
-          - integer
-          - 'null'
-          format: int64
-          minimum: 1
-        policyDigest:
-          type:
-          - string
-          - 'null'
-          pattern: ^[a-f0-9]{64}$
-    ExecutionLimits:
-      type: object
-      additionalProperties: false
-      description: Optional policy limits; omitting the object selects these defaults.
-      required: [ttlSeconds, exclusive, serializeProfile, maxEnvironments, maxLeases, idleSeconds]
-      properties:
-        ttlSeconds: { type: integer, minimum: 30, maximum: 600, default: 120 }
-        exclusive: { type: boolean, default: false }
-        serializeProfile: { type: boolean, default: false }
-        maxEnvironments: { type: integer, minimum: 1, maximum: 64, default: 8 }
-        maxLeases: { type: integer, minimum: 1, maximum: 128, default: 32 }
-        idleSeconds: { type: integer, minimum: 30, maximum: 86400, default: 900 }
-    OperationPage:
-      type: object
-      additionalProperties: false
-      required:
-      - items
-      - nextCursor
-      properties:
-        items:
-          type: array
-          maxItems: 100
-          items:
-            $ref: '#/components/schemas/Operation'
-        nextCursor:
-          $ref: '#/components/schemas/ListCursor'
-    OperationDetails:
-      type: object
-      additionalProperties: false
-      required:
-      - operation
-      - assignmentId
-      - steps
-      properties:
-        operation:
-          $ref: '#/components/schemas/Operation'
-        assignmentId:
-          type:
-          - string
-          - 'null'
-          format: uuid
-        steps:
-          type: array
-          maxItems: 100
-          items:
-            type: object
-            additionalProperties: false
-            required:
-            - key
-            - recordedAt
-            - verifiedAt
-            properties:
-              key:
-                type: string
-              recordedAt:
-                type: integer
-              verifiedAt:
-                type:
-                - integer
-                - 'null'
-    AuditDetails:
-      type: object
-      additionalProperties: false
-      required:
-      - event
-      - redacted
-      - change
-      properties:
-        event:
-          $ref: '#/components/schemas/AuditEvent'
-        redacted:
-          type: boolean
-          const: true
-        change:
+        id: { type: string, format: uuid }
+        occurredAt: { $ref: '#/components/schemas/Timestamp' }
+        actor: { $ref: '#/components/schemas/AuditActor' }
+        action: { type: string }
+        target:
           type: object
           additionalProperties: false
+          required: [kind, id]
           properties:
-            access:
-              $ref: '#/components/schemas/Access'
-            templateId:
-              type: string
-            templateVersion:
-              type: integer
-            runtimeId:
-              type: string
-            version:
-              type: integer
-            storageBindingId:
-              type: string
-            instanceId:
-              type: string
-            assignmentId:
-              type: string
-            generation:
-              type: integer
-            digest:
-              type: string
-            pullSecretName:
-              type: string
-    TemplateVersionDefinition:
+            kind: { type: string }
+            id: { type: string }
+        requestId: { type: string, format: uuid }
+        change: { type: object, description: Redacted summary; never secret values }
+    AuditPage:
       type: object
       additionalProperties: false
-      required:
-      - id
-      - version
-      - digest
-      - definition
-      - redactedPaths
+      required: [items, nextCursor]
       properties:
-        id:
-          type: string
-        version:
-          type: integer
-          minimum: 1
-        digest:
-          type: string
-        definition:
-          $ref: '#/components/schemas/TemplateDefinition'
-        redactedPaths:
-          type: array
-          items:
-            type: string
-    StorageClassPage:
-      type: object
-      additionalProperties: false
-      required:
-      - items
-      - nextCursor
-      properties:
-        items:
-          type: array
-          maxItems: 100
-          items:
-            type: object
-            additionalProperties: false
-            required:
-            - id
-            - source
-            properties:
-              id:
-                type: string
-              source:
-                type: string
-                const: approved_template
-        nextCursor:
-          $ref: '#/components/schemas/ListCursor'
+        items: { type: array, items: { $ref: '#/components/schemas/AuditEvent' } }
+        nextCursor: { type: [string, 'null'] }

@@ -1,0 +1,491 @@
+[
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicy",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-namespaces"
+    },
+    "spec": {
+      "failurePolicy": "Fail",
+      "matchConditions": [],
+      "matchConstraints": {
+        "resourceRules": [
+          {
+            "apiGroups": [
+              ""
+            ],
+            "apiVersions": [
+              "*"
+            ],
+            "operations": [
+              "CREATE",
+              "UPDATE",
+              "DELETE"
+            ],
+            "resources": [
+              "namespaces"
+            ]
+          }
+        ]
+      },
+      "validations": [
+        {
+          "expression": "request.operation == 'DELETE' || !object.metadata.name.startsWith('hi-7d6c0e1a0000-') || request.userInfo.username == 'system:serviceaccount:hermes-system:hermes-manager-controller'",
+          "message": "only the manager controller writes instance namespaces"
+        },
+        {
+          "expression": "request.userInfo.username != 'system:serviceaccount:hermes-system:hermes-manager-controller' || request.operation != 'DELETE'",
+          "message": "the manager controller never deletes namespaces"
+        },
+        {
+          "expression": "request.userInfo.username != 'system:serviceaccount:hermes-system:hermes-manager-controller' || request.operation == 'DELETE' || (object.metadata.name.startsWith('hi-7d6c0e1a0000-') && has(object.metadata.labels) && object.metadata.labels['agent-platform.io/installation'] == '7d6c0e1a-0000-4000-8000-000000000001' && object.metadata.labels['app.kubernetes.io/managed-by'] == 'hermes-manager' && object.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted' && 'agent-platform.io/instance' in object.metadata.labels && object.metadata.name == 'hi-7d6c0e1a0000-' + object.metadata.labels['agent-platform.io/instance'].replace('-', ''))",
+          "message": "instance namespaces carry the installation's prefix and labels"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicyBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-namespaces"
+    },
+    "spec": {
+      "matchResources": {},
+      "policyName": "hermes-manager-7d6c0e1a0000-namespaces",
+      "validationActions": [
+        "Deny"
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicy",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-owned-writes"
+    },
+    "spec": {
+      "failurePolicy": "Fail",
+      "matchConditions": [
+        {
+          "expression": "(has(request.namespace) && request.namespace != '') || request.resource.resource == 'namespaces'",
+          "name": "namespaced"
+        },
+        {
+          "expression": "request.resource.resource != 'events'",
+          "name": "not-events"
+        }
+      ],
+      "matchConstraints": {
+        "resourceRules": [
+          {
+            "apiGroups": [
+              "*"
+            ],
+            "apiVersions": [
+              "*"
+            ],
+            "operations": [
+              "CREATE",
+              "UPDATE",
+              "DELETE"
+            ],
+            "resources": [
+              "*"
+            ]
+          }
+        ]
+      },
+      "validations": [
+        {
+          "expression": "request.userInfo.username == 'system:serviceaccount:hermes-system:hermes-manager-controller' || request.userInfo.username == 'system:kube-controller-manager' || request.userInfo.username == 'system:kube-scheduler' || request.userInfo.username == 'system:apiserver' || request.userInfo.username.startsWith('system:serviceaccount:kube-system:') || request.userInfo.username.startsWith('system:node:')",
+          "message": "only the manager controller writes in instance namespaces"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicyBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-owned-writes"
+    },
+    "spec": {
+      "matchResources": {
+        "namespaceSelector": {
+          "matchLabels": {
+            "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001"
+          }
+        }
+      },
+      "policyName": "hermes-manager-7d6c0e1a0000-owned-writes",
+      "validationActions": [
+        "Deny"
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicy",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-controller-scope"
+    },
+    "spec": {
+      "failurePolicy": "Fail",
+      "matchConditions": [
+        {
+          "expression": "request.userInfo.username == 'system:serviceaccount:hermes-system:hermes-manager-controller'",
+          "name": "controller"
+        }
+      ],
+      "matchConstraints": {
+        "resourceRules": [
+          {
+            "apiGroups": [
+              "*"
+            ],
+            "apiVersions": [
+              "*"
+            ],
+            "operations": [
+              "CREATE",
+              "UPDATE",
+              "DELETE"
+            ],
+            "resources": [
+              "*"
+            ]
+          }
+        ]
+      },
+      "validations": [
+        {
+          "expression": "request.resource.resource in ['namespaces', 'persistentvolumes'] || (has(request.namespace) && request.namespace.startsWith('hi-7d6c0e1a0000-')) || (has(request.namespace) && request.namespace == 'hermes-system' && request.resource.group == 'coordination.k8s.io' && request.resource.resource == 'leases')",
+          "message": "the manager controller writes only in instance namespaces"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicyBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-controller-scope"
+    },
+    "spec": {
+      "matchResources": {},
+      "policyName": "hermes-manager-7d6c0e1a0000-controller-scope",
+      "validationActions": [
+        "Deny"
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicy",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-pods"
+    },
+    "spec": {
+      "failurePolicy": "Fail",
+      "matchConditions": [],
+      "matchConstraints": {
+        "resourceRules": [
+          {
+            "apiGroups": [
+              ""
+            ],
+            "apiVersions": [
+              "*"
+            ],
+            "operations": [
+              "CREATE",
+              "UPDATE"
+            ],
+            "resources": [
+              "pods",
+              "pods/ephemeralcontainers"
+            ]
+          }
+        ]
+      },
+      "validations": [
+        {
+          "expression": "has(object.spec.securityContext) && object.spec.securityContext.runAsNonRoot == true && object.spec.securityContext.runAsUser == 1000 && object.spec.securityContext.runAsGroup == 1000",
+          "message": "Pods run as the installation's non-root data identity"
+        },
+        {
+          "expression": "(has(object.spec.initContainers) ? object.spec.containers + object.spec.initContainers : object.spec.containers).all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false && (!has(c.securityContext.privileged) || c.securityContext.privileged == false) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop && (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0))",
+          "message": "containers are unprivileged and drop every capability"
+        },
+        {
+          "expression": "(has(object.spec.initContainers) ? object.spec.containers + object.spec.initContainers : object.spec.containers).all(c, c.image.matches('^[^@\\\\s]+@sha256:[a-f0-9]{64}$'))",
+          "message": "images are pinned by digest"
+        },
+        {
+          "expression": "!(has(object.spec.hostNetwork) && object.spec.hostNetwork) && !(has(object.spec.hostPID) && object.spec.hostPID) && !(has(object.spec.hostIPC) && object.spec.hostIPC)",
+          "message": "Pods use no host namespaces"
+        },
+        {
+          "expression": "has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false",
+          "message": "Pods carry no Kubernetes token"
+        },
+        {
+          "expression": "!has(object.spec.volumes) || object.spec.volumes.all(v, has(v.persistentVolumeClaim) || has(v.secret) || has(v.configMap) || has(v.emptyDir) || (has(v.projected) && v.projected.sources.all(s, has(s.secret) || has(s.configMap))))",
+          "message": "volumes are claims, Secrets, ConfigMaps or emptyDirs only"
+        },
+        {
+          "expression": "!has(object.spec.ephemeralContainers) || size(object.spec.ephemeralContainers) == 0",
+          "message": "no ephemeral containers"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicyBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-pods"
+    },
+    "spec": {
+      "matchResources": {
+        "namespaceSelector": {
+          "matchLabels": {
+            "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001"
+          }
+        }
+      },
+      "policyName": "hermes-manager-7d6c0e1a0000-pods",
+      "validationActions": [
+        "Deny"
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicy",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-volumes"
+    },
+    "spec": {
+      "failurePolicy": "Fail",
+      "matchConditions": [
+        {
+          "expression": "request.userInfo.username == 'system:serviceaccount:hermes-system:hermes-manager-controller'",
+          "name": "controller"
+        }
+      ],
+      "matchConstraints": {
+        "resourceRules": [
+          {
+            "apiGroups": [
+              ""
+            ],
+            "apiVersions": [
+              "*"
+            ],
+            "operations": [
+              "CREATE",
+              "UPDATE"
+            ],
+            "resources": [
+              "persistentvolumes"
+            ]
+          }
+        ]
+      },
+      "validations": [
+        {
+          "expression": "object.spec.persistentVolumeReclaimPolicy == 'Retain' && has(object.spec.claimRef) && object.spec.claimRef.namespace.startsWith('hi-7d6c0e1a0000-') && (!has(object.spec.storageClassName) || object.spec.storageClassName == '')",
+          "message": "static volumes are retained and bind into instance namespaces"
+        },
+        {
+          "expression": "!(has(object.spec.local) && (object.spec.local.path.contains('/../') || object.spec.local.path.endsWith('/..'))) && !(has(object.spec.nfs) && (object.spec.nfs.path.contains('/../') || object.spec.nfs.path.endsWith('/..'))) && ((has(object.spec.local) && object.spec.local.path.startsWith('/srv/hermes-data/') && has(object.spec.nodeAffinity) && object.spec.nodeAffinity.required.nodeSelectorTerms.all(t, t.matchExpressions.all(e, e.key == 'kubernetes.io/hostname' && e.operator == 'In' && e.values == ['server-1']))) || (has(object.spec.nfs) && object.spec.nfs.server == 'nas.internal' && object.spec.nfs.path.startsWith('/export/homes/')))",
+          "message": "static volumes stay under approved storage roots"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicyBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-volumes"
+    },
+    "spec": {
+      "matchResources": {},
+      "policyName": "hermes-manager-7d6c0e1a0000-volumes",
+      "validationActions": [
+        "Deny"
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicy",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-rolebindings"
+    },
+    "spec": {
+      "failurePolicy": "Fail",
+      "matchConditions": [],
+      "matchConstraints": {
+        "resourceRules": [
+          {
+            "apiGroups": [
+              "rbac.authorization.k8s.io"
+            ],
+            "apiVersions": [
+              "*"
+            ],
+            "operations": [
+              "CREATE",
+              "UPDATE"
+            ],
+            "resources": [
+              "rolebindings"
+            ]
+          }
+        ]
+      },
+      "validations": [
+        {
+          "expression": "object.roleRef.kind == 'ClusterRole' && object.roleRef.name == 'hermes-manager-instance' && size(object.subjects) == 1 && object.subjects[0].kind == 'ServiceAccount' && object.subjects[0].name == 'hermes-manager-controller' && object.subjects[0].namespace == 'hermes-system'",
+          "message": "instance namespaces bind only the instance role to the controller"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicyBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-rolebindings"
+    },
+    "spec": {
+      "matchResources": {
+        "namespaceSelector": {
+          "matchLabels": {
+            "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001"
+          }
+        }
+      },
+      "policyName": "hermes-manager-7d6c0e1a0000-rolebindings",
+      "validationActions": [
+        "Deny"
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicy",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-services"
+    },
+    "spec": {
+      "failurePolicy": "Fail",
+      "matchConditions": [],
+      "matchConstraints": {
+        "resourceRules": [
+          {
+            "apiGroups": [
+              ""
+            ],
+            "apiVersions": [
+              "*"
+            ],
+            "operations": [
+              "CREATE",
+              "UPDATE"
+            ],
+            "resources": [
+              "services"
+            ]
+          }
+        ]
+      },
+      "validations": [
+        {
+          "expression": "(!has(object.spec.type) || object.spec.type == 'ClusterIP') && (!has(object.spec.externalIPs) || size(object.spec.externalIPs) == 0)",
+          "message": "Services stay inside the cluster"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingAdmissionPolicyBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "helm",
+        "app.kubernetes.io/part-of": "hermes-manager"
+      },
+      "name": "hermes-manager-7d6c0e1a0000-services"
+    },
+    "spec": {
+      "matchResources": {
+        "namespaceSelector": {
+          "matchLabels": {
+            "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001"
+          }
+        }
+      },
+      "policyName": "hermes-manager-7d6c0e1a0000-services",
+      "validationActions": [
+        "Deny"
+      ]
+    }
+  }
+]

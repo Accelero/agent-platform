@@ -36,15 +36,27 @@ def session_key():
     return get_session_env("HERMES_SESSION_KEY", "")
 
 
+# Hermes starts a plugin backend in its generic container default, root's home,
+# unless a directory is declared. Managed workers never run as root.
+GENERIC_CWD = '/root'
+
+
+def command_cwd(cwd, default):
+    """Hermes passes its generic default with every command when nothing is
+    declared; such a command runs in `default` instead."""
+    return default if not cwd or cwd == GENERIC_CWD else cwd
+
+
 def invocation_cwd(cwd, task_id):
     """Recover an explicitly declared workspace directory after Hermes's generic
-    container guard has sanitized a host-looking cwd."""
+    container guard has sanitized a host-looking cwd. Without one, a worker starts
+    in the shared workspace, as a scheduled run with no session does."""
     from agent.runtime_cwd import scoped_session_cwd
     from tools.terminal_tool import get_session_cwd
     declared = get_session_cwd(task_id) or scoped_session_cwd()
     if declared and Path(declared).is_relative_to(WORKSPACE):
         return declared
-    return cwd
+    return command_cwd(cwd, WORKSPACE)
 
 
 class Client:
@@ -292,7 +304,7 @@ class ManagedSSHEnvironment(SSHEnvironment):
     def _wrap_command(self, command, cwd):
         remote_home = self._remote_home + '/.hermes'
         command = 'export HERMES_HOME=' + shlex.quote(remote_home) + '\n' + command
-        return super()._wrap_command(command, cwd)
+        return super()._wrap_command(command, command_cwd(cwd, self._initial_cwd))
 
     def _before_execute(self):
         if self._lost:

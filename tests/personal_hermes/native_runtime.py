@@ -58,12 +58,31 @@ def main():
         (fixture / "init/init-key").write_text(secrets.token_hex(32))
         token = secrets.token_hex(32)
         (fixture / "credentials/dashboard-session-token").write_text(token)
-        public_ca = (
-            ROOT
-            / "services/hermes-manager/crates/hermes-adapters"
-            / "tests/fixtures/template-ca.crt"
-        )
-        (fixture / "trust/oidc-ca.crt").write_bytes(public_ca.read_bytes())
+        # A throwaway CA; its key stays outside every mounted directory.
+        with tempfile.TemporaryDirectory(prefix="personal-hermes-ca-") as ca:
+            run(
+                [
+                    "openssl",
+                    "req",
+                    "-x509",
+                    "-newkey",
+                    "ec",
+                    "-pkeyopt",
+                    "ec_paramgen_curve:P-256",
+                    "-nodes",
+                    "-keyout",
+                    str(Path(ca) / "ca.key"),
+                    "-out",
+                    str(fixture / "trust/oidc-ca.crt"),
+                    "-days",
+                    "1",
+                    "-subj",
+                    "/CN=personal-hermes-test-ca",
+                    "-addext",
+                    "basicConstraints=critical,CA:TRUE",
+                ],
+                timeout=30,
+            )
         # No model key/login, shared service credentials, prompts or Multica seed.
         settings = {
             "manager_url": "https://manager.example.org/execution",

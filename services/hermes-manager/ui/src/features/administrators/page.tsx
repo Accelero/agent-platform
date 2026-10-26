@@ -2,26 +2,20 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { api } from "../../api";
-import { useSession, useActorKey } from "../../app/state";
-import { Command } from "../../components/command";
-import {
-  DataTable,
-  ListControls,
-  ReadState,
-  JsonDetails,
-  usePager,
-} from "../../components/data";
+import { useActorKey } from "../../app/state";
+import { Command, usePermitted } from "../../components/command";
+import { DataTable, ReadState, usePager } from "../../components/data";
+
 export function AdministratorsPage() {
   const actor = useActorKey();
-  const session = useSession();
   const pager = usePager();
-  const [identity, setIdentity] = useState("");
+  const manager = usePermitted("administrator.manage");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [candidateAfter, setCandidateAfter] = useState<string>();
+  const [chosen, setChosen] = useState("");
   const query = useQuery({
-    queryKey: [actor, "administrators", pager.after, pager.filters],
-    queryFn: ({ signal }) =>
-      api.administrators(pager.after, signal, pager.filters),
+    queryKey: [actor, "administrators", pager.after],
+    queryFn: ({ signal }) => api.administrators(pager.after, signal),
   });
   const candidates = useQuery({
     queryKey: [
@@ -30,23 +24,18 @@ export function AdministratorsPage() {
       candidateSearch,
       candidateAfter,
     ],
-    enabled: session.data?.permittedActions.includes("administrator.manage"),
+    enabled: manager,
     queryFn: ({ signal }) =>
-      api.administratorCandidates(signal, candidateAfter, candidateSearch),
+      api.administratorCandidates(candidateAfter, signal, candidateSearch),
   });
-  const selected = candidates.data?.items.find(
-    (item) => JSON.stringify(item) === identity,
-  );
+  const selected = candidates.data?.items.find((item) => item.id === chosen);
   return (
     <>
       <p>
-        Keycloak authenticates exact identities. Active PostgreSQL grants are
-        the sole source of administrator permission; token roles do not grant
-        access. Revocation denies new requests immediately, including assets and
-        bearer tokens. The browser clears its cached state when its next session
-        check runs, within 60 seconds.
+        Keycloak authenticates exact identities; active PostgreSQL grants are
+        the only source of administrator permission. Token roles grant nothing.
+        Revocation denies the next request, including assets and bearer tokens.
       </p>
-      <ListControls kind="administrators" />
       <ReadState
         pending={query.isPending}
         error={query.error}
@@ -64,7 +53,7 @@ export function AdministratorsPage() {
                   cell: ({ row }) => (
                     <Link
                       to="/administrators/$id"
-                      params={{ id: row.original.id }}
+                      params={{ id: row.original.identityId }}
                     >
                       {row.original.identity.subject}
                       <small>{row.original.identity.issuer}</small>
@@ -83,23 +72,22 @@ export function AdministratorsPage() {
                       ? "Permitted"
                       : "Not permitted",
                 },
-                { header: "Authority", accessorKey: "source" },
+                { header: "Updated", accessorKey: "updatedAt" },
               ]}
             />
             {pager.controls(query.data.nextCursor)}
           </>
         )}
       </ReadState>
-      {session.data?.permittedActions.includes("administrator.manage") && (
+      {manager && (
         <section className="panel detail">
           <h2>Add an administrator</h2>
           <p>
-            Select an exact identity verified through a signed manager-audience
-            login. Users can sign in once to establish this evidence without
-            gaining administrator access.
+            Only identities that signed in to the manager at least once can be
+            granted. Signing in alone grants nothing.
           </p>
           <label>
-            Search verified identities
+            Search signed-in identities
             <input
               type="search"
               value={candidateSearch}
@@ -107,7 +95,7 @@ export function AdministratorsPage() {
               onChange={(event) => {
                 setCandidateSearch(event.target.value);
                 setCandidateAfter(undefined);
-                setIdentity("");
+                setChosen("");
               }}
             />
           </label>
@@ -117,18 +105,15 @@ export function AdministratorsPage() {
             stale={candidates.isRefetchError}
           >
             <label>
-              Verified identity
+              Identity
               <select
-                value={identity}
-                onChange={(event) => setIdentity(event.target.value)}
+                value={chosen}
+                onChange={(event) => setChosen(event.target.value)}
               >
                 <option value="">Select an identity</option>
                 {candidates.data?.items.map((item) => (
-                  <option
-                    key={JSON.stringify(item)}
-                    value={JSON.stringify(item)}
-                  >
-                    {item.subject} · {item.issuer}
+                  <option key={item.id} value={item.id}>
+                    {item.identity.subject} · {item.identity.issuer}
                   </option>
                 ))}
               </select>
@@ -138,7 +123,7 @@ export function AdministratorsPage() {
                 disabled={!candidateAfter}
                 onClick={() => {
                   setCandidateAfter(undefined);
-                  setIdentity("");
+                  setChosen("");
                 }}
               >
                 First identities
@@ -147,23 +132,22 @@ export function AdministratorsPage() {
                 disabled={!candidates.data?.nextCursor}
                 onClick={() => {
                   setCandidateAfter(candidates.data?.nextCursor ?? undefined);
-                  setIdentity("");
+                  setChosen("");
                 }}
               >
                 More identities
               </button>
             </div>
           </ReadState>
-          {selected && !candidates.isError && (
+          {selected && (
             <Command
-              key={identity}
+              key={selected.id}
               title="Grant administrator access"
               permission="administrator.manage"
               method="POST"
               path="/api/v1/administrators"
               initial={{
-                identity: selected,
-                active: true,
+                identity: selected.identity,
                 canManageAdministrators: false,
               }}
               fields={[
@@ -180,12 +164,13 @@ export function AdministratorsPage() {
     </>
   );
 }
+
 export function AdministratorDetail() {
-  const { id } = useParams({ strict: false });
+  const { id } = useParams({ from: "/administrators/$id" });
   const actor = useActorKey();
   const query = useQuery({
     queryKey: [actor, "administrator", id],
-    queryFn: ({ signal }) => api.administrator(id!, signal),
+    queryFn: ({ signal }) => api.administrator(id, signal),
   });
   return (
     <ReadState
@@ -194,35 +179,55 @@ export function AdministratorDetail() {
       stale={query.isRefetchError}
     >
       {query.data && (
-        <>
-          <JsonDetails title="Administrator grant" value={query.data.data} />
-          <Command
-            title="Edit administrator grant"
-            permission="administrator.manage"
-            method="PATCH"
-            path={`/api/v1/administrators/${id}`}
-            etag={query.data.etag}
-            current={query.data.data}
-            initial={{
-              identity: query.data.data.identity,
-              active: query.data.data.active,
-              canManageAdministrators: query.data.data.canManageAdministrators,
-            }}
-            fields={[
-              {
-                key: "active",
-                label: "Active administrator",
-                type: "checkbox",
-              },
-              {
-                key: "canManageAdministrators",
-                label: "May manage administrators",
-                type: "checkbox",
-              },
-            ]}
-            warning="Revoking immediately denies browser, asset and bearer API access. The last administrator with recovery-management permission cannot be removed."
-          />
-        </>
+        <section className="panel detail">
+          <h2>{query.data.data.identity.subject}</h2>
+          <dl>
+            <dt>Issuer</dt>
+            <dd>
+              <code>{query.data.data.identity.issuer}</code>
+            </dd>
+            <dt>Active</dt>
+            <dd>{query.data.data.active ? "Yes" : "Revoked"}</dd>
+            <dt>May manage administrators</dt>
+            <dd>{query.data.data.canManageAdministrators ? "Yes" : "No"}</dd>
+            <dt>Updated</dt>
+            <dd>{query.data.data.updatedAt}</dd>
+          </dl>
+          <div className="actions">
+            <Command
+              title="Edit administrator grant"
+              permission="administrator.manage"
+              method="PATCH"
+              path={`/api/v1/administrators/${encodeURIComponent(id)}`}
+              etag={query.data.etag}
+              current={query.data.data}
+              initial={{
+                active: query.data.data.active,
+                canManageAdministrators:
+                  query.data.data.canManageAdministrators,
+              }}
+              fields={[
+                {
+                  key: "active",
+                  label: "Active administrator",
+                  type: "checkbox",
+                },
+                {
+                  key: "canManageAdministrators",
+                  label: "May manage administrators",
+                  type: "checkbox",
+                },
+              ]}
+              warning="Revoking denies the next browser, asset and bearer request. The last administrator who can manage administrators cannot be removed."
+            />
+            <Link
+              to="/activity"
+              search={{ targetKind: "administrator", targetId: id }}
+            >
+              Activity
+            </Link>
+          </div>
+        </section>
       )}
     </ReadState>
   );

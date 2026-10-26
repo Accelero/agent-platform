@@ -1,0 +1,22 @@
+[package]
+name = "hermes-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+hermes-core.workspace = true
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+hermes-core = { workspace = true, features = ["testing"] }
+k8s-openapi.workspace = true
+
+[lints]
+workspace = true

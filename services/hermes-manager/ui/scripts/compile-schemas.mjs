@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { format } from "prettier";
-import Ajv from "ajv";
+import Ajv07 from "ajv";
+import Ajv2020 from "ajv/dist/2020.js";
 import standaloneCode from "ajv/dist/standalone/index.js";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 const registry = [];
@@ -8,22 +9,24 @@ const schemaMetadata = {};
 const check = process.argv.includes("--check");
 const dir = "src/schemas/generated";
 mkdirSync(dir, { recursive: true });
+const schemaDirectory = "../../../contracts/hermes-manager/schemas";
 for (const [name, file] of [
-  ["template", "template-v1.json"],
+  ["template", "template-v2.json"],
+  ["backend", "terminal-backend-v1.json"],
   ["managed", "hermes-managed-v1.json"],
 ]) {
-  const schema = JSON.parse(
-    readFileSync(`../../../contracts/hermes-manager/schemas/${file}`, "utf8"),
-  );
+  const schema = JSON.parse(readFileSync(`${schemaDirectory}/${file}`, "utf8"));
   registry.push({
     id: schema.$id,
     revision: schema["x-revision"],
     digest: createHash("sha256")
-      .update(readFileSync(`../../../contracts/hermes-manager/schemas/${file}`))
+      .update(readFileSync(`${schemaDirectory}/${file}`))
       .digest("hex"),
     compatibleImageDigests: schema["x-compatibleImageDigests"] ?? [],
   });
   schemaMetadata[name] = schema;
+  // Each schema declares its draft; the managed Hermes schema is draft-07.
+  const Ajv = schema.$schema?.includes("2020-12") ? Ajv2020 : Ajv07;
   const ajv = new Ajv({
     allErrors: true,
     strict: false,
@@ -67,10 +70,6 @@ for (const [name, file] of [
 }
 
 const extra = [
-  [
-    "../../../contracts/hermes-manager/schemas/registry.json",
-    JSON.stringify({ schemas: registry }, null, 2) + "\n",
-  ],
   [
     `${dir}/metadata.ts`,
     await format(

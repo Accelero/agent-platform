@@ -1,31 +1,37 @@
-import { Link } from "@tanstack/react-router";
-import { TemplatePicker } from "./template-picker";
-import { ReferenceInput, type ReferenceKind } from "./reference";
 import * as Dialog from "@radix-ui/react-dialog";
-import { useEffect, useId, useState, useRef } from "react";
+import { useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { ApiError, api, createIntent } from "../api";
-import { queryClient, useActorKey, useSession } from "../app/state";
-import { ErrorNotice, JsonDetails, StatusBadge } from "./data";
+import { useMutation } from "@tanstack/react-query";
+import {
+  ApiError,
+  createIntent,
+  type ConfigurationProblem,
+  type Method,
+} from "../api";
+import { queryClient, useSession } from "../app/state";
+import { ErrorNotice, JsonDetails } from "./data";
+import { VersionPicker } from "./catalog-picker";
+import type { CatalogCollection } from "../api";
 
+export type Permission = "administer" | "administrator.manage";
 export type Field = {
-  template?: boolean;
-  reference?: ReferenceKind;
-  referenceInstanceId?: string;
-  versionKey?: string;
   key: string;
   label: string;
-  type?: "text" | "number" | "checkbox";
+  type?: "text" | "number" | "checkbox" | "password" | "textarea";
   min?: number;
   max?: number;
   options?: string[];
   fields?: Field[];
-  item?: Field;
-  initial?: unknown;
+  /** A published catalog version, stored as `{id, version}`. */
+  catalog?: CatalogCollection;
   optional?: boolean;
   readOnly?: boolean;
+  hint?: string;
 };
+export function usePermitted(permission: Permission) {
+  const session = useSession();
+  return !!session.data?.permittedActions.includes(permission);
+}
 export function Fields({
   fields,
   value,
@@ -45,7 +51,8 @@ export function Fields({
         const label = `${prefix}${field.label}`;
         const update = (next: unknown) => {
           const updated = { ...value, [field.key]: next };
-          if (field.optional && next === "") delete updated[field.key];
+          if (field.optional && (next === "" || next === undefined))
+            delete updated[field.key];
           onChange(updated);
         };
         if (field.fields)
@@ -60,84 +67,21 @@ export function Fields({
               />
             </fieldset>
           );
-        if (field.item) {
-          const items = (item ?? []) as unknown[];
+        if (field.catalog)
           return (
-            <fieldset key={field.key}>
-              <legend>{label}</legend>
-              {items.map((entry, index) => (
-                <div className="array-entry" key={index}>
-                  <Fields
-                    fields={[
-                      {
-                        ...field.item!,
-                        key: "entry",
-                        label: `${field.label} ${index + 1}`,
-                      },
-                    ]}
-                    prefix={prefix}
-                    value={{ entry }}
-                    onChange={(next) =>
-                      update(
-                        items.map((current, i) =>
-                          i === index ? next.entry : current,
-                        ),
-                      )
-                    }
-                  />
-                  <button
-                    type="button"
-                    onClick={() => update(items.filter((_, i) => i !== index))}
-                  >
-                    Remove {field.label} {index + 1}
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                disabled={items.length >= (field.max ?? 16)}
-                onClick={() =>
-                  update([...items, structuredClone(field.initial ?? {})])
-                }
-              >
-                Add {field.label}
-              </button>
-            </fieldset>
-          );
-        }
-        if (field.template)
-          return (
-            <TemplatePicker
+            <VersionPicker
               key={field.key}
-              value={String(item ?? "")}
-              onChange={update}
+              collection={field.catalog}
               label={label}
+              value={item as { id: string; version: number } | undefined}
+              onChange={update}
             />
           );
         const id = `${unique}-${field.key}`;
         return (
           <div className="field" key={field.key}>
             <label htmlFor={id}>{label}</label>
-            {field.reference ? (
-              <ReferenceInput
-                id={id}
-                kind={field.reference}
-                value={String(item ?? "")}
-                onChange={update}
-                instanceId={field.referenceInstanceId}
-                readOnly={field.readOnly}
-                required={!field.optional}
-                onSelect={(choice) =>
-                  onChange({
-                    ...value,
-                    [field.key]: choice.id,
-                    ...(field.versionKey && choice.version
-                      ? { [field.versionKey]: choice.version }
-                      : {}),
-                  })
-                }
-              />
-            ) : field.options ? (
+            {field.options ? (
               <select
                 id={id}
                 required={!field.optional}
@@ -150,10 +94,20 @@ export function Fields({
                   <option key={option}>{option}</option>
                 ))}
               </select>
+            ) : field.type === "textarea" ? (
+              <textarea
+                id={id}
+                required={!field.optional}
+                readOnly={field.readOnly}
+                maxLength={8192}
+                value={String(item ?? "")}
+                onChange={(event) => update(event.target.value)}
+              />
             ) : (
               <input
                 id={id}
                 type={field.type ?? "text"}
+                autoComplete={field.type === "password" ? "off" : undefined}
                 required={!field.optional && field.type !== "checkbox"}
                 readOnly={field.readOnly}
                 min={field.min}
@@ -176,104 +130,62 @@ export function Fields({
                 }
               />
             )}
+            {field.hint && <small>{field.hint}</small>}
           </div>
         );
       })}
     </>
   );
 }
-export const terminalOperation = (state?: string) =>
-  !!state && ["Succeeded", "Blocked", "Failed", "Superseded"].includes(state);
-export function pollInterval(
-  started: number,
-  now: number,
-  count: number,
-  state?: string,
-) {
-  return terminalOperation(state) || now - started >= 600_000
-    ? false
-    : Math.min(1000 * 2 ** Math.min(count, 4), 10_000);
-}
-function OperationProgress({ id, started }: { id: string; started: number }) {
-  const actor = useActorKey();
-  const [expired, setExpired] = useState(false);
-  const query = useQuery({
-    queryKey: [actor, "operation", id],
-    queryFn: ({ signal }) => api.operation(id, signal),
-    refetchOnWindowFocus: true,
-    enabled: !expired,
-    refetchInterval: (query) =>
-      pollInterval(
-        started,
-        Date.now(),
-        query.state.dataUpdateCount,
-        query.state.data?.state,
-      ),
-  });
-  useEffect(() => {
-    const timer = setTimeout(
-      () => setExpired(true),
-      Math.max(0, 600_000 - (Date.now() - started)),
-    );
-    return () => clearTimeout(timer);
-  }, [started]);
-  useEffect(() => {
-    if (terminalOperation(query.data?.state))
-      void queryClient.invalidateQueries({
-        predicate: (entry) => entry.queryKey[1] !== "operation",
-      });
-  }, [query.data?.state]);
+export function ProblemList({
+  error,
+  problems = error instanceof ApiError ? error.problems : [],
+}: {
+  error?: unknown;
+  problems?: ConfigurationProblem[];
+}) {
+  if (!problems.length) return null;
   return (
-    <div role="status">
-      <p>Operation {id}</p>
-      {query.data && <StatusBadge value={query.data.state} />}
-      <p>
-        {expired
-          ? "Automatic tracking stopped after 10 minutes. Refresh the instance to check progress."
-          : "Accepted commands may still be waiting for reconciliation."}
-      </p>
-      {query.error && <ErrorNotice error={query.error} />}
-    </div>
+    <ul className="problems" aria-label="Configuration problems">
+      {problems.map((problem) => (
+        <li key={`${problem.pointer}-${problem.code}`}>
+          <code>{problem.pointer || "/"}</code> {problem.message}{" "}
+          <span className="pill">{problem.code}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
-export function Command({
-  title,
-  permission,
-  method,
-  path,
-  initial,
-  fields = [],
-  etag,
-  current,
-  warning,
-  children,
-  renderReview,
-  preflight,
-  transform,
-}: {
+type CommandProps = {
   title: string;
-  permission: string;
-  method: "POST" | "PATCH";
+  permission: Permission;
+  method: Method;
   path: string;
-  initial: Record<string, unknown>;
+  initial?: Record<string, unknown>;
   fields?: Field[];
+  /** The record's ETag; required for changes to an existing record. */
   etag?: string | null;
   current?: unknown;
   warning?: string;
+  /** Replaces the form; `draft` is still what is sent. */
   children?: ReactNode;
   renderReview?: (body: Record<string, unknown>) => ReactNode;
-  preflight?: (body: Record<string, unknown>) => Promise<void>;
   transform?: (body: Record<string, unknown>) => unknown;
-}) {
-  const session = useSession();
+  /** Body-less commands (publish, retry, delete) send nothing. */
+  bodyless?: boolean;
+  onAccepted?: (receipt: unknown) => ReactNode;
+  /** Values that must never stay in memory after the dialog closes. */
+  sensitive?: boolean;
+};
+export function Command(props: CommandProps) {
+  const permitted = usePermitted(props.permission);
   const [open, setOpen] = useState(false);
   const cancel = useRef<HTMLButtonElement>(null);
-  if (!session.data?.permittedActions.some((action) => action === permission))
-    return null;
+  if (!permitted) return null;
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <button>{title}</button>
+        <button>{props.title}</button>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
@@ -284,28 +196,12 @@ export function Command({
             cancel.current?.focus();
           }}
         >
-          <Dialog.Title>{title}</Dialog.Title>
+          <Dialog.Title>{props.title}</Dialog.Title>
           <Dialog.Description>
-            {warning ??
+            {props.warning ??
               "Review the exact references and values before submitting. Changes are authorized and audited by the manager."}
           </Dialog.Description>
-          {open && (
-            <CommandBody
-              key={`${path}-${open}`}
-              {...{
-                initial,
-                fields,
-                method,
-                path,
-                etag,
-                current,
-                children,
-                renderReview,
-                preflight,
-                transform,
-              }}
-            />
-          )}
+          {open && <CommandBody key={props.path} {...props} />}
           <Dialog.Close asChild>
             <button ref={cancel} className="dialog-cancel">
               Cancel / close
@@ -317,35 +213,34 @@ export function Command({
   );
 }
 function CommandBody({
-  initial,
-  fields,
+  initial = {},
+  fields = [],
   method,
   path,
   etag,
   current,
   children,
   renderReview,
-  preflight,
   transform,
-}: Omit<Parameters<typeof Command>[0], "title" | "permission">) {
+  bodyless,
+  onAccepted,
+  sensitive,
+}: CommandProps) {
   const session = useSession();
   const [draft, setDraft] = useState(() => structuredClone(initial));
   const [submit] = useState(() => createIntent());
   const [version, setVersion] = useState(etag);
-  const [started, setStarted] = useState(0);
   const mutation = useMutation({
-    mutationFn: async () => {
-      if (preflight) await preflight(draft);
-      return submit(
+    mutationFn: () =>
+      submit(
         method,
         path,
-        transform ? transform(draft) : draft,
+        bodyless ? undefined : transform ? transform(draft) : draft,
         session.data!.csrfToken!,
         version,
-      );
-    },
+      ),
     onSuccess: () => {
-      setStarted(Date.now());
+      if (sensitive) setDraft({});
       void queryClient.invalidateQueries();
     },
     onError: (error) => {
@@ -355,67 +250,50 @@ function CommandBody({
   });
   const conflict =
     mutation.error instanceof ApiError && mutation.error.status === 412;
-  const accepted = mutation.data as
-    { operationId?: string; eventId?: string } | undefined;
+  if (mutation.isSuccess)
+    return (
+      <>
+        <p role="status">
+          Change accepted. The manager recorded it; reconciliation may still be
+          in progress.
+        </p>
+        {onAccepted?.(mutation.data)}
+      </>
+    );
   return (
-    <>
-      {mutation.isSuccess ? (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        mutation.mutate();
+      }}
+    >
+      <fieldset disabled={mutation.isPending}>
+        <Fields fields={fields} value={draft} onChange={setDraft} />
+        {children}
+        {renderReview?.(draft)}
+      </fieldset>
+      {mutation.error && <ErrorNotice error={mutation.error} />}
+      <ProblemList error={mutation.error} />
+      {conflict && !sensitive && (
         <>
-          <p role="status">Change accepted.</p>
-          {accepted?.operationId ? (
-            <OperationProgress id={accepted.operationId} started={started} />
-          ) : (
-            <p>
-              The configuration event was recorded.{" "}
-              {accepted?.eventId && (
-                <Link to="/activity/$id" params={{ id: accepted.eventId }}>
-                  Inspect recorded configuration change
-                </Link>
-              )}
-              . Refresh the resource to inspect its applied state.
-            </p>
-          )}
-        </>
-      ) : (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            mutation.mutate();
-          }}
-        >
-          <fieldset disabled={mutation.isPending}>
-            <Fields fields={fields ?? []} value={draft} onChange={setDraft} />
-            {children}
-            {renderReview?.(draft)}
-          </fieldset>
-          {mutation.error && <ErrorNotice error={mutation.error} />}{" "}
-          {conflict && (
-            <>
-              <JsonDetails title="Submitted values" value={draft} />
-              <JsonDetails
-                title="Current record after refresh"
-                value={current}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setVersion(etag);
-                  mutation.reset();
-                }}
-              >
-                Use refreshed version after review
-              </button>
-            </>
-          )}
+          <JsonDetails title="Submitted values" value={draft} />
+          <JsonDetails title="Current record after refresh" value={current} />
           <button
-            disabled={
-              mutation.isPending || conflict || !session.data?.csrfToken
-            }
+            type="button"
+            onClick={() => {
+              setVersion(etag);
+              mutation.reset();
+            }}
           >
-            Confirm change
+            Use refreshed version after review
           </button>
-        </form>
+        </>
       )}
-    </>
+      <button
+        disabled={mutation.isPending || conflict || !session.data?.csrfToken}
+      >
+        Confirm change
+      </button>
+    </form>
   );
 }

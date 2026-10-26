@@ -220,36 +220,90 @@ multica:
   maintenanceFile: /app/data/uploads/.agent-platform-maintenance
   mailSecret: multica-mail
   mailKeys: []
-# Rust administration and personal-instance control plane; opt in independently.
+# Personal Hermes: the manager (api and controller roles) and the gateway.
+# Every secret comes from an existing Secret per role, with the key names listed
+# in the chart README; values hold no secret material.
 hermesManager:
   enabled: false
   installation:
     id: ''
-    epoch: 1
     issuer: ''
+  # UID/GID of every Hermes and terminal backend container.
+  dataIdentity: {uid: 1000, gid: 1000}
+  # Where volumes may live: {id, storageClass: {name}} | {id, localPath: {node, root}} | {id, nfs: {server, root}}.
+  storageSources: []
+  # The Hermes hostname and the separate administration hostname.
+  publicOrigin: ''
+  adminOrigin: ''
+  # Each role's Secret carries `oidc-ca.crt` when the identity provider uses a private CA.
+  oidcPrivateCa: false
+  # Native Hermes's own OIDC client (owner-pinned login inside each instance).
+  nativeClientId: hermes-native
+  # Instances may reach public HTTPS addresses, such as model providers.
+  publicHttps: true
+  # In-cluster services instances may reach: [{namespace, labels, port}].
+  serviceEgress: []
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
   api:
     enabled: true
+    replicas: 1
     existingSecret: ''
-    config: {}
+    tokens:
+      jwksUrl: ''
+      audience: hermes-manager
+      authorizedClients: [manager-admin]
+    # Browser sign-in and the dashboard.
+    browser:
+      enabled: true
+      clientId: manager-admin
+      confidential: false
+      scopes: [openid]
+      revocationUrl: ''
+      sessionKeys: {active: '', ids: []}
+    # Read-only Keycloak user lookup for picking people.
+    directory:
+      enabled: false
+      clientId: ''
+    # URI SAN of the gateway's client certificate; the resolver answers only it.
+    gatewayIdentity: ''
   controller:
-    enabled: false
+    enabled: true
     existingSecret: ''
-    serviceAccountName: ''
-    config: {}
-  routerAuth:
-    enabled: false
+    serviceAccountName: hermes-manager-controller
+    # ClusterRole bound into instance namespaces; defaults to a per-installation name.
+    instanceRole: ''
+    workers: 4
+    resyncSeconds: 30
+  gateway:
+    enabled: true
+    replicas: 1
     existingSecret: ''
-    config: {}
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      memory: 512Mi
-  # NetworkPolicy peers, one independently scoped list for each listener.
+    oidc:
+      clientId: hermes-gateway
+      confidential: false
+      scopes: [openid]
+      jwksUrl: ''
+      audience: hermes-gateway
+      revocationUrl: ''
+    sessionKeys: {active: '', ids: []}
+    clusterDomain: cluster.local
+    maxUploadMib: 64
+    service:
+      type: ClusterIP
+      port: 443
+  # One-shot operator Jobs; enable for one upgrade, then disable.
+  operations:
+    # `hermes-manager migrate` with the schema owner's `database-url`.
+    migrate: {enabled: false, existingSecret: ''}
+    # `hermes-manager initialize` as the controller's account.
+    initialize: {enabled: false}
+    # `hermes-manager rebind-cluster` after restoring PostgreSQL on a new cluster.
+    rebindCluster: {enabled: false}
+    # `hermes-manager grant-administrator`; the Secret holds `database-url` and `identity.json`.
+    grantAdministrator: {enabled: false, existingSecret: '', recover: false}
+  # NetworkPolicy peers that may reach the administration API and the gateway.
   ingress:
     admin: []
-    resolver: []
-    execution: []
-    routerPublic: []
-    routerInternal: []
+    gateway: []

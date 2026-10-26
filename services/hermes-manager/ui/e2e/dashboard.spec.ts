@@ -1,50 +1,28 @@
 import { test, expect } from "@playwright/test";
+import { mockApi } from "./fixtures";
 
-test.beforeEach(async ({ page }) => {
-  // Presentation fixtures only. Real HTTPS OIDC/session/role authorization is
-  // exercised by the Rust PostgreSQL browser tests, never mocked in production.
-  await page.route("**/api/v1/**", async (route) => {
-    const session = route.request().url().endsWith("/session");
-    await route.fulfill({
-      json: session
-        ? {
-            actor: {
-              issuer: "https://sso.example.org/realms/agents",
-              subject: "fixture-admin",
-            },
-            permittedActions: ["assignment.create"],
-            csrfToken: "fixture-csrf",
-          }
-        : { items: [], nextCursor: null },
-    });
-  });
-});
-
-test("overview, navigation, empty state and mobile layout", async ({
-  page,
-}) => {
+test("overview, navigation, lists and mobile layout", async ({ page }) => {
+  await mockApi(page);
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: "A place for every agent." }),
   ).toBeVisible();
   await expect(page.getByText("fixture-admin", { exact: true })).toBeVisible();
-  await page
-    .getByRole("navigation")
-    .getByRole("link", { name: /Instances/ })
-    .click();
+  const nav = page.getByRole("navigation");
+  await nav.getByRole("link", { name: /Assignments/ }).click();
+  await expect(page.getByRole("link", { name: /^bob/ })).toBeVisible();
+  await nav.getByRole("link", { name: /Terminal backends/ }).click();
+  await expect(page.getByRole("link", { name: "ssh" })).toBeVisible();
+  await nav.getByRole("link", { name: /Storage/ }).click();
+  await expect(page.getByText("server-1:/srv/hermes")).toBeVisible();
+  await expect(page.getByText("bob/workspace")).toBeVisible();
+  await expect(page.getByText("hermes-stray", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("No assignments are registered yet."),
-  ).toBeVisible();
-  await page
-    .getByRole("navigation")
-    .getByRole("link", { name: /Terminal backends/ })
-    .click();
-  await expect(
-    page.getByText("No terminal backends are registered yet."),
+    page.getByText("Last scanned 2026-10-22T08:05:00Z."),
   ).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(
-    page.getByRole("heading", { name: "Terminal backends", exact: true }),
+    page.getByRole("heading", { name: "Storage", exact: true }),
   ).toBeVisible();
   expect(
     await page.evaluate(
@@ -53,7 +31,7 @@ test("overview, navigation, empty state and mobile layout", async ({
   ).toBe(true);
 });
 
-test("expired sessions expose sign-in without retaining private rows", async ({
+test("expired sessions redirect to sign-in without private rows", async ({
   page,
 }) => {
   await page.route("**/api/v1/session", (route) =>
@@ -68,6 +46,7 @@ test("expired sessions expose sign-in without retaining private rows", async ({
 });
 
 test("logout posts CSRF and replaces the document", async ({ page }) => {
+  await mockApi(page);
   let loggedOut = false;
   await page.route("**/auth/logout", async (route) => {
     expect(route.request().method()).toBe("POST");
@@ -76,29 +55,57 @@ test("logout posts CSRF and replaces the document", async ({ page }) => {
     await route.fulfill({ status: 204 });
   });
   await page.route("**/auth/signed-out", (route) =>
-    route.fulfill({
-      contentType: "text/html",
-      body: '<h1>Signed out</h1><a href="/auth/login">Sign in with Keycloak</a>',
-    }),
+    route.fulfill({ contentType: "text/html", body: "<h1>Signed out</h1>" }),
   );
   await page.goto("/");
   await page.getByRole("button", { name: "Sign out ↗" }).click();
   await expect.poll(() => loggedOut).toBe(true);
   await expect(page.getByRole("heading", { name: "Signed out" })).toBeVisible();
-  await expect(page.getByText("fixture-admin", { exact: true })).toHaveCount(0);
 });
 
-test("API errors stay visible and do not look like empty data", async ({
+test("API errors stay visible and never look like empty data", async ({
   page,
 }) => {
+  await mockApi(page);
   await page.route("**/api/v1/assignments?*", (route) =>
     route.fulfill({ status: 503, json: { error: "dependency_unavailable" } }),
   );
   await page.goto("/assignments");
-  await expect(page.getByRole("alert")).toContainText(
-    "could not complete this request",
-  );
+  await expect(page.getByRole("alert")).toContainText("unavailable");
+  await expect(page.getByText("No assignments match.")).toHaveCount(0);
+});
+
+test("administrators without the manage grant cannot change grants", async ({
+  page,
+}) => {
+  await mockApi(page, { permitted: ["administer"] });
+  await page.goto("/administrators");
+  await expect(page.getByRole("link", { name: /fixture-admin/ })).toBeVisible();
   await expect(
-    page.getByText("No assignments are registered yet."),
+    page.getByRole("heading", { name: "Add an administrator" }),
   ).toHaveCount(0);
+  await page.goto("/secrets");
+  await expect(
+    page.getByRole("button", { name: "Write new value for llm-key" }),
+  ).toBeVisible();
+});
+
+test("an unconfigured directory says so", async ({ page }) => {
+  await mockApi(page, { directory: false });
+  await page.goto("/users?tab=directory");
+  await expect(page.getByText("not configured")).toBeVisible();
+});
+
+test("a failed terminal worker shows its reason on the assignment", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto("/assignments");
+  await page.getByRole("link", { name: /^bob/ }).click();
+  const environments = page.locator("section", {
+    has: page.getByRole("heading", { name: "Terminal environments" }),
+  });
+  await expect(environments).toContainText("ssh · v1");
+  await expect(environments).toContainText("draining");
+  await expect(environments).toContainText("Image cannot be pulled");
 });

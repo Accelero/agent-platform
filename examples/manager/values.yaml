@@ -1,49 +1,45 @@
-# Nonsecret shape reference. Provision the referenced Secret privately.
+# Nonsecret shape reference. Provision the referenced Secrets privately, with
+# the key names in the chart README.
 hermesManager:
   enabled: true
   installation:
     id: 00000000-0000-4000-8000-000000000001
-    epoch: 1
     issuer: https://sso.example.org/realms/agents
+  dataIdentity: {uid: 1000, gid: 1000}
+  storageSources:
+  - {id: nvme, storageClass: {name: local-nvme}}
+  - {id: host-data, localPath: {node: server-1, root: /srv/hermes-data}}
+  - {id: nas, nfs: {server: nas.internal, root: /export/homes}}
+  publicOrigin: https://hermes.example.org
+  adminOrigin: https://hermes-admin.example.org
   api:
     existingSecret: hermes-manager-api
-    config:
-      databaseUrlFile: /run/manager/secrets/database-url
-      oidc:
-        jwksUrl: https://sso.example.org/realms/agents/protocol/openid-connect/certs
-      admin:
-        uiDirectory: /usr/share/hermes-manager/ui
-        listen: 0.0.0.0:8443
-        tls:
-          certificateFile: /run/manager/secrets/tls.crt
-          privateKeyFile: /run/manager/secrets/tls.key
-        audience: manager-api
-        allowedClients:
-        - manager-admin
-        browser:
-          databaseUrlFile: /run/manager/secrets/database-url
-          publicOrigin: https://hermes-admin.example.org
-          otherOrigin: https://hermes.example.org
-          clientId: manager-admin
-          clientSecretFile: /run/manager/secrets/client-secret
-          scopes:
-          - openid
-          revocationUrl: https://sso.example.org/realms/agents/protocol/openid-connect/revoke
-          encryptionKeyringFile: /run/manager/secrets/keyring.json
-        directory:
-          clientId: manager-directory-reader
-          clientSecretFile: /run/manager/secrets/directory-client-secret
-      resolver:
-        listen: 0.0.0.0:8444
-        tls:
-          certificateFile: /run/manager/secrets/tls.crt
-          privateKeyFile: /run/manager/secrets/tls.key
-        clientCaFile: /run/manager/secrets/ca.crt
-        serviceIdentity: spiffe://agents.example.org/router-plugin
-        audience: route-api
-        authorizedClient: hermes-router
-      execution:
-        listen: 0.0.0.0:8445
-        tls:
-          certificateFile: /run/manager/secrets/tls.crt
-          privateKeyFile: /run/manager/secrets/tls.key
+    tokens:
+      jwksUrl: https://sso.example.org/realms/agents/protocol/openid-connect/certs
+      audience: hermes-manager
+      authorizedClients: [manager-admin]
+    browser:
+      clientId: manager-admin
+      confidential: true
+      revocationUrl: https://sso.example.org/realms/agents/protocol/openid-connect/revoke
+      sessionKeys: {active: admin-2026-10, ids: [admin-2026-10]}
+    directory:
+      enabled: true
+      clientId: manager-directory-reader
+    gatewayIdentity: spiffe://agents.example.org/hermes-gateway
+  controller:
+    existingSecret: hermes-manager-controller
+  gateway:
+    existingSecret: hermes-gateway
+    oidc:
+      clientId: hermes-gateway
+      confidential: true
+      jwksUrl: https://sso.example.org/realms/agents/protocol/openid-connect/certs
+      audience: hermes-gateway
+      revocationUrl: https://sso.example.org/realms/agents/protocol/openid-connect/revoke
+    sessionKeys: {active: gateway-2026-10, ids: [gateway-2026-10]}
+  ingress:
+    admin:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress}}
+    gateway:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress}}

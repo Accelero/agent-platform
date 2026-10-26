@@ -1,32 +1,29 @@
 openapi: 3.1.0
 info:
-  title: Personal Hermes manager routing API
+  title: Personal Hermes route resolution
   version: 0.1.0
   description: >-
-    Contract for the target routing design, in development.
-    A restricted Traefik middleware plugin resolves a verified OIDC identity
-    to its currently enabled, commissioned personal Hermes destination.
-    The API is internal and performs no assignment or infrastructure mutations.
+    Internal API on the manager's resolver listener. hermes-gateway, identified
+    by the URI SAN of its mTLS client certificate, asserts the identity it
+    verified through its own OIDC session; the manager resolves it to that
+    identity's enabled, ready instance. The API mutates nothing and grants
+    nothing.
 servers:
-  - url: https://hermes-manager.internal.example.org
+  - url: https://hermes-manager-resolver.internal.example.org
 security:
-  - RouterMTLS: []
-    UserAccessToken: []
+  - GatewayMTLS: []
 paths:
   /internal/v1/routes/resolve:
     post:
       operationId: resolvePersonalHermesRoute
-      summary: Resolve the current owner's registered destination
+      summary: Resolve an identity's registered destination
       description: >-
-        Require the configured router-plugin client certificate and a fresh
-        Keycloak access token for the configured route-API audience and router
-        authorized client. Verify signature, issuer, audience, client, lifetime
-        and identity-evidence age, then require an exact issuer/subject match
-        with the request. Evidence older than 120 seconds is invalid. Resolve
-        live assignment authorization without a positive decision cache.
-        Complete within the caller's 2-second total deadline. Request and
-        response bodies are limited to 16 KiB; authorization headers to 16 KiB.
-        Never log credentials or request bodies. All responses use no-store.
+        Require the configured gateway client certificate identity. Resolve the
+        exact issuer and subject against current PostgreSQL state with no
+        positive decision cache. Complete within the caller's 2-second
+        deadline. Bodies are limited to 16 KiB. Never log identities or bodies.
+        All responses use no-store. The destination comes only from the
+        instance registry; the gateway never dials anything else.
       requestBody:
         required: true
         content:
@@ -39,7 +36,7 @@ paths:
                 subject: 00000000-0000-4000-8000-000000000001
       responses:
         '200':
-          description: Enabled exact-owner assignment with a ready registered instance
+          description: Enabled assignment with a ready instance
           headers:
             Cache-Control:
               $ref: '#/components/headers/NoStore'
@@ -53,12 +50,12 @@ paths:
                 routeGeneration: 1
                 authorizationVersion: 1
                 destination:
-                  namespace: hermes-instance-example
+                  namespace: hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b
                   service: hermes
                   port: 8080
                   scheme: http
         '202':
-          description: Authorized owner's instance is not ready; show owner-only status
+          description: The owner's instance is enabled but not ready; show the owner a status page
           headers:
             Cache-Control:
               $ref: '#/components/headers/NoStore'
@@ -66,17 +63,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PendingDecision'
-        '401':
-          description: Missing, invalid, mismatched or stale user identity evidence
-          headers:
-            Cache-Control:
-              $ref: '#/components/headers/NoStore'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvalidIdentity'
         '403':
-          description: Unauthorized service caller or identity without enabled access
+          description: The caller is not the gateway, or the identity has no enabled assignment
           headers:
             Cache-Control:
               $ref: '#/components/headers/NoStore'
@@ -94,7 +82,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvalidRequest'
         '503':
-          description: Dependency failure, maintenance or unresolved registry state
+          description: Dependency failure or unusable registry state; never a fallback destination
           headers:
             Cache-Control:
               $ref: '#/components/headers/NoStore'
@@ -104,19 +92,11 @@ paths:
                 $ref: '#/components/schemas/UnavailableDecision'
 components:
   securitySchemes:
-    RouterMTLS:
+    GatewayMTLS:
       type: mutualTLS
       description: >-
-        Validate the configured client identity, not just its signing CA.
-        This role can resolve routes but cannot administer assignments.
-    UserAccessToken:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: >-
-        Fresh Keycloak access token relayed from the Rust authentication adapter.
-        Validate the configured route audience and router authorized client.
-        A service certificate alone cannot nominate a user.
+        The configured gateway URI identity, not just its signing CA. A
+        certificate of any other service cannot resolve routes.
   headers:
     NoStore:
       description: Do not cache routing or authorization responses
@@ -150,12 +130,7 @@ components:
     ReadyDecision:
       type: object
       additionalProperties: false
-      required:
-        - status
-        - instanceId
-        - routeGeneration
-        - authorizationVersion
-        - destination
+      required: [status, instanceId, routeGeneration, authorizationVersion, destination]
       properties:
         status:
           const: ready
@@ -166,10 +141,12 @@ components:
           type: integer
           format: int64
           minimum: 1
+          description: The instance's desired generation; a change ends cached decisions and open connections
         authorizationVersion:
           type: integer
           format: int64
           minimum: 1
+          description: The assignment's version
         destination:
           $ref: '#/components/schemas/RegisteredDestination'
     RegisteredDestination:
@@ -177,9 +154,9 @@ components:
       additionalProperties: false
       required: [namespace, service, port, scheme]
       description: >-
-        Read only from the commissioned instance registry. The plugin supplies
-        the returned instance ID and generation to registered child routing;
-        it must not create or dial an arbitrary upstream from these fields.
+        Read only from the commissioned instance registry. The gateway checks
+        that the namespace has the installation's format before dialing
+        `<service>.<namespace>.svc`.
       properties:
         namespace:
           type: string
@@ -195,7 +172,6 @@ components:
           type: integer
           minimum: 1
           maximum: 65535
-          description: Port allowed by the registered instance template
         scheme:
           type: string
           enum: [http, https]
@@ -207,7 +183,8 @@ components:
         status:
           const: pending
         reason:
-          enum: [instance_not_ready]
+          enum: [instance_not_ready, instance_blocked]
+          description: '`instance_blocked`: the instance needs an administrator'
     DeniedDecision:
       type: object
       additionalProperties: false
@@ -225,14 +202,7 @@ components:
         status:
           const: unavailable
         reason:
-          enum: [dependency_unavailable, maintenance, registry_unavailable]
-    InvalidIdentity:
-      type: object
-      additionalProperties: false
-      required: [error]
-      properties:
-        error:
-          const: invalid_identity_evidence
+          enum: [dependency_unavailable, registry_unavailable]
     InvalidRequest:
       type: object
       additionalProperties: false

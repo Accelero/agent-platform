@@ -105,30 +105,23 @@ export function DataTable<T>({
     </section>
   );
 }
-export function validatePage(search: Record<string, unknown>): {
+/** URL search keys a page may use, besides the page cursors. */
+export const searchKeys = [
+  "q",
+  "access",
+  "templateId",
+  "source",
+  "targetKind",
+  "targetId",
+  "tab",
+  "version",
+  "edit",
+] as const;
+export type PageSearch = {
   cursors?: string[];
   pageOffset?: number;
-  instanceId?: string;
-  q?: string;
-  sort?: string;
-  access?: string;
-  state?: string;
-  templateId?: string;
-  action?: string;
-  actor?: string;
-  source?: string;
-  assigned?: string;
-  identityId?: string;
-  runtimeId?: string;
-  runtimeVersion?: string;
-  publication?: string;
-  collection?: string;
-  assignmentId?: string;
-  cloneTemplate?: string;
-  cloneVersion?: string;
-  cloneDraft?: string;
-  mode?: string;
-} {
+} & { [K in (typeof searchKeys)[number]]?: string };
+export function validatePage(search: Record<string, unknown>): PageSearch {
   const cursors = Array.isArray(search.cursors)
     ? search.cursors
         .filter((v): v is string => typeof v === "string" && v.length <= 2048)
@@ -143,27 +136,7 @@ export function validatePage(search: Record<string, unknown>): {
         ? Number(search.pageOffset)
         : 0,
     ...Object.fromEntries(
-      [
-        "q",
-        "sort",
-        "access",
-        "state",
-        "templateId",
-        "action",
-        "actor",
-        "source",
-        "assigned",
-        "identityId",
-        "runtimeId",
-        "runtimeVersion",
-        "publication",
-        "collection",
-        "assignmentId",
-        "cloneTemplate",
-        "cloneVersion",
-        "cloneDraft",
-        "mode",
-      ]
+      searchKeys
         .filter(
           (key) =>
             ["string", "number", "boolean"].includes(typeof search[key]) &&
@@ -171,10 +144,6 @@ export function validatePage(search: Record<string, unknown>): {
         )
         .map((key) => [key, String(search[key])]),
     ),
-    ...(typeof search.instanceId === "string" &&
-    /^[0-9a-f-]{36}$/i.test(search.instanceId)
-      ? { instanceId: search.instanceId }
-      : {}),
   };
 }
 export function cursorWindow(cursors: string[], next: string) {
@@ -202,15 +171,16 @@ export function usePager() {
     filters: Object.fromEntries(
       Object.entries(search).filter(
         ([key, value]) =>
-          key !== "cursors" &&
-          key !== "instanceId" &&
-          key !== "collection" &&
-          !key.startsWith("clone") &&
-          key !== "mode" &&
-          typeof value === "string",
+          [
+            "q",
+            "access",
+            "templateId",
+            "source",
+            "targetKind",
+            "targetId",
+          ].includes(key) && typeof value === "string",
       ),
     ) as Record<string, string>,
-    instanceId: search.instanceId,
     controls: (next: string | number | null | undefined) => (
       <div className="pager" aria-label="Pagination">
         <button
@@ -303,38 +273,37 @@ export function JsonDetails({
   );
 }
 
+export type Filter = {
+  key: (typeof searchKeys)[number];
+  label: string;
+  options?: string[];
+  maxLength?: number;
+};
+/** Search and filters kept in the URL; changing one returns to page one. */
 export function ListControls({
-  kind,
+  search: searchLabel,
+  filters = [],
 }: {
-  kind:
-    | "assignments"
-    | "identities"
-    | "audit"
-    | "runtimes"
-    | "administrators"
-    | "templates"
-    | "drafts"
-    | "operations"
-    | "bindings"
-    | "versions";
+  search?: string;
+  filters?: Filter[];
 }) {
   const { search } = usePager();
   const navigate = useNavigate();
   const [text, setText] = useState(search.q ?? "");
   useEffect(() => setText(search.q ?? ""), [search.q]);
   useEffect(() => {
-    if (text === (search.q ?? "")) return;
+    if (!searchLabel || text === (search.q ?? "")) return;
     const timer = setTimeout(
       () =>
         void navigate({
           to: ".",
-          search: { ...search, q: text, cursors: [] },
+          search: { ...search, q: text || undefined, cursors: [] },
           replace: true,
         }),
       300,
     );
     return () => clearTimeout(timer);
-  }, [text, search, navigate]);
+  }, [text, search, navigate, searchLabel]);
   const change = (key: string, value: string) =>
     void navigate({
       to: ".",
@@ -342,156 +311,38 @@ export function ListControls({
     });
   return (
     <div className="list-controls">
-      <label>
-        Search {kind}
-        <input
-          maxLength={128}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-      </label>
-      <label>
-        {kind === "versions" ? "Sort by version" : "Sort by ID"}
-        <select
-          aria-label={kind === "versions" ? "Sort by version" : "Sort by ID"}
-          value={search.sort ?? "id"}
-          onChange={(event) => change("sort", event.target.value)}
-        >
-          <option value="id">Ascending</option>
-          <option value="-id">Descending</option>
-        </select>
-      </label>
-      {(kind === "assignments" || kind === "identities") && (
-        <>
-          <label>
-            Access
+      {searchLabel && (
+        <label>
+          {searchLabel}
+          <input
+            maxLength={128}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+          />
+        </label>
+      )}
+      {filters.map((filter) => (
+        <label key={filter.key}>
+          {filter.label}
+          {filter.options ? (
             <select
-              value={search.access ?? ""}
-              onChange={(event) => change("access", event.target.value)}
+              value={search[filter.key] ?? ""}
+              onChange={(event) => change(filter.key, event.target.value)}
             >
-              <option value="">All access</option>
-              {["enabled", "suspended", "revoked"].map((value) => (
+              <option value="">All</option>
+              {filter.options.map((value) => (
                 <option key={value}>{value}</option>
               ))}
             </select>
-          </label>
-          <label>
-            State
-            <select
-              value={search.state ?? ""}
-              onChange={(event) => change("state", event.target.value)}
-            >
-              <option value="">All states</option>
-              {[
-                "Pending",
-                "Provisioning",
-                "Ready",
-                "Blocked",
-                "Suspending",
-                "Suspended",
-                "Retained",
-                "Deleting",
-                "Deleted",
-                "Error",
-              ].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Template ID
+          ) : (
             <input
-              value={search.templateId ?? ""}
-              maxLength={63}
-              onChange={(event) => change("templateId", event.target.value)}
+              value={search[filter.key] ?? ""}
+              maxLength={filter.maxLength ?? 128}
+              onChange={(event) => change(filter.key, event.target.value)}
             />
-          </label>
-        </>
-      )}
-      {(kind === "assignments" ||
-        kind === "identities" ||
-        kind === "templates") && (
-        <label>
-          Management source
-          <select
-            aria-label="Management source"
-            value={search.source ?? ""}
-            onChange={(e) => change("source", e.target.value)}
-          >
-            <option value="">All sources</option>
-            <option value="manager">Manager</option>
-            <option value="infrastructure">Infrastructure</option>
-          </select>
+          )}
         </label>
-      )}
-      {kind === "identities" && (
-        <label>
-          Assignment
-          <select
-            aria-label="Assignment"
-            value={search.assigned ?? ""}
-            onChange={(e) => change("assigned", e.target.value)}
-          >
-            <option value="">All users</option>
-            <option value="true">Assigned</option>
-            <option value="false">Unassigned</option>
-          </select>
-        </label>
-      )}
-      {kind === "drafts" && (
-        <label>
-          Publication state
-          <select
-            value={search.publication ?? ""}
-            onChange={(e) => change("publication", e.target.value)}
-          >
-            <option value="">All drafts</option>
-            <option value="draft">Unpublished</option>
-            <option value="published">Published</option>
-          </select>
-        </label>
-      )}
-      {kind === "operations" && (
-        <label>
-          Operation state
-          <select
-            value={search.state ?? ""}
-            onChange={(e) => change("state", e.target.value)}
-          >
-            <option value="">All states</option>
-            {[
-              "Pending",
-              "Running",
-              "Waiting",
-              "RetryAt",
-              "Succeeded",
-              "Blocked",
-              "Failed",
-              "Superseded",
-            ].map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-      )}
-      {kind === "audit" && (
-        <>
-          <label>
-            Exact action
-            <input
-              value={search.action ?? ""}
-              onChange={(event) => change("action", event.target.value)}
-            />
-          </label>
-          <label>
-            Exact actor subject
-            <input
-              value={search.actor ?? ""}
-              onChange={(event) => change("actor", event.target.value)}
-            />
-          </label>
-        </>
-      )}
+      ))}
     </div>
   );
 }

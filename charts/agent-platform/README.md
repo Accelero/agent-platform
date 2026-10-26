@@ -1,11 +1,10 @@
 # Agent platform application chart
 
-The chart installs the Rust personal Hermes manager: its API/dashboard,
-controller and router-auth roles. The manager commissions one Hermes instance per
-user and provisions that user's terminal workers on demand. Per-user namespaces,
-Deployments, PVCs and worker Pods are created by the controller from database
-templates and policy, not rendered by Helm. See the
-[native commissioning guide](../../docs/personal-hermes/native-commissioning.md)
+The chart installs personal Hermes: the manager's `api` and `controller` roles
+and `hermes-gateway`, all from the one `hermes-manager` image. The controller
+commissions one Hermes instance per assigned user and their terminal backends;
+instance namespaces, Deployments, volumes and worker Pods come from PostgreSQL,
+not from Helm. See the [instances guide](../../docs/personal-hermes/instances.md)
 and the [terminal backend guide](../../docs/personal-hermes/terminal-backends.md).
 
 An optional, standalone Multica board backend remains in the chart. It is not
@@ -13,73 +12,84 @@ integrated with the manager or personal Hermes instances.
 
 ## Installation inputs
 
-Install one release per namespace, with Kubernetes 1.30+ and a CNI that enforces
-NetworkPolicy. Every role is disabled by default.
+Install one release per namespace, with Kubernetes 1.30+ (for
+ValidatingAdmissionPolicy) and a CNI that enforces NetworkPolicy.
+`hermesManager.enabled` is off by default.
 
 - `images`: release-pinned `hermes-manager`, `hermes`, `agent-runtime` and
   `multica-backend` references. Packaged releases inject exact manifest digests.
-  The chart deploys `hermes-manager` (and `multica-backend` when enabled);
-  infrastructure uses the `hermes` and `agent-runtime` digests in instance
-  templates and terminal runtime versions.
-- `hermesManager`: installation identity, per-role native configuration,
-  existing Secret names and listener ingress peers (below).
-- `imagePullSecrets`: references for private manager images.
+  The chart deploys `hermes-manager`; administrators use the `hermes` and
+  `agent-runtime` digests in templates and terminal backends.
+- `hermesManager`: installation identity and issuer, `dataIdentity`,
+  `storageSources`, the public and administration origins, per-role settings
+  and existing Secret names (below), and ingress peers.
+- `imagePullSecrets`: references for private images.
 
-## Rust manager and dashboard
+The [manager example](../../examples/manager/values.yaml) is a nonsecret shape
+reference.
 
-The `hermesManager` section enables the
-`hermes-manager` image target. The same non-root image contains both Rust
-executables and the compiled React dashboard. `api`, `controller` and
-`routerAuth` can be enabled independently. The dashboard is served only when the
-API's `admin.browser` session configuration is present; without it the API runs
-in API-only mode. The [manager example](../../examples/manager/values.yaml) is a
-nonsecret shape reference for the API/dashboard role. Configure public origins,
-issuer and exact client IDs for your environment. The chart writes native JSON
-configuration and fixes API ports 8443/8444/8445 and router ports 8446/8447.
+## What the chart installs
 
-Supply private files through each role's separately named existing Secret,
-mounted read-only at `/run/manager/secrets`. Database URLs, client secrets, TLS
-keys, encryption keys and any bootstrap identity belong there, never in values,
-ConfigMaps or the chart archive. Keyring files may reference sibling Secret files.
-Use the [operator guide](../../docs/personal-hermes/dashboard.md) for PostgreSQL
-grants and optional read-only Keycloak directory permissions.
+| Object | Purpose |
+| --- | --- |
+| `hermes-manager-api` Deployment and Service | Administration API and dashboard (8443), route resolver over mTLS (8444), execution API (8445). No Kubernetes token |
+| `hermes-manager-controller` Deployment and ServiceAccount | Leader-elected reconciliation. The only Pod with a Kubernetes token |
+| `hermes-gateway` Deployment and Service | The Hermes hostname: sign-in, routing and proxying (8443). No Kubernetes token |
+| Controller RBAC | Cluster rights to create instance namespaces and static volumes and to bind the instance role; the instance role; its leader Lease |
+| ValidatingAdmissionPolicies | The installation's static policies, with storage roots, data identity and names rendered in as literals. They mirror `hermes-render`; the chart tests compare them |
+| NetworkPolicies | The resolver admits only the gateway, the execution API only instance Hermes Pods, the controller nothing |
 
-Only the controller mounts a Kubernetes token. Before enabling it, render, review
-and apply the manager's namespace/RBAC/admission bootstrap using the
-[`render-bootstrap` procedure](../../docs/personal-hermes/native-commissioning.md#installation),
-then supply that existing `serviceAccountName`. The chart does not create a
-privileged catch-all role. Initialize a fresh registry with verified inventory,
-or migrate an existing registry in maintenance, through explicit operator
-commands before starting workloads. No Helm hook automatically
-initializes/migrates a database or grants administrators.
+Each role reads one existing Secret, mounted read-only at
+`/run/hermes/secrets`, with these keys. The chart never renders a Secret, and
+values hold no secret material:
 
-Services are ClusterIP. Configure `hermesManager.ingress` peers independently for
-admin, mTLS resolver, execution, router public and router internal listeners.
-Empty peer lists deny ingress. Personal Hermes Pods need the execution listener
-(8445). Configure external ingress separately with correct TLS/origins; do not
-expose the resolver/execution listeners as the admin site. Secret rotation
-requires restarting the affected role.
+| Role | Keys |
+| --- | --- |
+| `api` | `database-url`, `admin-tls.crt`, `admin-tls.key`, `execution-tls.crt`, `execution-tls.key`, `resolver-tls.crt`, `resolver-tls.key`, `resolver-client-ca.crt`, `secret-sealing.pub`; with browser sign-in `session-database-url`, `session-key-<id>` per session key and, for a confidential client, `oidc-client-secret`; with the directory `directory-client-secret` |
+| `controller` | `database-url`, `secret-sealing.key`, `execution-ca.crt` |
+| `gateway` | `database-url` (role limited to `gateway_sessions`), `tls.crt`, `tls.key`, `session-key-<id>` per session key, `resolver-ca.crt`, `resolver-client.crt`, `resolver-client.key`; for a confidential client `oidc-client-secret` |
 
-Build and test locally, without publication or an existing deployment kubecontext:
+With `oidcPrivateCa: true`, every role's Secret also carries `oidc-ca.crt`.
+The execution certificate must name `hermes-manager-api.<namespace>.svc`, and
+so must the resolver certificate. The gateway's client certificate carries the
+URI SAN given as `api.gatewayIdentity`.
+
+## Operator steps
+
+Migration, initialization and the first administrator are explicit one-shot
+Jobs, enabled for one upgrade and then disabled:
+
+1. `operations.migrate` runs `hermes-manager migrate` with the schema owner's
+   `database-url` from its own Secret.
+2. `operations.initialize` records the installation and the cluster identity,
+   as the controller's ServiceAccount.
+3. `operations.grantAdministrator` grants the identity in its Secret's
+   `identity.json` (`{"issuer": …, "subject": …}`); set `recover` to restore a
+   grant when grants already exist.
+
+After restoring PostgreSQL on a new cluster, `operations.rebindCluster` runs
+`hermes-manager rebind-cluster` as the controller's ServiceAccount instead of
+`initialize`.
+
+The roles refuse to start until the registry is migrated and initialized for
+this installation.
+
+## Exposure
+
+Services are ClusterIP; set `gateway.service.type` for a LoadBalancer. List the
+peers that may reach the administration API and the gateway in
+`hermesManager.ingress`; empty lists deny ingress. The gateway terminates TLS
+itself, so a proxy in front of it passes TLS through. Never expose the resolver
+or execution listeners. Secret rotation requires restarting the affected role.
+
+Build and test locally, without publication or a deployment kubecontext:
 
 ```bash
 uv sync --locked
 uv run python -m agent_platform.manager_build
 helm lint charts/agent-platform
-helm package charts/agent-platform --destination .local/charts
-uv run python -m tests.personal_hermes.dashboard_chart \
-  --chart .local/charts/agent-platform-0.0.0.tgz --image hermes-manager:local
+uv run pytest -q tests/test_manager_chart.py
 ```
-
-The fixture needs Docker, Helm, OpenSSL and k3d v5.9.0. It creates a disposable
-local digest-pinned k3s cluster, imports the local image and installs the actual
-packaged chart using synthetic TLS/identity/PostgreSQL state. It verifies
-administrator denial/grants, directory service-token isolation and Pod restart,
-then removes its containers/cluster. For full native lifecycle regression on the
-same local toolchain, run the existing Kubernetes fixture with `--k3d --native`
-and a disposable `--postgres-container`. It never reads or changes a deployment
-kubecontext. Source chart image defaults remain local `dev` names; pass the
-imported local image as the fixture does.
 
 ## Optional Multica board
 
@@ -95,5 +105,6 @@ Personal Hermes instances have no board integration yet.
 The release pipeline tests images, injects exact image digests into a staging
 chart, renders the manager example and publishes that `.tgz` to GHCR and GitHub
 Releases. Select the chart's SemVer version or OCI digest and deploy it with its
-own image defaults. Manager roles are single-replica Recreate Deployments. Source
-charts carry the `0.0.0` development placeholder until a release sets the version.
+own image defaults. The controller runs one active replica by leader election;
+`api` and `gateway` can run several. Source charts carry the `0.0.0`
+development placeholder until a release sets the version.

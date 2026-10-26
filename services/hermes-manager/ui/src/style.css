@@ -730,17 +730,24 @@ pre {
 }
 .status-ready,
 .status-enabled,
-.status-applied,
-.status-succeeded {
+.status-published,
+.status-accepted {
   color: #27572f;
   background: #edf6e5;
 }
 .status-blocked,
-.status-error,
-.status-failed,
+.status-rejected,
+.status-disabled,
 .status-revoked {
   color: #8d4826;
   background: #fff0e7;
+}
+.status-suspended,
+.status-withdrawn,
+.status-retained,
+.status-stopping {
+  color: #6b5a1f;
+  background: #fbf4dc;
 }
 form {
   margin: 20px 0;
@@ -833,7 +840,71 @@ legend {
 
 .raw-editor {
   height: 480px;
+  overflow: hidden;
   border: 1px solid #b5c3af;
+}
+.raw-editor .cm-editor {
+  height: 100%;
+}
+.raw-editor .cm-scroller {
+  overflow: auto;
+}
+.dialog-content.wide {
+  width: min(960px, calc(100vw - 32px));
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0;
+}
+.tabs [role="tab"][aria-selected="true"] {
+  background: #203d37;
+  color: white;
+}
+.problems {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  padding-left: 18px;
+}
+.problems code {
+  overflow-wrap: anywhere;
+}
+.hint,
+.field small {
+  color: #5d7069;
+  line-height: 1.6;
+}
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-decoration: underline;
+}
+button.link[aria-current="true"] {
+  font-weight: 600;
+}
+.detail dl {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 8px 18px;
+  margin: 12px 0;
+}
+.detail dt {
+  color: #5d7069;
+}
+.detail dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .detail dl {
+    grid-template-columns: 1fr;
+  }
 }
 
 .field {

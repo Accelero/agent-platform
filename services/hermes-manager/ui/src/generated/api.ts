@@ -27,7 +27,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Browser proof and current single-use state required; codes and provider errors are never reflected */
+    /** @description Needs the browser proof cookie of the flow; codes and provider errors are never reflected */
     get: operations["completeAdministratorLogin"];
     put?: never;
     post?: never;
@@ -46,7 +46,6 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** @description Exact Origin and session CSRF required; durable session revocation precedes best-effort provider token revocation */
     post: operations["logoutAdministrator"];
     delete?: never;
     options?: never;
@@ -61,7 +60,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    get: operations["getAdministrationSession"];
+    get: operations["getSession"];
     put?: never;
     post?: never;
     delete?: never;
@@ -77,7 +76,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Exact registered subjects. Directory verification is false unless a configured read-only directory adapter has verified the subject. Email never selects, links or transfers an assignment. */
+    /** @description Identities the manager knows from sign-ins, grants and assignments */
     get: operations["listIdentities"];
     put?: never;
     post?: never;
@@ -87,14 +86,14 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/v1/assignments/{id}/template-preview": {
+  "/api/v1/identities/{identityId}": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    get: operations["previewAssignmentTemplate"];
+    get: operations["getIdentity"];
     put?: never;
     post?: never;
     delete?: never;
@@ -103,262 +102,15 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/v1/assignments/{id}/template": {
+  "/api/v1/directory-users": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    get?: never;
-    put?: never;
-    post: operations["setAssignmentTemplate"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-batches/preview": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["previewTemplateBatch"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-batches": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["applyTemplateBatch"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-batches/{id}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["getTemplateBatch"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-batches/{id}/resume": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Resume only pending members of the original actor's durable batch, preserving target, preconditions and child idempotency keys. */
-    post: operations["resumeTemplateBatch"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/administrators": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["listAdministrators"];
-    put?: never;
-    post: operations["createAdministratorGrant"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/administrators/{id}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["getAdministratorGrant"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch: operations["updateAdministratorGrant"];
-    trace?: never;
-  };
-  "/api/v1/administrator-identities": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["listAdministratorCandidates"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-drafts": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["listTemplateDrafts"];
-    put?: never;
-    post: operations["createTemplateDraft"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-drafts/{id}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    get: operations["getTemplateDraft"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch: operations["updateTemplateDraft"];
-    trace?: never;
-  };
-  "/api/v1/template-drafts/{id}/publish": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["publishTemplateDraft"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-definitions": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["listTemplateDefinitions"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-definitions/validate": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Offline validation only. Does not persist, fetch references, execute images or commission resources. Unknown managed keys remain unvalidated. */
-    post: operations["validateTemplateDefinition"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-definitions/{templateId}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        templateId: string;
-      };
-      cookie?: never;
-    };
-    get: operations["getTemplateDefinition"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/configuration-schemas": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["getConfigurationSchemas"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/templates": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["listInstanceTemplates"];
+    /** @description Read-only Keycloak lookup. A result is a candidate, not an assignment or a grant. */
+    get: operations["searchDirectory"];
     put?: never;
     post?: never;
     delete?: never;
@@ -376,7 +128,6 @@ export interface paths {
     };
     get: operations["listAssignments"];
     put?: never;
-    /** @description Explicit administrator action. Enabling enqueues proactive commissioning; authentication alone cannot enroll. If templateVersion is omitted, pin the latest approved compatible version in the mutation transaction. Replay returns that original pinned result even if the catalog changes. */
     post: operations["createAssignment"];
     delete?: never;
     options?: never;
@@ -384,13 +135,11 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/v1/assignments/{id}": {
+  "/api/v1/assignments/{assignmentId}": {
     parameters: {
       query?: never;
       header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
+      path?: never;
       cookie?: never;
     };
     get: operations["getAssignment"];
@@ -399,17 +148,66 @@ export interface paths {
     delete?: never;
     options?: never;
     head?: never;
-    /** @description Identity and instance IDs are immutable. Suspension/revocation deny routing from committed access immediately, fence earlier work, and retain data. Purge is a separate lifecycle command. */
-    patch: operations["setAssignmentAccess"];
+    /** @description Replaces the given fields; the identity and instance never change */
+    patch: operations["updateAssignment"];
     trace?: never;
   };
-  "/api/v1/instances/{id}": {
+  "/api/v1/assignments/{assignmentId}/preview": {
     parameters: {
       query?: never;
       header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Checks proposed changes without committing them */
+    post: operations["previewAssignment"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/assignments/{assignmentId}/retry": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Asks the controller to reconcile again without changing desired state */
+    post: operations["retryAssignment"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/assignment-rollouts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Applies one template version to selected assignments, each as its own change. Retrying with the same key repeats only the members that did not commit. */
+    post: operations["rolloutTemplate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/instances/{instanceId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
       cookie?: never;
     };
     get: operations["getInstance"];
@@ -421,35 +219,343 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/v1/instances/{id}/reconcile": {
+  "/api/v1/instances/{instanceId}/environments": {
     parameters: {
       query?: never;
       header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
+      path?: never;
       cookie?: never;
     };
-    get?: never;
+    /** @description Terminal environments and lease counts, without command content or credentials */
+    get: operations["listEnvironments"];
     put?: never;
-    /** @description Audited bounded retry under current desired access. It cannot enable a suspended/revoked owner, replace ownership, or accept manifests. */
-    post: operations["retryInstanceReconciliation"];
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  "/api/v1/operations/{id}": {
+  "/api/v1/orphans": {
     parameters: {
       query?: never;
       header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
+      path?: never;
       cookie?: never;
     };
-    get: operations["getOperation"];
+    /** @description Namespaces and PersistentVolumes carrying this installation's label that belong to no recorded instance, as the controller last saw them. They are never adopted or deleted. */
+    get: operations["listOrphans"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/templates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listTemplates"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/templates/validate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["validateTemplate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/templates/{catalogId}/versions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listTemplateVersions"];
+    put?: never;
+    post: operations["createTemplateDraft"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/templates/{catalogId}/versions/{version}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getTemplateVersion"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["editTemplateDraft"];
+    trace?: never;
+  };
+  "/api/v1/templates/{catalogId}/versions/{version}/publish": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["publishTemplate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/templates/{catalogId}/versions/{version}/withdraw": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["withdrawTemplate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/terminal-backends": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listTerminalBackends"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/terminal-backends/validate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["validateTerminalBackend"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/terminal-backends/{catalogId}/versions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listTerminalBackendVersions"];
+    put?: never;
+    post: operations["createTerminalBackendDraft"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/terminal-backends/{catalogId}/versions/{version}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getTerminalBackendVersion"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["editTerminalBackendDraft"];
+    trace?: never;
+  };
+  "/api/v1/terminal-backends/{catalogId}/versions/{version}/publish": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["publishTerminalBackend"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/terminal-backends/{catalogId}/versions/{version}/withdraw": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["withdrawTerminalBackend"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/storage-sources": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Installation configuration; read-only */
+    get: operations["listStorageSources"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/volumes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Every assigned volume, for reviewing paths and sizes per source */
+    get: operations["listVolumes"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/secrets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listSecrets"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/secrets/{secretName}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** @description Writes a new version. The kind is fixed when the secret is created. Instances that use the secret restart to receive it. */
+    put: operations["writeSecret"];
+    post?: never;
+    /** @description Deletes every version of a secret nothing references */
+    delete: operations["deleteSecret"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/administrators": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listAdministrators"];
+    put?: never;
+    /** @description Needs a grant that can manage administrators. The target must have signed in once. */
+    post: operations["grantAdministrator"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/administrators/{identityId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getAdministrator"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** @description Changes or revokes a grant; the last active manager cannot be removed */
+    patch: operations["updateAdministrator"];
+    trace?: never;
+  };
+  "/api/v1/administrator-candidates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Identities that have signed in and hold no grant */
+    get: operations["listAdministratorCandidates"];
     put?: never;
     post?: never;
     delete?: never;
@@ -474,300 +580,14 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/v1/terminal-runtimes": {
+  "/api/v1/audit-events/{eventId}": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    /** @description Bounded latest approved definition for each runtime ID, ordered by ID. */
-    get: operations["listTerminalRuntimes"];
-    put?: never;
-    /** @description Register an immutable approved runtime image and bounded worker policy; no raw Pod specs or credential values. */
-    post: operations["registerTerminalRuntime"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/terminal-runtimes/{id}/versions": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Immutable approved versions ordered by version. after is exclusive. */
-    get: operations["listTerminalRuntimeVersions"];
-    put?: never;
-    /** @description Register immutable version; runtime.id in the body must equal the path ID. */
-    post: operations["registerTerminalRuntimeVersion"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/storage-bindings": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Latest binding versions for exactly one registered instance namespace and UID. No inline storage or credential material. */
-    get: operations["listOwnerStorageBindings"];
-    put?: never;
-    /** @description Register version 1 of an owner-bound existing PVC reference. Namespace name and UID must match the immutable instance owner. */
-    post: operations["registerOwnerStorageBinding"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/storage-bindings/{id}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Latest registered immutable binding version. */
-    get: operations["getOwnerStorageBinding"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** @description Append the next immutable binding version. The ID and owner cannot change; body.version must equal If-Match plus one. Existing desired policy remains pinned until a separate policy update. */
-    patch: operations["updateOwnerStorageBinding"];
-    trace?: never;
-  };
-  "/api/v1/assignments/{id}/execution": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Inspect desired resolved policy and independently applied generation. Returns 404 before any policy exists; appliedGeneration remains zero until trusted activation. */
-    get: operations["getAssignmentExecution"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** @description Commit a new desired policy using approved immutable runtime and owner storage references. If-Match is the current assignment version. This does not activate workers or publish readiness. */
-    patch: operations["setAssignmentExecution"];
-    trace?: never;
-  };
-  "/api/v1/instances/{id}/pull-secret-bindings": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** @description Register an existing owner-namespace Secret name and UID, never credential values. Body instanceId must equal the path ID. */
-    post: operations["registerOwnerPullSecretBinding"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/identities/{id}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["getIdentity"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/assignments/{id}/operations": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["listAssignmentOperations"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/operations/{id}/details": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["getOperationDetails"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/audit-events/{id}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["getAuditDetails"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-definitions/{id}/versions/{version}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["getTemplateVersionDefinition"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/configuration-references/storage-classes": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["listApprovedStorageClasses"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/terminal-runtimes/{id}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["getTerminalRuntime"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/configuration-references/storage-bindings": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["listStorageBindingReferences"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/template-versions": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Search and ID/version order with query-bound keyset cursors; legacy numeric-cursor endpoints remain available. */
-    get: operations["listTemplateVersions"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/terminal-runtimes/{id}/version-history": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Search and ID/version order with query-bound keyset cursors; legacy numeric-cursor endpoints remain available. */
-    get: operations["listRuntimeVersionHistory"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/assignments/{id}/template-observation": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["getAssignmentTemplateObservation"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/directory-users": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** @description Read-only Keycloak identity candidates. Labels are descriptive; exact issuer/subject is authoritative. Results do not establish signed-login evidence or administrator grants. Provider-defined search/order and bounded offset cursors may shift when the directory changes. */
-    get: operations["searchDirectoryUsers"];
+    get: operations["getAuditEvent"];
     put?: never;
     post?: never;
     delete?: never;
@@ -780,130 +600,7 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    DirectoryUser: {
-      identity: components["schemas"]["Identity"];
-      username: string | null;
-      displayName: string | null;
-      email: string | null;
-      enabled: boolean;
-      /** @constant */
-      directoryVerified: true;
-    };
-    DirectoryPage: {
-      enabled: boolean;
-      items: components["schemas"]["DirectoryUser"][];
-      nextCursor: components["schemas"]["ListCursor"];
-    };
-    AdministratorInput: {
-      identity: components["schemas"]["Identity"];
-      active: boolean;
-      canManageAdministrators: boolean;
-    };
-    AdministratorGrant: {
-      /** Format: uuid */
-      id: string;
-      identity: components["schemas"]["Identity"];
-      active: boolean;
-      canManageAdministrators: boolean;
-      version: number;
-      /** @constant */
-      source: "postgresql";
-    };
-    AdministratorPage: {
-      items: components["schemas"]["AdministratorGrant"][];
-      nextCursor: components["schemas"]["ListCursor"];
-    };
-    AdministratorCandidates: {
-      nextCursor?: components["schemas"]["ListCursor"];
-      items: components["schemas"]["Identity"][];
-    };
-    AdministratorAccepted: {
-      /** Format: uuid */
-      id: string;
-      version: number;
-      /** Format: uuid */
-      operationId: string;
-    };
-    TemplateSelection: {
-      templateId: string;
-      templateVersion: number;
-    };
-    TemplatePreview: {
-      /** Format: uuid */
-      assignmentId: string;
-      expectedVersion: number;
-      currentTemplate: components["schemas"]["TemplateVersion"];
-      proposedTemplate: components["schemas"]["TemplateVersion"];
-      currentDefinition: components["schemas"]["TemplateDefinition"] | null;
-      proposedDefinition: components["schemas"]["TemplateDefinition"];
-      restart: boolean;
-      eligible: boolean;
-      blockedReasons: string[];
-    };
-    TemplateBatch: {
-      selection: components["schemas"]["TemplateSelection"];
-      members: {
-        /** Format: uuid */
-        assignmentId: string;
-        expectedVersion: number;
-      }[];
-    };
-    TemplateBatchPreview: {
-      items: components["schemas"]["TemplatePreview"][];
-    };
-    TemplateBatchAccepted: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      operationId: string;
-    };
-    TemplateBatchView: {
-      actor: components["schemas"]["Identity"];
-      selection: components["schemas"]["TemplateSelection"];
-      /** Format: uuid */
-      id: string;
-      /** @enum {string} */
-      state: "Pending" | "Succeeded" | "Failed";
-      items: {
-        /** Format: uuid */
-        assignmentId: string;
-        expectedVersion: number;
-        /** @enum {string} */
-        state: "Pending" | "Accepted" | "Failed";
-        /** Format: uuid */
-        operationId: string | null;
-        errorCode: string | null;
-      }[];
-    };
-    TemplateDraftInput: {
-      templateId: string;
-      definition: components["schemas"]["TemplateDefinition"];
-    };
-    TemplateDraft: {
-      /** Format: uuid */
-      id: string;
-      templateId: string;
-      definition: components["schemas"]["TemplateDefinition"];
-      version: number;
-      publishedVersion: number | null;
-    };
-    TemplateDraftAccepted: {
-      draft: components["schemas"]["TemplateDraft"];
-      /** Format: uuid */
-      operationId: string;
-    };
-    ConfigurationProblem: {
-      pointer: string;
-      code: string;
-      /** @enum {string} */
-      severity: "error" | "warning";
-      message: string;
-    };
-    ValidationProblem: {
-      /** @constant */
-      error: "invalid_configuration";
-      problems: components["schemas"]["ConfigurationProblem"][];
-    };
+    Name: string;
     Identity: {
       /**
        * Format: uri
@@ -913,465 +610,514 @@ export interface components {
       /** @description Exact case-sensitive verified OIDC subject; never email */
       subject: string;
     };
+    /** Format: date-time */
+    Timestamp: string;
     /** @enum {string} */
     Access: "enabled" | "suspended" | "revoked";
-    ListCursor: string | null;
-    /** Format: uuid */
-    Cursor: string | null;
+    VersionRef: {
+      id: components["schemas"]["Name"];
+      version: number;
+    };
+    Problem: {
+      /** @description JSON pointer into the submitted document */
+      pointer: string;
+      code: string;
+      /** @enum {string} */
+      severity: "error";
+    };
+    Error: {
+      /** @enum {string} */
+      error:
+        | "access_denied"
+        | "administrator_grant_exists"
+        | "administrators_exist"
+        | "assignment_exists"
+        | "backend_unavailable"
+        | "concurrent_change"
+        | "dependency_unavailable"
+        | "foreign_issuer"
+        | "idempotency_conflict"
+        | "identity_not_verified"
+        | "invalid_configuration"
+        | "invalid_identity"
+        | "invalid_identity_evidence"
+        | "invalid_name"
+        | "invalid_request"
+        | "invalid_secret_value"
+        | "last_administrator"
+        | "not_found"
+        | "registry_unavailable"
+        | "secret_in_use"
+        | "stale_version"
+        | "template_unavailable"
+        | "version_not_draft";
+      problems?: components["schemas"]["Problem"][];
+    };
     Session: {
       actor: components["schemas"]["Identity"];
-      permittedActions: (
-        | "administrator.manage"
-        | "template.draft.create"
-        | "template.draft.update"
-        | "template.publish"
-        | "assignment.set_template"
-        | "assignment.create"
-        | "assignment.set_access"
-        | "instance.retry"
-        | "execution.runtime.register"
-        | "execution.storage.register"
-        | "execution.storage.update"
-        | "execution.pull-secret.register"
-        | "execution.policy.set"
-      )[];
-      /** @description Null for bearer API-only authentication */
+      permittedActions: ("administer" | "administrator.manage")[];
+      /** @description Null for bearer requests */
       csrfToken: string | null;
+    };
+    IdentitySummary: {
+      /** Format: uuid */
+      id: string;
+      identity: components["schemas"]["Identity"];
+      displayName: string | null;
+      /** @description A label */
+      email: string | null;
+      /** @description Has signed in to the manager at least once */
+      verified: boolean;
+      /** Format: uuid */
+      assignmentId: string | null;
+      administrator: boolean;
+    };
+    IdentityPage: {
+      items: components["schemas"]["IdentitySummary"][];
+      nextCursor: string | null;
+    };
+    DirectoryUser: {
+      identity: components["schemas"]["Identity"];
+      username: string | null;
+      displayName: string | null;
+      email: string | null;
+      enabled: boolean;
+    };
+    DirectoryPage: {
+      enabled: boolean;
+      items: components["schemas"]["DirectoryUser"][];
+      nextCursor: string | null;
+    };
+    Volume: components["schemas"]["volume"];
+    TerminalGrant: {
+      /**
+       * @default per_session
+       * @enum {string}
+       */
+      mode:
+        "per_session" | "per_profile_on_demand" | "per_profile_always_running";
+      default?: components["schemas"]["Name"];
+      /** @description Terminal backend ID to version */
+      allowed?: {
+        [key: string]: number;
+      };
+    };
+    SecretReference: components["schemas"]["secretReference"];
+    AssignmentSpec: {
+      access: components["schemas"]["Access"];
+      template: components["schemas"]["VersionRef"];
+      volumes?: {
+        [key: string]: components["schemas"]["volume"];
+      };
+      terminal?: components["schemas"]["TerminalGrant"];
+      /** @description Overrides layered over the template's admin settings */
+      adminConfig?: Record<string, never>;
+      secrets?: components["schemas"]["secretReference"][];
     };
     CreateAssignment: {
       identity: components["schemas"]["Identity"];
-      access: components["schemas"]["Access"];
-      templateId: string;
-      /** Format: int64 */
-      templateVersion?: number;
+      spec: components["schemas"]["AssignmentSpec"];
     };
-    TemplateVersion: {
-      id: string;
-      /** Format: int64 */
-      version: number;
-    };
-    TemplateView: {
-      id: string;
-      /** Format: int64 */
-      version: number;
-      image: string;
-      nativePort: number;
-      /** @enum {string} */
-      nativeScheme: "http" | "https";
-    };
-    TemplateDefinition: {
-      /** @constant */
-      schemaVersion: 1;
-      image: string;
-      storageClass: string;
-      homeGib: number;
-      workspaceGib: number;
-      cpuMillis: number;
-      memoryMib: number;
-      adminConfig?: {
-        [key: string]: unknown;
+    AssignmentChanges: {
+      access?: components["schemas"]["Access"];
+      template?: components["schemas"]["VersionRef"];
+      volumes?: {
+        [key: string]: components["schemas"]["volume"];
       };
+      terminal?: components["schemas"]["TerminalGrant"];
+      adminConfig?: Record<string, never>;
+      secrets?: components["schemas"]["secretReference"][];
     };
-    TemplateDefinitionView: {
-      id: string;
-      /** @enum {string} */
-      source: "infrastructure" | "manager";
-      definition: components["schemas"]["TemplateDefinition"] | null;
-      /** @enum {string|null} */
-      condition: "invalid_definition" | null;
-      rejectedDefinition: {
-        /** @constant */
-        code: "invalid_definition";
-      } | null;
-      versions: {
-        version: number;
-        digest: string;
-      }[];
-      assignedUserCount: number;
-      redactedPaths: string[];
-      /** @enum {string} */
-      publicationState?: "published" | "pending" | "rejected" | "catalog_only";
-      /** @enum {string} */
-      schemaCoverage?: "reviewed_keys" | "envelope_only";
-    };
-    IdentityView: {
+    AssignmentReceipt: {
       /** Format: uuid */
-      id: string;
-      identity: components["schemas"]["Identity"];
-      directoryVerified: boolean;
-      /** @enum {string} */
-      provenance: "manager_record" | "verified_authentication";
-      assignment: components["schemas"]["Assignment"] | null;
-    };
-    Assignment: {
-      /** @enum {string} */
-      source: "infrastructure" | "manager";
-      /** Format: uuid */
-      id: string;
-      identity: components["schemas"]["Identity"];
-      access: components["schemas"]["Access"];
-      template: components["schemas"]["TemplateVersion"];
-      /** Format: int64 */
-      version: number;
+      assignmentId: string;
       /** Format: uuid */
       instanceId: string;
-      namespace: string;
-      /** Format: int64 */
-      desiredGeneration: number;
-      /** Format: int64 */
-      observedGeneration: number;
-      state: components["schemas"]["InstanceState"];
+      version: number;
+    };
+    AssignmentPreview: {
+      valid: boolean;
+      problems: components["schemas"]["Problem"][];
+      restartsHermes: boolean;
+      recreatesTerminals: boolean;
     };
     /** @enum {string} */
-    InstanceState:
-      | "Pending"
-      | "Provisioning"
-      | "Ready"
-      | "Blocked"
-      | "Suspending"
-      | "Suspended"
-      | "Retained"
-      | "Deleting"
-      | "Deleted"
-      | "Error";
+    Phase: "provisioning" | "ready" | "stopping" | "retained" | "blocked";
+    Condition: {
+      /** @enum {string} */
+      type: "storage" | "nativeInit" | "nativeAuth" | "terminal";
+      /** @enum {string} */
+      status: "true" | "false" | "unknown";
+      reason: string;
+    };
     Instance: {
       /** Format: uuid */
       id: string;
       /** Format: uuid */
       assignmentId: string;
       namespace: string;
-      /** Format: int64 */
       desiredGeneration: number;
-      /** Format: int64 */
       observedGeneration: number;
-      state: components["schemas"]["InstanceState"];
-      /** Format: int64 */
-      version: number;
+      executionGeneration: number;
+      phase: components["schemas"]["Phase"];
+      blockedReason: string | null;
+      conditions: components["schemas"]["Condition"][];
+      observedAt: components["schemas"]["Timestamp"] | null;
     };
-    Accepted: {
+    AssignmentSummary: {
       /** Format: uuid */
-      assignmentId: string;
+      id: string;
+      identity: components["schemas"]["Identity"];
+      access: components["schemas"]["Access"];
+      template: components["schemas"]["VersionRef"];
+      version: number;
       /** Format: uuid */
       instanceId: string;
-      /** Format: uuid */
-      operationId: string;
-      /** Format: int64 */
-      version: number;
+      phase: components["schemas"]["Phase"];
     };
-    Operation: {
+    AssignmentPage: {
+      items: components["schemas"]["AssignmentSummary"][];
+      nextCursor: string | null;
+    };
+    Assignment: {
       /** Format: uuid */
       id: string;
       /** Format: uuid */
-      instanceId: string | null;
+      identityId: string;
+      identity: components["schemas"]["Identity"];
+      spec: components["schemas"]["AssignmentSpec"];
+      version: number;
+      instance: components["schemas"]["Instance"];
+    };
+    Rollout: {
+      template: components["schemas"]["VersionRef"];
+      items: {
+        /** Format: uuid */
+        assignmentId: string;
+        expectedVersion: number;
+      }[];
+    };
+    RolloutResult: {
+      results: {
+        /** Format: uuid */
+        assignmentId: string;
+        /** @enum {string} */
+        outcome: "accepted" | "rejected";
+        receipt: components["schemas"]["AssignmentReceipt"] | null;
+        error: components["schemas"]["Error"] | null;
+      }[];
+    };
+    Environment: {
+      /** Format: uuid */
+      id: string;
+      backend: components["schemas"]["VersionRef"];
       /** @enum {string} */
-      kind:
-        | "commission"
-        | "suspend"
-        | "revoke"
-        | "retry"
-        | "template.publish"
-        | "template.draft.save"
-        | "assignment.set_template"
-        | "batch.apply"
-        | "administrator.grant"
-        | "administrator.revoke"
-        | "administrator.bootstrap"
-        | "administrator.recover";
-      /** Format: int64 */
+      mode:
+        "per_session" | "per_profile_on_demand" | "per_profile_always_running";
+      session: string | null;
       generation: number;
       /** @enum {string} */
-      state:
-        | "Pending"
-        | "Running"
-        | "Waiting"
-        | "RetryAt"
-        | "Succeeded"
-        | "Blocked"
-        | "Failed"
-        | "Superseded";
-      attempt: number;
+      state: "pending" | "starting" | "ready" | "draining" | "retired";
       /**
-       * Format: int64
-       * @description Database-time Unix seconds
+       * @description Why the worker failed; it drains and no other image replaces it
+       * @enum {string|null}
        */
-      nextAttemptAt: number;
+      failure: "image_unavailable" | "start_failed" | "contract_failed" | null;
+      leases: number;
+      createdAt: components["schemas"]["Timestamp"];
+    };
+    EnvironmentList: {
+      items: components["schemas"]["Environment"][];
+    };
+    Orphan: {
+      /** @enum {string} */
+      kind: "namespace" | "persistent_volume";
+      name: string;
+      uid: string;
+      firstSeenAt: components["schemas"]["Timestamp"];
+      lastSeenAt: components["schemas"]["Timestamp"];
+    };
+    OrphanReport: {
+      /** @description When the controller last completed a scan; null before the first one */
+      scannedAt: components["schemas"]["Timestamp"] | null;
+      items: components["schemas"]["Orphan"][];
+    };
+    CatalogSummary: {
+      id: components["schemas"]["Name"];
+      versions: number;
+      latestPublished: number | null;
+      /** @description The newest draft version */
+      draft: number | null;
+      /** @description Assignments pinning any version */
+      assignments: number;
+    };
+    CatalogPage: {
+      items: components["schemas"]["CatalogSummary"][];
+      nextCursor: string | null;
+    };
+    /** @enum {string} */
+    VersionState: "draft" | "published" | "withdrawn";
+    VersionSummary: {
+      id: components["schemas"]["Name"];
+      version: number;
+      state: components["schemas"]["VersionState"];
+      revision: number;
+      updatedAt: components["schemas"]["Timestamp"];
+      assignments: number;
+    };
+    VersionPage: {
+      items: components["schemas"]["VersionSummary"][];
+      nextCursor: string | null;
+    };
+    TemplateDraft: {
+      definition: components["schemas"]["template-v2"];
+    };
+    BackendDraft: {
+      definition: components["schemas"]["terminal-backend-v1"];
+    };
+    TemplateVersion: {
+      id: components["schemas"]["Name"];
+      version: number;
+      state: components["schemas"]["VersionState"];
+      revision: number;
+      updatedAt: components["schemas"]["Timestamp"];
+      assignments: number;
+      definition: components["schemas"]["template-v2"];
+    };
+    BackendVersion: {
+      id: components["schemas"]["Name"];
+      version: number;
+      state: components["schemas"]["VersionState"];
+      revision: number;
+      updatedAt: components["schemas"]["Timestamp"];
+      assignments: number;
+      definition: components["schemas"]["terminal-backend-v1"];
+    };
+    VersionReceipt: {
+      id: components["schemas"]["Name"];
+      version: number;
+      revision: number;
+    };
+    Validation: {
+      valid: boolean;
+      problems: components["schemas"]["Problem"][];
+    };
+    StorageSource: {
+      id: components["schemas"]["Name"];
+      storageClass?: {
+        name: string;
+      };
+      localPath?: {
+        node: string;
+        root: string;
+      };
+      nfs?: {
+        server: string;
+        root: string;
+      };
+    };
+    StorageSourceList: {
+      items: components["schemas"]["StorageSource"][];
+      dataIdentity: {
+        uid: number;
+        gid: number;
+      };
+    };
+    VolumeUse: {
+      /** Format: uuid */
+      assignmentId: string;
+      identity: components["schemas"]["Identity"];
+      name: components["schemas"]["Name"];
+      source: components["schemas"]["Name"];
+      path: string | null;
+      sizeGib: number | null;
+      readOnly: boolean;
+    };
+    VolumePage: {
+      items: components["schemas"]["VolumeUse"][];
+      nextCursor: string | null;
+    };
+    /** @enum {string} */
+    SecretKind: "env" | "file" | "registry";
+    SecretSummary: {
+      name: components["schemas"]["Name"];
+      kind: components["schemas"]["SecretKind"];
+      version: number;
+      updatedAt: components["schemas"]["Timestamp"];
+      /** @description Catalog versions and assignments naming it */
+      references: number;
+    };
+    SecretPage: {
+      items: components["schemas"]["SecretSummary"][];
+      nextCursor: string | null;
+    };
+    SecretWrite: {
+      kind: components["schemas"]["SecretKind"];
+      value: string;
+    };
+    SecretReceipt: {
+      name: components["schemas"]["Name"];
+      version: number;
+    };
+    Administrator: {
+      /** Format: uuid */
+      identityId: string;
+      identity: components["schemas"]["Identity"];
+      active: boolean;
+      canManageAdministrators: boolean;
+      version: number;
+      updatedAt: components["schemas"]["Timestamp"];
+    };
+    AdministratorPage: {
+      items: components["schemas"]["Administrator"][];
+      nextCursor: string | null;
+    };
+    GrantRequest: {
+      identity: components["schemas"]["Identity"];
+      canManageAdministrators: boolean;
+    };
+    GrantChange: {
+      active: boolean;
+      canManageAdministrators: boolean;
+    };
+    GrantReceipt: {
+      /** Format: uuid */
+      identityId: string;
+      version: number;
+    };
+    AuditActor: {
+      /** @enum {string} */
+      kind: "administrator" | "operator" | "controller";
+      identity: components["schemas"]["Identity"] | null;
     };
     AuditEvent: {
       /** Format: uuid */
       id: string;
-      actor: components["schemas"]["Identity"];
-      entityType?: string | null;
-      entityId?: string | null;
+      occurredAt: components["schemas"]["Timestamp"];
+      actor: components["schemas"]["AuditActor"];
       action: string;
-      /** Format: uuid */
-      assignmentId: string | null;
-      /** Format: uuid */
-      operationId: string | null;
+      target: {
+        kind: string;
+        id: string;
+      };
       /** Format: uuid */
       requestId: string;
-      /** Format: int64 */
-      version: number;
-      /**
-       * Format: int64
-       * @description Database-time Unix seconds
-       */
-      occurredAt: number;
-      outcome: string;
+      /** @description Redacted summary; never secret values */
+      change: Record<string, never>;
     };
-    Error: {
-      /** @enum {string} */
-      error:
-        | "administrator_grant_exists"
-        | "identity_not_verified"
-        | "last_administrator"
-        | "ownership_conflict"
-        | "storage_migration_required"
-        | "invalid_request"
-        | "invalid_identity_evidence"
-        | "access_denied"
-        | "idempotency_conflict"
-        | "assignment_exists"
-        | "not_found"
-        | "stale_version"
-        | "template_unavailable"
-        | "maintenance"
-        | "registry_unavailable"
-        | "dependency_unavailable";
+    AuditPage: {
+      items: components["schemas"]["AuditEvent"][];
+      nextCursor: string | null;
     };
-    RuntimeRef: {
-      id: string;
-      /** Format: int64 */
-      version: number;
+    name: string;
+    volume: {
+      source: components["schemas"]["name"];
+      path?: string;
+      sizeGib?: number;
+      readOnly?: boolean;
     };
-    WorkerResources: {
-      /** Format: int64 */
-      cpuMillis: number;
-      /** Format: int64 */
-      memoryMib: number;
-      /** Format: int64 */
-      ephemeralStorageMib: number;
+    secretReference: {
+      name: components["schemas"]["name"];
+      env?: string;
+      file?: components["schemas"]["name"];
+    } & (unknown | unknown);
+    mount: {
+      mountPath: string;
+      readOnly?: boolean;
     };
-    ServiceEgress: {
-      namespace: string;
-      service: string;
-      /** Format: int64 */
-      port: number;
-    };
-    RuntimeDefinition: {
+    /**
+     * TemplateDefinition
+     * @description A Hermes template version. Storage sources and admin settings are checked by the manager against installation settings; this schema covers the shape.
+     */
+    "template-v2": {
       /** @constant */
-      schemaVersion: 1;
-      runtime: components["schemas"]["RuntimeRef"];
+      schemaVersion: 2;
       image: string;
-      /** @enum {string} */
-      sshContract: "managed-ssh-v1" | "managed-ssh-v2";
-      /** Format: int64 */
-      uid: number;
-      /** Format: int64 */
-      gid: number;
-      /** @constant */
-      serviceAccount: "worker";
-      resources: components["schemas"]["WorkerResources"];
-      /** @enum {string} */
-      locale: "C.UTF-8" | "en_US.UTF-8";
-      egress: components["schemas"]["ServiceEgress"][];
-      pullSecretNames: string[];
-    };
-    PermittedMount: {
-      /** @description Absolute approved container mount path; no reserved platform paths or overlaps. */
-      path: string;
-      readOnly: boolean;
-      /** @description Optional confined relative subpath; no dot, parent, absolute or backslash components. */
-      subPath?: string | null;
-    };
-    StorageBinding: {
-      /** Format: uuid */
-      id: string;
-      /** Format: int64 */
-      version: number;
-      /** Format: uuid */
-      instanceId: string;
-      namespace: string;
-      namespaceUid: string;
-      pvcName: string;
-      pvcUid: string;
-      /**
-       * Format: uuid
-       * @description Opaque inventory ID; never a filesystem/server path.
-       */
-      backingStorageId: string;
-      external: boolean;
-      required: boolean;
-      /** @enum {string} */
-      backup: "platform_checkpoint" | "external" | "excluded";
-      mounts: components["schemas"]["PermittedMount"][];
-    };
-    PullSecretBinding: {
-      /** Format: uuid */
-      instanceId: string;
-      namespace: string;
-      namespaceUid: string;
-      name: string;
-      uid: string;
-    };
-    MountSelection: {
-      /** Format: uuid */
-      bindingId: string;
-      /** Format: int64 */
-      bindingVersion: number;
-      mount: components["schemas"]["PermittedMount"];
-    };
-    AllowedRuntime: {
-      limits?: components["schemas"]["ExecutionLimits"];
-      runtime: components["schemas"]["RuntimeRef"];
-      resources: components["schemas"]["WorkerResources"];
-      mounts: components["schemas"]["MountSelection"][];
-    };
-    AssignmentExecution: {
-      defaultRuntimeId: string;
-      allowed: components["schemas"]["AllowedRuntime"][];
-    };
-    ResolvedMount: {
-      binding: components["schemas"]["StorageBinding"];
-      mount: components["schemas"]["PermittedMount"];
-    };
-    ResolvedRuntime: {
-      limits?: components["schemas"]["ExecutionLimits"];
-      definition: components["schemas"]["RuntimeDefinition"];
-      definitionDigest: string;
-      resources: components["schemas"]["WorkerResources"];
-      mounts: components["schemas"]["ResolvedMount"][];
-      pullSecrets: components["schemas"]["PullSecretBinding"][];
-    };
-    ResolvedPolicy: {
-      /** Format: uuid */
-      installationId: string;
-      /** Format: uuid */
-      instanceId: string;
-      namespace: string;
-      namespaceUid: string;
-      /** Format: int64 */
-      generation: number;
-      defaultRuntimeId: string;
-      runtimes: components["schemas"]["ResolvedRuntime"][];
-    };
-    ExecutionPolicyView: {
-      /** Format: uuid */
-      assignmentId: string;
-      /** Format: int64 */
-      assignmentVersion: number;
-      /** Format: int64 */
-      desiredGeneration: number;
-      /** Format: int64 */
-      appliedGeneration: number;
-      /** @enum {string} */
-      state: "Pending" | "Reconciling" | "Waiting" | "Applied";
-      desired: components["schemas"]["ResolvedPolicy"];
-      /** @description Immutable snapshot at appliedGeneration; null until trusted activation. */
-      applied?: components["schemas"]["ResolvedPolicy"] | null;
-      digest: string;
-    };
-    ExecutionAccepted: {
-      /** Format: uuid */
-      eventId: string;
-      /** Format: int64 */
-      assignmentVersion: number | null;
-      /** Format: int64 */
-      policyGeneration: number | null;
-      policyDigest: string | null;
-    };
-    /** @description Optional policy limits; omitting the object selects these defaults. */
-    ExecutionLimits: {
-      /** @default 120 */
-      ttlSeconds: number;
-      /** @default false */
-      exclusive: boolean;
-      /** @default false */
-      serializeProfile: boolean;
-      /** @default 8 */
-      maxEnvironments: number;
-      /** @default 32 */
-      maxLeases: number;
-      /** @default 900 */
-      idleSeconds: number;
-    };
-    OperationPage: {
-      items: components["schemas"]["Operation"][];
-      nextCursor: components["schemas"]["ListCursor"];
-    };
-    OperationDetails: {
-      operation: components["schemas"]["Operation"];
-      /** Format: uuid */
-      assignmentId: string | null;
-      steps: {
-        key: string;
-        recordedAt: number;
-        verifiedAt: number | null;
-      }[];
-    };
-    AuditDetails: {
-      event: components["schemas"]["AuditEvent"];
-      /** @constant */
-      redacted: true;
-      change: {
-        access?: components["schemas"]["Access"];
-        templateId?: string;
-        templateVersion?: number;
-        runtimeId?: string;
-        version?: number;
-        storageBindingId?: string;
-        instanceId?: string;
-        assignmentId?: string;
-        generation?: number;
-        digest?: string;
-        pullSecretName?: string;
+      resources: {
+        cpuMillis: number;
+        memoryMib: number;
+      };
+      /** @description The private Hermes home at /opt/data. Always a dynamic volume; never mounted in a terminal backend. */
+      home: {
+        source: components["schemas"]["name"];
+        sizeGib: number;
+      };
+      /** @description Volumes mounted into Hermes, by volume name. */
+      mounts?: {
+        [key: string]: components["schemas"]["mount"];
+      };
+      /** @description Volumes created for assignments that do not define them. Every name must be mounted. */
+      defaultVolumes?: {
+        [key: string]: components["schemas"]["volume"];
+      };
+      /** @description Hermes settings enforced over the user's own. Never secret values. */
+      adminConfig?: Record<string, never>;
+      secrets?: components["schemas"]["secretReference"][];
+      $defs: {
+        name: string;
+        mount: {
+          mountPath: string;
+          readOnly?: boolean;
+        };
+        volume: {
+          source: components["schemas"]["name"];
+          path?: string;
+          sizeGib?: number;
+          readOnly?: boolean;
+        };
+        secretReference: {
+          name: components["schemas"]["name"];
+          env?: string;
+          file?: components["schemas"]["name"];
+        } & (unknown | unknown);
       };
     };
-    TemplateVersionDefinition: {
-      id: string;
-      version: number;
-      digest: string;
-      definition: components["schemas"]["TemplateDefinition"];
-      redactedPaths: string[];
-    };
-    StorageClassPage: {
-      items: {
-        id: string;
-        /** @constant */
-        source: "approved_template";
-      }[];
-      nextCursor: components["schemas"]["ListCursor"];
+    /**
+     * BackendDefinition
+     * @description A terminal backend version: an SSH worker image implementing managed-ssh-v2, its resources, limits and mount slots.
+     */
+    "terminal-backend-v1": {
+      image: string;
+      /** @constant */
+      sshContract: "managed-ssh-v2";
+      uid: number;
+      gid: number;
+      resources: {
+        cpuMillis: number;
+        memoryMib: number;
+        ephemeralGib: number;
+      };
+      limits: {
+        idleSeconds: number;
+        maxLeaseSeconds: number;
+        maxEnvironments: number;
+      };
+      /** @description Mount slots by volume name. The assignment decides which volume fills each slot. */
+      mounts?: {
+        [key: string]: {
+          mountPath: string;
+          readOnly?: boolean;
+          optional?: boolean;
+        };
+      };
+      registrySecret?: components["schemas"]["name"];
+      $defs: {
+        name: string;
+      };
     };
   };
   responses: {
-    /** @description Bounded path-addressed configuration errors; messages never contain submitted values. */
-    InvalidConfiguration: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        "application/json": components["schemas"]["ValidationProblem"];
-      };
-    };
-    /** @description Mutation and pending work committed durably */
-    Accepted: {
-      headers: {
-        ETag: components["headers"]["ETag"];
-        [name: string]: unknown;
-      };
-      content: {
-        "application/json": components["schemas"]["Accepted"];
-      };
-    };
-    /** @description Missing, invalid, expired or incorrectly targeted access token */
+    /** @description No valid credential */
     Unauthenticated: {
       headers: {
+        "WWW-Authenticate"?: string;
         [name: string]: unknown;
       };
       content: {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description Valid token without the configured management-client administrator role */
+    /** @description No current grant, or a CSRF or Origin failure */
     Forbidden: {
       headers: {
         [name: string]: unknown;
@@ -1380,7 +1126,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description Registered object not found in this installation */
+    /** @description Not found */
     NotFound: {
       headers: {
         [name: string]: unknown;
@@ -1389,7 +1135,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description Existing assignment or changed input for an already used idempotency key */
+    /** @description Conflicts with current state or an earlier request with this key */
     Conflict: {
       headers: {
         [name: string]: unknown;
@@ -1398,8 +1144,8 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description If-Match is valid but no longer current; no mutation committed */
-    StaleVersion: {
+    /** @description If-Match does not match the current version */
+    Stale: {
       headers: {
         [name: string]: unknown;
       };
@@ -1407,8 +1153,8 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description Malformed, missing required header, unknown field or unapproved configuration */
-    InvalidRequest: {
+    /** @description Malformed input, or configuration that fails validation (with problems) */
+    Invalid: {
       headers: {
         [name: string]: unknown;
       };
@@ -1416,7 +1162,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description Dependency, maintenance or registry recovery gate denies the operation */
+    /** @description A dependency is unavailable */
     Unavailable: {
       headers: {
         [name: string]: unknown;
@@ -1427,35 +1173,25 @@ export interface components {
     };
   };
   parameters: {
-    /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-    ListAfter: string;
-    /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-    ListSearch: string;
-    /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-    ListSort: "id" | "-id";
-    Id: string;
+    /** @description One intended change. Repeating it with the same body returns the original result. */
+    IdempotencyKey: string;
+    IfMatch: string;
+    /** @description Required for browser-session mutations; ignored for bearer requests */
+    Csrf: string;
+    Search: string;
+    /** @description The previous page's nextCursor */
     After: string;
     Limit: number;
-    /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-    IdempotencyKey: string;
-    /** @description Strong version ETag from the assignment/instance response; no wildcard/weak/list form */
-    IfMatch: string;
-    /** @description Nonzero request UUID; generated server-side if absent */
-    RequestId: string;
-    SourceFilter: "infrastructure" | "manager";
-    AssignedFilter: boolean;
-    IdentityFilter: string;
-    RuntimeFilter: string;
-    RuntimeVersionFilter: number;
-    AssignmentFilter: string;
-    PublicationFilter: "draft" | "published";
-    AccessFilter: "enabled" | "suspended" | "revoked";
-    StateFilter: string;
-    TemplateFilter: string;
+    IdentityId: string;
+    AssignmentId: string;
+    InstanceId: string;
+    CatalogId: components["schemas"]["Name"];
+    Version: number;
+    SecretName: components["schemas"]["Name"];
   };
   requestBodies: never;
   headers: {
-    /** @description Strong optimistic assignment version */
+    /** @description The quoted version of the resource */
     ETag: string;
   };
   pathItems: never;
@@ -1465,7 +1201,7 @@ export interface operations {
   beginAdministratorLogin: {
     parameters: {
       query?: {
-        /** @description Local UI path only; auth, API and platform paths are rejected */
+        /** @description Local dashboard path; authentication, API and platform paths are refused */
         returnTo?: string;
       };
       header?: never;
@@ -1474,7 +1210,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Committed single-use PKCE/state flow, then provider redirect; previous browser sessions invalidated */
+      /** @description Single-use PKCE flow committed; redirect to the identity provider */
       303: {
         headers: {
           Location?: string;
@@ -1482,7 +1218,7 @@ export interface operations {
         };
         content?: never;
       };
-      422: components["responses"]["InvalidRequest"];
+      422: components["responses"]["Invalid"];
       503: components["responses"]["Unavailable"];
     };
   };
@@ -1502,7 +1238,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Committed opaque administrator session, then local UI redirect */
+      /** @description Session created for an identity with an active grant; redirect to the dashboard */
       303: {
         headers: {
           Location?: string;
@@ -1520,14 +1256,15 @@ export interface operations {
       query?: never;
       header: {
         Origin: string;
-        "X-CSRF-Token": string;
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
       };
       path?: never;
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description Session revoked and browser cookies expired */
+      /** @description Session revoked and cookies expired */
       204: {
         headers: {
           [name: string]: unknown;
@@ -1539,7 +1276,7 @@ export interface operations {
       503: components["responses"]["Unavailable"];
     };
   };
-  getAdministrationSession: {
+  getSession: {
     parameters: {
       query?: never;
       header?: never;
@@ -1548,7 +1285,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Verified human administrator and permitted actions */
+      /** @description The authenticated administrator */
       200: {
         headers: {
           [name: string]: unknown;
@@ -1564,19 +1301,10 @@ export interface operations {
   listIdentities: {
     parameters: {
       query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
+        q?: components["parameters"]["Search"];
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
         limit?: components["parameters"]["Limit"];
-        access?: components["parameters"]["AccessFilter"];
-        state?: components["parameters"]["StateFilter"];
-        templateId?: components["parameters"]["TemplateFilter"];
-        source?: components["parameters"]["SourceFilter"];
-        assigned?: components["parameters"]["AssignedFilter"];
-        identityId?: components["parameters"]["IdentityFilter"];
       };
       header?: never;
       path?: never;
@@ -1584,232 +1312,52 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Bounded registered-identity page */
+      /** @description One page */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": {
-            items: components["schemas"]["IdentityView"][];
-            nextCursor: components["schemas"]["ListCursor"];
-          };
+          "application/json": components["schemas"]["IdentityPage"];
         };
       };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
+      422: components["responses"]["Invalid"];
     };
   };
-  previewAssignmentTemplate: {
+  getIdentity: {
     parameters: {
-      query: {
-        templateId: string;
-        templateVersion: number;
-      };
+      query?: never;
       header?: never;
       path: {
-        id: components["parameters"]["Id"];
+        identityId: components["parameters"]["IdentityId"];
       };
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description Explicit selected scope and pinned versions; acknowledgement is separate from rollout completion. */
+      /** @description The identity */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["TemplatePreview"];
+          "application/json": components["schemas"]["IdentitySummary"];
         };
       };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
     };
   };
-  setAssignmentTemplate: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Strong version ETag from the assignment/instance response; no wildcard/weak/list form */
-        "If-Match": components["parameters"]["IfMatch"];
-      };
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["TemplateSelection"];
-      };
-    };
-    responses: {
-      /** @description Explicit selected scope and pinned versions; acknowledgement is separate from rollout completion. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Accepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  previewTemplateBatch: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["TemplateBatch"];
-      };
-    };
-    responses: {
-      /** @description Explicit selected scope and pinned versions; acknowledgement is separate from rollout completion. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["TemplateBatchPreview"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  applyTemplateBatch: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["TemplateBatch"];
-      };
-    };
-    responses: {
-      /** @description Explicit selected scope and pinned versions; acknowledgement is separate from rollout completion. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["TemplateBatchAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getTemplateBatch: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Explicit selected scope and pinned versions; acknowledgement is separate from rollout completion. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["TemplateBatchView"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  resumeTemplateBatch: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-      };
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": Record<string, never>;
-      };
-    };
-    responses: {
-      /** @description Pending dispatch resumed; accepted members are never applied twice. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["TemplateBatchAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  listAdministrators: {
+  searchDirectory: {
     parameters: {
       query?: {
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
+        q?: components["parameters"]["Search"];
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
         limit?: components["parameters"]["Limit"];
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
       };
       header?: never;
       path?: never;
@@ -1817,492 +1365,13 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description PostgreSQL is the sole administrator authority. OIDC roles do not grant access. Changes require administrator.manage and verified identity evidence; the last recoverable administrator is protected. */
-      200: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["AdministratorPage"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  createAdministratorGrant: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["AdministratorInput"];
-      };
-    };
-    responses: {
-      /** @description PostgreSQL is the sole administrator authority. OIDC roles do not grant access. Changes require administrator.manage and verified identity evidence; the last recoverable administrator is protected. */
-      202: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["AdministratorAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getAdministratorGrant: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description PostgreSQL is the sole administrator authority. OIDC roles do not grant access. Changes require administrator.manage and verified identity evidence; the last recoverable administrator is protected. */
-      200: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["AdministratorGrant"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  updateAdministratorGrant: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Strong version ETag from the assignment/instance response; no wildcard/weak/list form */
-        "If-Match": components["parameters"]["IfMatch"];
-      };
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["AdministratorInput"];
-      };
-    };
-    responses: {
-      /** @description PostgreSQL is the sole administrator authority. OIDC roles do not grant access. Changes require administrator.manage and verified identity evidence; the last recoverable administrator is protected. */
-      202: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["AdministratorAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  listAdministratorCandidates: {
-    parameters: {
-      query?: {
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
-        limit?: components["parameters"]["Limit"];
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description PostgreSQL is the sole administrator authority. OIDC roles do not grant access. Changes require administrator.manage and verified identity evidence; the last recoverable administrator is protected. */
-      200: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["AdministratorCandidates"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  listTemplateDrafts: {
-    parameters: {
-      query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
-        limit?: components["parameters"]["Limit"];
-        publication?: components["parameters"]["PublicationFilter"];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Versioned manager-owned draft; saving and publishing do not apply to live assignments. Published drafts and catalog versions are immutable. */
-      200: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": {
-            items: components["schemas"]["TemplateDraft"][];
-            nextCursor: components["schemas"]["ListCursor"];
-          };
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidConfiguration"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  createTemplateDraft: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["TemplateDraftInput"];
-      };
-    };
-    responses: {
-      /** @description Versioned manager-owned draft; saving and publishing do not apply to live assignments. Published drafts and catalog versions are immutable. */
-      202: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["TemplateDraftAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidConfiguration"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getTemplateDraft: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Versioned manager-owned draft; saving and publishing do not apply to live assignments. Published drafts and catalog versions are immutable. */
-      200: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["TemplateDraft"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidConfiguration"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  updateTemplateDraft: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Strong version ETag from the assignment/instance response; no wildcard/weak/list form */
-        "If-Match": components["parameters"]["IfMatch"];
-      };
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["TemplateDraftInput"];
-      };
-    };
-    responses: {
-      /** @description Versioned manager-owned draft; saving and publishing do not apply to live assignments. Published drafts and catalog versions are immutable. */
-      202: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["TemplateDraftAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidConfiguration"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  publishTemplateDraft: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Strong version ETag from the assignment/instance response; no wildcard/weak/list form */
-        "If-Match": components["parameters"]["IfMatch"];
-      };
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": Record<string, never>;
-      };
-    };
-    responses: {
-      /** @description Versioned manager-owned draft; saving and publishing do not apply to live assignments. Published drafts and catalog versions are immutable. */
-      202: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["TemplateDraftAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidConfiguration"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  listTemplateDefinitions: {
-    parameters: {
-      query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
-        limit?: components["parameters"]["Limit"];
-        source?: components["parameters"]["SourceFilter"];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Bounded typed definitions with safe diagnostics; infrastructure rows are read-only. */
+      /** @description One page; `enabled` is false when no directory is configured */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": {
-            items: components["schemas"]["TemplateDefinitionView"][];
-            nextCursor: components["schemas"]["ListCursor"];
-          };
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  validateTemplateDefinition: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["TemplateDefinition"];
-      };
-    };
-    responses: {
-      /** @description Valid typed envelope and reviewed managed settings; other settings have no schema coverage. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": {
-            /** @constant */
-            valid: true;
-            schemaId: string;
-            revision: number;
-            /** @enum {string} */
-            coverage: "reviewed_keys" | "envelope_only";
-            problems: components["schemas"]["ConfigurationProblem"][];
-          };
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      422: components["responses"]["InvalidConfiguration"];
-    };
-  };
-  getTemplateDefinition: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        templateId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Typed effective definition, immutable catalog history and assigned-user count. No rejected input, manifests or credential values. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["TemplateDefinitionView"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getConfigurationSchemas: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Reviewed local schema IDs, revisions, content digests and compatible image digests. No remote schema retrieval. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": {
-            schemas: {
-              id: string;
-              revision: number;
-              digest: string;
-              compatibleImageDigests: string[];
-            }[];
-          };
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-    };
-  };
-  listInstanceTemplates: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Approved immutable template versions, without manifests or secrets */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": {
-            items: components["schemas"]["TemplateView"][];
-            nextCursor: null;
-          };
+          "application/json": components["schemas"]["DirectoryPage"];
         };
       };
       401: components["responses"]["Unauthenticated"];
@@ -2313,20 +1382,12 @@ export interface operations {
   listAssignments: {
     parameters: {
       query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
+        q?: components["parameters"]["Search"];
         access?: components["schemas"]["Access"];
-        state?: components["schemas"]["InstanceState"];
-        templateId?: string;
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
+        templateId?: components["schemas"]["Name"];
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
         limit?: components["parameters"]["Limit"];
-        source?: components["parameters"]["SourceFilter"];
-        identityId?: components["parameters"]["IdentityFilter"];
-        runtimeId?: components["parameters"]["RuntimeFilter"];
-        runtimeVersion?: components["parameters"]["RuntimeVersionFilter"];
       };
       header?: never;
       path?: never;
@@ -2334,32 +1395,28 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Bounded assignment page */
+      /** @description One page */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": {
-            items: components["schemas"]["Assignment"][];
-            nextCursor: components["schemas"]["ListCursor"];
-          };
+          "application/json": components["schemas"]["AssignmentPage"];
         };
       };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
+      422: components["responses"]["Invalid"];
     };
   };
   createAssignment: {
     parameters: {
       query?: never;
       header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
+        /** @description One intended change. Repeating it with the same body returns the original result. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Nonzero request UUID; generated server-side if absent */
-        "X-Request-ID"?: components["parameters"]["RequestId"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
       };
       path?: never;
       cookie?: never;
@@ -2370,11 +1427,19 @@ export interface operations {
       };
     };
     responses: {
-      202: components["responses"]["Accepted"];
+      /** @description Committed; the controller commissions the instance */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AssignmentReceipt"];
+        };
+      };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
       409: components["responses"]["Conflict"];
-      422: components["responses"]["InvalidRequest"];
+      422: components["responses"]["Invalid"];
       503: components["responses"]["Unavailable"];
     };
   };
@@ -2383,13 +1448,13 @@ export interface operations {
       query?: never;
       header?: never;
       path: {
-        id: components["parameters"]["Id"];
+        assignmentId: components["parameters"]["AssignmentId"];
       };
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description Current assignment, with a strong version ETag */
+      /** @description The assignment and its instance status */
       200: {
         headers: {
           ETag: components["headers"]["ETag"];
@@ -2402,41 +1467,143 @@ export interface operations {
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
-      503: components["responses"]["Unavailable"];
     };
   };
-  setAssignmentAccess: {
+  updateAssignment: {
     parameters: {
       query?: never;
       header: {
-        /** @description Strong version ETag from the assignment/instance response; no wildcard/weak/list form */
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
+        /** @description One intended change. Repeating it with the same body returns the original result. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Nonzero request UUID; generated server-side if absent */
-        "X-Request-ID"?: components["parameters"]["RequestId"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
       };
       path: {
-        id: components["parameters"]["Id"];
+        assignmentId: components["parameters"]["AssignmentId"];
       };
       cookie?: never;
     };
     requestBody: {
       content: {
-        "application/json": {
-          access: components["schemas"]["Access"];
-        };
+        "application/json": components["schemas"]["AssignmentChanges"];
       };
     };
     responses: {
-      202: components["responses"]["Accepted"];
+      /** @description Committed; the controller reconciles the instance */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AssignmentReceipt"];
+        };
+      };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
+      412: components["responses"]["Stale"];
+      422: components["responses"]["Invalid"];
       503: components["responses"]["Unavailable"];
+    };
+  };
+  previewAssignment: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        assignmentId: components["parameters"]["AssignmentId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AssignmentChanges"];
+      };
+    };
+    responses: {
+      /** @description Whether the change is valid and what it would restart */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AssignmentPreview"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["Invalid"];
+    };
+  };
+  retryAssignment: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": components["parameters"]["IfMatch"];
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        assignmentId: components["parameters"]["AssignmentId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Committed */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AssignmentReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      412: components["responses"]["Stale"];
+      503: components["responses"]["Unavailable"];
+    };
+  };
+  rolloutTemplate: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["Rollout"];
+      };
+    };
+    responses: {
+      /** @description The result of every member */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RolloutResult"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["Invalid"];
     };
   };
   getInstance: {
@@ -2444,16 +1611,15 @@ export interface operations {
       query?: never;
       header?: never;
       path: {
-        id: components["parameters"]["Id"];
+        instanceId: components["parameters"]["InstanceId"];
       };
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description Instance metadata without native content or credentials */
+      /** @description Desired and observed state of the instance */
       200: {
         headers: {
-          ETag: components["headers"]["ETag"];
           [name: string]: unknown;
         };
         content: {
@@ -2463,258 +1629,60 @@ export interface operations {
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
-      503: components["responses"]["Unavailable"];
     };
   };
-  retryInstanceReconciliation: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Strong version ETag from the assignment/instance response; no wildcard/weak/list form */
-        "If-Match": components["parameters"]["IfMatch"];
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Nonzero request UUID; generated server-side if absent */
-        "X-Request-ID"?: components["parameters"]["RequestId"];
-      };
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody?: {
-      content: {
-        "application/json": Record<string, never>;
-      };
-    };
-    responses: {
-      202: components["responses"]["Accepted"];
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getOperation: {
+  listEnvironments: {
     parameters: {
       query?: never;
       header?: never;
       path: {
-        id: components["parameters"]["Id"];
+        instanceId: components["parameters"]["InstanceId"];
       };
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description Durable lifecycle progress, without external response bodies */
+      /** @description The instance's environments */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["Operation"];
+          "application/json": components["schemas"]["EnvironmentList"];
         };
       };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
-      503: components["responses"]["Unavailable"];
     };
   };
-  listAuditEvents: {
+  listOrphans: {
     parameters: {
-      query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-        action?: string;
-        actor?: string;
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
-        limit?: components["parameters"]["Limit"];
-        assignmentId?: components["parameters"]["AssignmentFilter"];
-      };
+      query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description Immutable actor-attributed audit, without credentials */
+      /** @description The latest orphan report */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": {
-            items: components["schemas"]["AuditEvent"][];
-            nextCursor: components["schemas"]["ListCursor"];
-          };
+          "application/json": components["schemas"]["OrphanReport"];
         };
       };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
     };
   };
-  listTerminalRuntimes: {
+  listTemplates: {
     parameters: {
       query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
-        limit?: components["parameters"]["Limit"];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Bounded latest approved definition for each runtime ID, ordered by ID. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": {
-            items: components["schemas"]["RuntimeDefinition"][];
-            nextCursor: string | null;
-          };
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  registerTerminalRuntime: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Nonzero request UUID; generated server-side if absent */
-        "X-Request-ID"?: components["parameters"]["RequestId"];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["RuntimeDefinition"];
-      };
-    };
-    responses: {
-      /** @description Register an immutable approved runtime image and bounded worker policy; no raw Pod specs or credential values. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ExecutionAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  listTerminalRuntimeVersions: {
-    parameters: {
-      query?: {
-        /** @description Exclusive version cursor, default 0 */
-        after?: number;
-        limit?: components["parameters"]["Limit"];
-      };
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Immutable approved versions ordered by version. after is exclusive. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": {
-            items: components["schemas"]["RuntimeDefinition"][];
-            /** Format: int64 */
-            nextCursor: number | null;
-          };
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  registerTerminalRuntimeVersion: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Nonzero request UUID; generated server-side if absent */
-        "X-Request-ID"?: components["parameters"]["RequestId"];
-      };
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["RuntimeDefinition"];
-      };
-    };
-    responses: {
-      /** @description Register immutable version; runtime.id in the body must equal the path ID. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ExecutionAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  listOwnerStorageBindings: {
-    parameters: {
-      query: {
-        instanceId: string;
+        q?: components["parameters"]["Search"];
+        /** @description The previous page's nextCursor */
         after?: components["parameters"]["After"];
         limit?: components["parameters"]["Limit"];
       };
@@ -2724,608 +1692,253 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Latest binding versions for exactly one registered instance namespace and UID. No inline storage or credential material. */
+      /** @description One page */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": {
-            items: components["schemas"]["StorageBinding"][];
-            /** Format: uuid */
-            nextCursor: string | null;
-          };
+          "application/json": components["schemas"]["CatalogPage"];
         };
       };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
     };
   };
-  registerOwnerStorageBinding: {
+  validateTemplate: {
     parameters: {
       query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Nonzero request UUID; generated server-side if absent */
-        "X-Request-ID"?: components["parameters"]["RequestId"];
+      header?: {
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
       };
       path?: never;
       cookie?: never;
     };
     requestBody: {
       content: {
-        "application/json": components["schemas"]["StorageBinding"];
+        "application/json": components["schemas"]["TemplateDraft"];
       };
     };
     responses: {
-      /** @description Register version 1 of an owner-bound existing PVC reference. Namespace name and UID must match the immutable instance owner. */
-      202: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ExecutionAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getOwnerStorageBinding: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Latest registered immutable binding version. */
-      200: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["StorageBinding"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  updateOwnerStorageBinding: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Nonzero request UUID; generated server-side if absent */
-        "X-Request-ID"?: components["parameters"]["RequestId"];
-        /** @description Strong version ETag from the assignment/instance response; no wildcard/weak/list form */
-        "If-Match": components["parameters"]["IfMatch"];
-      };
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["StorageBinding"];
-      };
-    };
-    responses: {
-      /** @description Append the next immutable binding version. The ID and owner cannot change; body.version must equal If-Match plus one. Existing desired policy remains pinned until a separate policy update. */
-      202: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ExecutionAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getAssignmentExecution: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Inspect desired resolved policy and independently applied generation. Returns 404 before any policy exists; appliedGeneration remains zero until trusted activation. */
-      200: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ExecutionPolicyView"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  setAssignmentExecution: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Nonzero request UUID; generated server-side if absent */
-        "X-Request-ID"?: components["parameters"]["RequestId"];
-        /** @description Strong version ETag from the assignment/instance response; no wildcard/weak/list form */
-        "If-Match": components["parameters"]["IfMatch"];
-      };
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["AssignmentExecution"];
-      };
-    };
-    responses: {
-      /** @description Commit a new desired policy using approved immutable runtime and owner storage references. If-Match is the current assignment version. This does not activate workers or publish readiness. */
-      202: {
-        headers: {
-          ETag: components["headers"]["ETag"];
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ExecutionAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  registerOwnerPullSecretBinding: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Exact actor/operation-scoped key; changed payload or If-Match conflicts */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-        /** @description Nonzero request UUID; generated server-side if absent */
-        "X-Request-ID"?: components["parameters"]["RequestId"];
-      };
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["PullSecretBinding"];
-      };
-    };
-    responses: {
-      /** @description Register an existing owner-namespace Secret name and UID, never credential values. Body instanceId must equal the path ID. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ExecutionAccepted"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      409: components["responses"]["Conflict"];
-      412: components["responses"]["StaleVersion"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getIdentity: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Authorized, bounded and redacted manager inspection. */
+      /** @description Validation against installation settings; nothing is stored */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["IdentityView"];
+          "application/json": components["schemas"]["Validation"];
         };
       };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  listAssignmentOperations: {
-    parameters: {
-      query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
-        limit?: components["parameters"]["Limit"];
-        state?: components["parameters"]["StateFilter"];
-      };
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Authorized, bounded and redacted manager inspection. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["OperationPage"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getOperationDetails: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Authorized, bounded and redacted manager inspection. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["OperationDetails"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getAuditDetails: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: components["parameters"]["Id"];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Authorized, bounded and redacted manager inspection. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["AuditDetails"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getTemplateVersionDefinition: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-        version: number;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Authorized, bounded and redacted manager inspection. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["TemplateVersionDefinition"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  listApprovedStorageClasses: {
-    parameters: {
-      query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
-        limit?: components["parameters"]["Limit"];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Authorized, bounded and redacted manager inspection. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["StorageClassPage"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  getTerminalRuntime: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Approved exact reference. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RuntimeDefinition"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  listStorageBindingReferences: {
-    parameters: {
-      query: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
-        limit?: components["parameters"]["Limit"];
-        instanceId: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Approved exact reference. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": {
-            items: components["schemas"]["StorageBinding"][];
-            nextCursor: components["schemas"]["ListCursor"];
-          };
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
+      422: components["responses"]["Invalid"];
     };
   };
   listTemplateVersions: {
     parameters: {
       query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
-        limit?: components["parameters"]["Limit"];
-        templateId?: components["parameters"]["TemplateFilter"];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Bounded immutable versions. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": {
-            items: components["schemas"]["TemplateView"][];
-            nextCursor: components["schemas"]["ListCursor"];
-          };
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["Forbidden"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
-    };
-  };
-  listRuntimeVersionHistory: {
-    parameters: {
-      query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Stable identifier order; the unique ID is the ordering and tie-breaker. A leading minus reverses it. */
-        sort?: components["parameters"]["ListSort"];
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
         limit?: components["parameters"]["Limit"];
       };
       header?: never;
       path: {
-        id: string;
+        catalogId: components["parameters"]["CatalogId"];
       };
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description Bounded immutable versions. */
+      /** @description Versions, newest first */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": {
-            items: components["schemas"]["RuntimeDefinition"][];
-            nextCursor: components["schemas"]["ListCursor"];
-          };
+          "application/json": components["schemas"]["VersionPage"];
         };
       };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
-      422: components["responses"]["InvalidRequest"];
-      503: components["responses"]["Unavailable"];
     };
   };
-  getAssignmentTemplateObservation: {
+  createTemplateDraft: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        catalogId: components["parameters"]["CatalogId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TemplateDraft"];
+      };
+    };
+    responses: {
+      /** @description The next version, as a draft */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VersionReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["Invalid"];
+    };
+  };
+  getTemplateVersion: {
     parameters: {
       query?: never;
       header?: never;
       path: {
-        id: components["parameters"]["Id"];
+        catalogId: components["parameters"]["CatalogId"];
+        version: components["parameters"]["Version"];
       };
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description Desired pin and last observed immutable operation snapshot; null means unobserved. */
+      /** @description One version; the ETag is its revision */
       200: {
         headers: {
+          ETag: components["headers"]["ETag"];
           [name: string]: unknown;
         };
         content: {
-          "application/json": {
-            desiredTemplate: components["schemas"]["TemplateVersion"];
-            observedTemplate: components["schemas"]["TemplateVersion"] | null;
-            desiredGeneration: number;
-            observedGeneration: number;
-            state: components["schemas"]["InstanceState"];
-            conditions?: {
-              [key: string]:
-                | "native_ready"
-                | "dependency_unavailable"
-                | "ownership_conflict"
-                | "initialization_uncertain"
-                | "policy_unavailable"
-                | "review_required";
-            };
-          };
+          "application/json": components["schemas"]["TemplateVersion"];
         };
       };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
-      503: components["responses"]["Unavailable"];
     };
   };
-  searchDirectoryUsers: {
+  editTemplateDraft: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": components["parameters"]["IfMatch"];
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        catalogId: components["parameters"]["CatalogId"];
+        version: components["parameters"]["Version"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TemplateDraft"];
+      };
+    };
+    responses: {
+      /** @description The draft's new revision */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VersionReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["Stale"];
+      422: components["responses"]["Invalid"];
+    };
+  };
+  publishTemplate: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": components["parameters"]["IfMatch"];
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        catalogId: components["parameters"]["CatalogId"];
+        version: components["parameters"]["Version"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Validated and frozen */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VersionReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["Stale"];
+      422: components["responses"]["Invalid"];
+    };
+  };
+  withdrawTemplate: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": components["parameters"]["IfMatch"];
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        catalogId: components["parameters"]["CatalogId"];
+        version: components["parameters"]["Version"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No longer selectable; existing pins keep it */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VersionReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["Stale"];
+    };
+  };
+  listTerminalBackends: {
     parameters: {
       query?: {
-        /** @description Case-insensitive literal substring on issuer/subject (identities and assignments), action/actor subject (audit), or runtime ID/image. No wildcard syntax. */
-        q?: components["parameters"]["ListSearch"];
-        /** @description Opaque cursor bound to installation, endpoint, query, filters, sort and limit. Reusing with different parameters returns 422. */
-        after?: components["parameters"]["ListAfter"];
+        q?: components["parameters"]["Search"];
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
         limit?: components["parameters"]["Limit"];
       };
       header?: never;
@@ -3334,19 +1947,590 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Directory page, or enabled=false when unconfigured. */
+      /** @description One page */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["DirectoryPage"];
+          "application/json": components["schemas"]["CatalogPage"];
         };
       };
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["Forbidden"];
-      422: components["responses"]["InvalidRequest"];
+    };
+  };
+  validateTerminalBackend: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackendDraft"];
+      };
+    };
+    responses: {
+      /** @description Validation against installation settings; nothing is stored */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Validation"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["Invalid"];
+    };
+  };
+  listTerminalBackendVersions: {
+    parameters: {
+      query?: {
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path: {
+        catalogId: components["parameters"]["CatalogId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Versions, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VersionPage"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  createTerminalBackendDraft: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        catalogId: components["parameters"]["CatalogId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackendDraft"];
+      };
+    };
+    responses: {
+      /** @description The next version, as a draft */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VersionReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["Invalid"];
+    };
+  };
+  getTerminalBackendVersion: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        catalogId: components["parameters"]["CatalogId"];
+        version: components["parameters"]["Version"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description One version; the ETag is its revision */
+      200: {
+        headers: {
+          ETag: components["headers"]["ETag"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BackendVersion"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  editTerminalBackendDraft: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": components["parameters"]["IfMatch"];
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        catalogId: components["parameters"]["CatalogId"];
+        version: components["parameters"]["Version"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackendDraft"];
+      };
+    };
+    responses: {
+      /** @description The draft's new revision */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VersionReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["Stale"];
+      422: components["responses"]["Invalid"];
+    };
+  };
+  publishTerminalBackend: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": components["parameters"]["IfMatch"];
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        catalogId: components["parameters"]["CatalogId"];
+        version: components["parameters"]["Version"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Validated and frozen */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VersionReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["Stale"];
+      422: components["responses"]["Invalid"];
+    };
+  };
+  withdrawTerminalBackend: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": components["parameters"]["IfMatch"];
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        catalogId: components["parameters"]["CatalogId"];
+        version: components["parameters"]["Version"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No longer selectable; existing pins keep it */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VersionReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["Stale"];
+    };
+  };
+  listStorageSources: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The approved sources */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StorageSourceList"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  listVolumes: {
+    parameters: {
+      query?: {
+        source?: components["schemas"]["Name"];
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description One page */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VolumePage"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  listSecrets: {
+    parameters: {
+      query?: {
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Secret metadata; values are never returned */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SecretPage"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  writeSecret: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        secretName: components["parameters"]["SecretName"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SecretWrite"];
+      };
+    };
+    responses: {
+      /** @description The new version */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SecretReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["Invalid"];
       503: components["responses"]["Unavailable"];
+    };
+  };
+  deleteSecret: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": components["parameters"]["IfMatch"];
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        secretName: components["parameters"]["SecretName"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SecretReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["Stale"];
+    };
+  };
+  listAdministrators: {
+    parameters: {
+      query?: {
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description One page */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdministratorPage"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  grantAdministrator: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GrantRequest"];
+      };
+    };
+    responses: {
+      /** @description Granted */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GrantReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["Invalid"];
+    };
+  };
+  getAdministrator: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        identityId: components["parameters"]["IdentityId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The grant */
+      200: {
+        headers: {
+          ETag: components["headers"]["ETag"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Administrator"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  updateAdministrator: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": components["parameters"]["IfMatch"];
+        /** @description One intended change. Repeating it with the same body returns the original result. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+        /** @description Required for browser-session mutations; ignored for bearer requests */
+        "X-CSRF-Token"?: components["parameters"]["Csrf"];
+      };
+      path: {
+        identityId: components["parameters"]["IdentityId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GrantChange"];
+      };
+    };
+    responses: {
+      /** @description Updated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GrantReceipt"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["Stale"];
+    };
+  };
+  listAdministratorCandidates: {
+    parameters: {
+      query?: {
+        q?: components["parameters"]["Search"];
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description One page */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityPage"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  listAuditEvents: {
+    parameters: {
+      query?: {
+        targetKind?: string;
+        targetId?: string;
+        /** @description The previous page's nextCursor */
+        after?: components["parameters"]["After"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AuditPage"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  getAuditEvent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        eventId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description One event with its redacted change */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AuditEvent"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
     };
   };
 }

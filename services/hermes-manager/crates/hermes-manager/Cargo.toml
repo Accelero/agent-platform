@@ -5,20 +5,39 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "hermes-manager"
+path = "src/main.rs"
+
+[features]
+# Test builds only: abort the process at the fault point named by
+# HERMES_FAULT_POINT. Release images must not enable it.
+fault-injection = []
+
 [dependencies]
-hermes-adapters = { path = "../hermes-adapters" }
-hermes-application.workspace = true
-hermes-domain.workspace = true
-axum.workspace = true
-jsonwebtoken.workspace = true
-kube.workspace = true
+hermes-core.workspace = true
+hermes-http.workspace = true
+hermes-identity.workspace = true
+hermes-kube.workspace = true
+hermes-native.workspace = true
+hermes-render.workspace = true
+hermes-store.workspace = true
+hermes-wire.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+url.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+hermes-core = { workspace = true, features = ["testing"] }
+hermes-testkit.workspace = true
+k8s-openapi.workspace = true
+kube.workspace = true
+rustls.workspace = true
+reqwest.workspace = true
+sqlx.workspace = true
 tempfile.workspace = true
 
 [lints]

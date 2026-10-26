@@ -1,0 +1,62 @@
+{
+  "controller": {
+    "executionCaFile": "/run/hermes/secrets/execution-ca.crt",
+    "executionPort": 8445,
+    "executionUrl": "https://hermes-manager-api.agents.svc:8445/execution",
+    "instanceRole": "hermes-manager-000000000000-instance",
+    "namespace": "agents",
+    "nativeClientId": "hermes-native",
+    "peers": {
+      "api": {
+        "app.kubernetes.io/instance": "fixture",
+        "app.kubernetes.io/name": "hermes-manager-api"
+      },
+      "controller": {
+        "app.kubernetes.io/instance": "fixture",
+        "app.kubernetes.io/name": "hermes-manager-controller"
+      },
+      "gateway": {
+        "app.kubernetes.io/instance": "fixture",
+        "app.kubernetes.io/name": "hermes-gateway"
+      }
+    },
+    "publicHttps": true,
+    "publicOrigin": "https://hermes.example.org",
+    "resyncSeconds": 30,
+    "secretSealingPrivateKeyFile": "/run/hermes/secrets/secret-sealing.key",
+    "serviceAccount": "hermes-manager-controller",
+    "serviceEgress": [],
+    "workers": 4
+  },
+  "dataIdentity": {
+    "gid": 1000,
+    "uid": 1000
+  },
+  "databaseUrlFile": "/run/hermes/secrets/database-url",
+  "installation": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "issuer": "https://sso.example.org/realms/agents"
+  },
+  "storageSources": [
+    {
+      "id": "nvme",
+      "storageClass": {
+        "name": "local-nvme"
+      }
+    },
+    {
+      "id": "host-data",
+      "localPath": {
+        "node": "server-1",
+        "root": "/srv/hermes-data"
+      }
+    },
+    {
+      "id": "nas",
+      "nfs": {
+        "root": "/export/homes",
+        "server": "nas.internal"
+      }
+    }
+  ]
+}

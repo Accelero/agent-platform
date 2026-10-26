@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hermes-manager:terminal-backend:1",
+  "title": "BackendDefinition",
+  "description": "A terminal backend version: an SSH worker image implementing managed-ssh-v2, its resources, limits and mount slots.",
+  "x-revision": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "sshContract", "uid", "gid", "resources", "limits"],
+  "properties": {
+    "image": { "type": "string", "maxLength": 600, "pattern": "^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$" },
+    "sshContract": { "const": "managed-ssh-v2" },
+    "uid": { "type": "integer", "minimum": 1, "maximum": 4294967294 },
+    "gid": { "type": "integer", "minimum": 1, "maximum": 4294967294 },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpuMillis", "memoryMib", "ephemeralGib"],
+      "properties": {
+        "cpuMillis": { "type": "integer", "minimum": 10, "maximum": 64000 },
+        "memoryMib": { "type": "integer", "minimum": 64, "maximum": 262144 },
+        "ephemeralGib": { "type": "integer", "minimum": 1, "maximum": 1024 }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["idleSeconds", "maxLeaseSeconds", "maxEnvironments"],
+      "properties": {
+        "idleSeconds": { "type": "integer", "minimum": 60, "maximum": 86400 },
+        "maxLeaseSeconds": { "type": "integer", "minimum": 60, "maximum": 86400 },
+        "maxEnvironments": { "type": "integer", "minimum": 1, "maximum": 64 }
+      }
+    },
+    "mounts": {
+      "description": "Mount slots by volume name. The assignment decides which volume fills each slot.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mountPath"],
+        "properties": {
+          "mountPath": { "type": "string", "minLength": 2, "maxLength": 1024, "pattern": "^/" },
+          "readOnly": { "type": "boolean" },
+          "optional": { "type": "boolean" }
+        }
+      }
+    },
+    "registrySecret": { "$ref": "#/$defs/name" }
+  },
+  "$defs": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$" }
+  }
+}

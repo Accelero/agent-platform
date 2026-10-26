@@ -1,732 +1,456 @@
 # Personal Hermes specification
 
-Status: target requirements for the personal Hermes platform, which is in
-development and has no release yet. The [architecture](architecture.md) selects
-the component design. These are target requirements rather than a feature
-inventory. See the
-[implementation status](implementation.md) for completed source behavior and
-remaining gaps, and [native commissioning](native-commissioning.md) for the
-implemented infrastructure-to-manager contract.
+Status: target requirements, 2026-10-22. The platform is in early development
+with no release; the [implementation status](implementation.md) records what
+is proven. The [architecture](architecture.md) describes how these requirements
+are met.
 
-## Scope and terminology
+## Scope
 
-One Rust manager commissions a personal Hermes instance and terminal workers for
-each configured user, using PostgreSQL for assignments, runtime policy,
-environments and leases.
-The router exposes a common Hermes URL and routes authenticated requests to
-that user's instance. The manager includes the first administration UI, behind a
-separate versioned API so presentation can later move into its own service.
+A Helm-installed Kubernetes application that gives selected people in an
+SSO realm their own Hermes agent:
 
-The new manager and OIDC authentication adapter are Rust services. The dashboard
-uses React/TypeScript with Vite, served by the Rust manager. The proxy transport
-is Traefik Proxy with a manager-querying middleware plugin after authentication
-and before child-route selection. Adoption requires proving the session and
-active-connection revocation requirements.
-This is OIDC-based backend selection, not merely OIDC protecting a fixed backend.
+- **Explicit.** An administrator decides who gets a Hermes instance, which
+  template it uses and which terminal backends and storage it may use.
+- **Private and persistent.** Every instance has its own namespace, storage,
+  native sessions and credentials. It keeps running without browser traffic,
+  so native cron works.
+- **One address.** Everyone uses the same Hermes URL; the verified Keycloak
+  identity selects the instance.
+- **Terminals on demand.** Hermes runs shell commands and file access in
+  terminal backend containers over SSH. The manager creates them only for
+  backends the instance is allowed to use, with only the storage the
+  administrator assigned.
+- **Administered centrally.** Administrators use a dashboard on the manager's
+  versioned API. Admin settings in the instance configuration are enforced
+  over the user's own Hermes settings, for example the LLM provider.
+- **Durable and crash-safe.** All manager state is in PostgreSQL.
+
+Not in scope yet:
+
+- coordinated checkpoint orchestration (backups stay deployment-owned; see
+  [Backup and restore](#backup-and-restore));
+- SMB storage;
+- non-empty terminal service egress;
+- worker prewarming;
+- board integration;
+- team instances.
+
+## Terminology
 
 | Term | Meaning |
 | --- | --- |
-| Identity | Exact configured OIDC issuer and verified subject; email is descriptive |
-| Assignment | Manager-owned authorization and desired instance configuration for an identity |
-| Instance | Stable platform ID, private namespace, native Hermes state and approved execution resources |
-| Platform administrator | Verified identity with an active installation-scoped PostgreSQL administrator grant, distinct from a personal Hermes owner |
-| Execution module | Terminal provisioning and lease lifecycle inside the same Rust manager; no separate per-owner execution-manager service |
-| Terminal runtime | Approved Kubernetes SSH worker image and execution policy, separate from the Hermes application image |
-| Storage binding | Owner-bound reference to a namespace-local claim, with permitted mount paths, access and recovery policy |
-| Installation | Durable platform ownership identity shared by registry, resources and recovery manifests |
+| Identity | Exact OIDC issuer and verified subject. Email and display names are labels, never keys |
+| Administrator | Identity with an active PostgreSQL administrator grant |
+| Assignment | The administrator's decision for one identity: access state, Hermes template version, volumes, allowed terminal backends and admin setting overrides |
+| Instance | The commissioned result of an assignment: a stable ID, a private namespace, storage, credentials and one Hermes Deployment |
+| Hermes template | Versioned instance definition: image digest, resources, private home size, default volumes and mounts, admin settings and admin secret references |
+| Admin settings | Hermes configuration (`adminConfig`) enforced over the user's own settings |
+| Admin secret | Write-only secret value, such as an LLM API key or registry credential, referenced by templates or assignments |
+| Terminal backend | Versioned SSH worker definition: image digest, resources, idle and lifetime limits and mount slots. Hermes requests one by ID (`runtime_id` on the wire) |
+| Storage source | Installation-approved place where volumes may live: a storage class, a local node path root or an NFS export root |
+| Volume | Named, owner-bound storage of an instance, from one storage source |
+| Mount | A volume mounted at a path in the Hermes container or in a terminal backend |
+| Environment | One terminal backend Pod incarnation for an instance, runtime and session or profile |
+| Lease | Time-bounded permission for Hermes to use an environment |
+| Gateway | The Rust reverse proxy that authenticates people and forwards their traffic to their instance |
 
-## Required behavior
+## Requirements
 
 | ID | Requirement |
 | --- | --- |
-| P01 | Keycloak remains the source of identities and authentication. The manager database is the source of personal-instance assignments. |
-| P02 | An administrator must explicitly enable an assignment before commissioning or routing. Login or a group claim must not self-enroll a user. |
-| P03 | An enabled assignment must enqueue proactive commissioning. Concurrent commands/logins/restarts must converge on one instance for that identity. |
-| P04 | Every instance must have independent durable home/state, native session keys, model authentication and approved execution credentials. |
-| P05 | One common Hermes hostname must route using the verified identity and current manager mapping. A missing, disabled, unknown or foreign mapping must never fall back. |
-| P06 | Native chat, settings, history, uploads, HTTP mutations and WebSockets must remain supported with native authentication enabled. |
-| P07 | The built-in administration UI must use the administration API and have no direct persistence, directory or Kubernetes access. API-only mode must remain usable. |
-| P08 | Reconciliation and seeding must preserve live settings, profiles, memory, sessions and user-created agents. |
-| P09 | Revocation must deny access and stop owned execution through a bounded lifecycle, retaining data until a separate purge decision. |
-| P10 | Backup/restore must preserve registry ownership and instance data together, with fail-closed recovery and teardown gates. |
-| P11 | New assignments must not inherit a board owner's enrollment, model login, API keys, private prompts or service privileges. |
-| P12 | The verified OIDC `(issuer, subject)` must determine backend selection through the manager assignment. The same hostname and path must reach different backends for different configured owners. |
-| P13 | A thin Traefik plugin must query the Rust manager's internal resolver for each HTTP request and WebSocket opening handshake. It has no direct SQL access and cannot create arbitrary proxy destinations. |
-| P14 | Each Hermes assignment must have independently configurable terminal image versions and mounts. Reusing an image must never reuse another owner's storage or credentials. |
-| P15 | One Rust manager must administer user-to-instance assignments, serve route resolution and reconcile both Hermes instances and terminal worker Pods. Only its controller role receives elevated Kubernetes permissions. |
-| P16 | PostgreSQL must durably model all manager assignments, runtime/storage configuration, execution clients, environments, leases and lifecycle operations. Personal mode must not depend on a separate execution-manager service, per-owner SQLite state or independent static execution configuration. |
-| P17 | Each enabled, commissioned Hermes gateway must stay running at one desired replica for native cron and background integrations. HTTP inactivity must not trigger Hermes scale-to-zero; terminal worker lifetimes remain independently configurable. |
-| P18 | Every acknowledged manager mutation and every external lifecycle action must have a durable PostgreSQL recovery record at the required commit boundary. After an ungraceful restart, reconciliation resumes committed work without duplicate instances, worker generations, lease grants or destructive replay. |
+| R1 | Keycloak authenticates identities. PostgreSQL in the manager is the only source of assignments, templates, terminal backends, volumes, admin secrets and administrator grants. |
+| R2 | Only an explicit administrator command enables an assignment. Login, group membership or directory presence never enroll anyone. |
+| R3 | Enabling an assignment converges to exactly one instance for that identity, including under concurrent commands and restarts. |
+| R4 | Every instance has independent storage, native session keys, model authentication and execution credentials. A new instance inherits nothing from another owner. |
+| R5 | One hostname routes by verified `(issuer, subject)`. A missing, disabled, unknown or foreign assignment is denied, with no fallback to any other backend. |
+| R6 | Native Hermes chat, settings, history, uploads, HTTP mutations and WebSockets work through the gateway. Native authentication stays enabled and verifies the exact owner. |
+| R7 | The dashboard uses only the administration API. The API without the dashboard supports every administration workflow. |
+| R8 | Reconciliation never overwrites the user's settings, profiles, memory, sessions or files, and never reseeds an initialized home. |
+| R9 | Suspension or revocation denies new access within 5 s, closes open connections within 10 s and stops the instance's terminal work within the drain bound. All volumes and credentials are retained until a separate purge decision. |
+| R10 | Admin settings take precedence over the user's settings. Settings an administrator does not set stay editable by the user. Platform-enforced settings cannot be overridden by anyone. |
+| R11 | An admin secret value is delivered only to the instances whose template or assignment references it, and is never returned by any API or shown in the dashboard after it is written. |
+| R12 | An instance can use only the terminal backends its assignment allows. A user can choose any allowed backend per Hermes profile; an unknown or disallowed choice fails without fallback. Image, resources and mounts come only from manager records. |
+| R13 | Volumes can only come from installation-approved storage sources. Volume paths of different instances never overlap. Users cannot add, widen or redirect mounts. The private Hermes home is never mounted in a terminal backend. |
+| R14 | A volume mounted in both Hermes and a terminal backend has the same mount path and the same data identity (UID/GID) in both, so files and paths agree. |
+| R15 | Only the manager controller holds Kubernetes credentials. Its rights are limited to owned namespaces and approved storage by RBAC and static admission policies that the chart installs and the controller cannot change. |
+| R16 | Each enabled instance runs one Hermes replica continuously. Terminal backends start on demand and have independent lifetimes. |
+| R17 | Every acknowledged administration change is durable before acknowledgement. After an abrupt process kill at any point, the system converges without duplicate instances, regenerated credentials, duplicate worker generations or lease grants, revived leases or deletion of anything it did not observe. |
+| R18 | Credentials and secret values never appear in API responses, audit records, logs, errors, images, chart values or build contexts. |
+| R19 | The installation can be restored from deployment-owned backups of PostgreSQL and the data under its storage sources, on the same or a new cluster, without adopting resources it did not create. |
 
-## Assignment administration
+## Administration model
 
-The built-in interface must provide paginated identity/assignment lists, optional
-directory search, exact subject selection, template selection, enable, suspend,
-revoke, status/conditions and retry. Show the selected canonical issuer/subject
-before creation. Email-only creation and automatic email-based account linking
-are invalid. When manual subject entry is used, show whether the directory has
-verified the subject; a later successful login still has to match it exactly.
+Administrators configure:
 
-Keycloak supplies the verified identity and configured audience/client checks.
-Administration requires an active PostgreSQL grant for that exact issuer/subject. A valid personal login, Hermes assignment, general realm membership or
-router service certificate does not confer administration. Every mutation must
-authorize the actor on the server, check CSRF for browser-cookie requests, apply
-an optimistic version and create an audit event in the same transaction.
-
-Administrators can manage lifecycle metadata. The interface must not expose
-model keys, native tokens, chat histories, private files, arbitrary Pod specs,
-or an impersonation button. Optional directory access is read-only; identity
-creation, password reset and identity-provider role administration remain in the
-identity provider.
-
-The management UI must be served from a separate origin from personal Hermes.
-Disabling UI serving must leave the same versioned API, authorization and audit
-behavior available to an external administration client.
-
-The React/TypeScript dashboard uses HTTPS/JSON requests to the Rust API. Only
-Rust services access PostgreSQL or reconcile Kubernetes. Vite produces static
-assets during the locked frontend build; the production manager serves them
-without a Vite or Node.js server. Generate the frontend API client from the
-administration contract, keep tokens server-side and enforce authorization/CSRF
-in Rust. No browser bundle may contain database credentials or live user data.
-
-Administrators must also manage the approved terminal-runtime catalog and each
-assignment's default/allowed runtime versions, storage bindings, resources and
-desired/effective policy status. Configure the Hermes application image through
-its approved instance template independently of the terminal worker image.
-
-The [dashboard guide](dashboard.md) expands this into
-searchable/filterable data tables, template details and synchronized form/raw
-editors, template-managed Hermes `adminConfig`, explicit user/template assignment
-and an editable administrator list. PostgreSQL grants are the accepted and
-implemented sole administrator authority; token roles are not prerequisites or
-fallbacks. Grant management has separate permission, last-administrator protection,
-operator bootstrap/recovery and current-grant checks for browser and bearer access.
-
-## Durable data contract
-
-Use versioned PostgreSQL migrations and explicit constraints, at least:
-
-| Record | Required contents and constraints |
+| Object | Contents |
 | --- | --- |
-| Installation | Stable ID, schema/template versions, bootstrap/recovery mode and maintenance epoch |
-| Identity | Stable ID, exact issuer and subject, optional display/email cache; unique `(issuer, subject)` |
-| Assignment | Installation, identity, desired access/state, approved instance-template ID/version, default/allowed terminal-runtime versions, owner-specific mount/resource policy, optimistic version; unique `(installation_id, identity_id)` |
-| Instance | Stable random ID, assignment ID, desired/observed generation, namespace name/UID, readiness conditions; unique assignment ID |
-| Terminal-runtime version | Stable catalog ID and immutable version, exact OCI image digest, Kubernetes SSH contract, UID/GID, approved resources/environment/network policy and pull-Secret references |
-| Storage binding | Installation/owner, registered namespace/PVC identity and backing-storage reference, exact permitted mounts/access, external ownership, required/optional status and backup/retention policy; no inline credentials |
-| Effective execution policy | Instance, approved runtime versions and resolved owner mounts, desired/applied generation, content digest, activation/drain status and rendered worker/admission identities |
-| Execution client | Stable ID, owning instance, credential hash/reference, allowed profiles, rotation/revocation state; cannot assert another owner or administer configuration |
-| Execution environment/generation | Installation/instance, profile, runtime version, session or profile lifetime key, effective policy digest, desired/observed generation, namespace/Pod UID binding, readiness and drain/retirement state; unique active scoped environment identity |
-| Execution request/lease | Client-scoped idempotency request/body digest and environment, lease ID, parent/delegate relationship, expiry/heartbeat/release state and fencing version; transactional uniqueness and exclusive-mode constraints |
-| Owned resource | Instance ID, kind, namespace/name, reserved creation-operation identity, expected namespace UID, intended spec digest, observed resource UID, purpose and retention disposition; reject foreign UID adoption |
-| Operation/outbox | Durable operation/target IDs, type, immutable policy/input references, desired generation, idempotency key/body digest, state/current step, lease owner/expiry, fencing version, next-attempt time and bounded retry status |
-| Operation step | Operation/step key, committed action intent, expected UID/resource version and manifest digest, attempt/fencing token, observed result/UID, verification state and redacted failure; unique `(operation_id, step_key)` |
-| Audit event | Immutable actor issuer/subject or authenticated service ID, action, target, timestamp, request ID and redacted change metadata |
-| Checkpoint | Installation/maintenance epoch, inventory schema/digest, participating instances, completion and verified recovery receipt |
+| Hermes template version | Image digest; CPU and memory; private home size and storage source; default volumes and their mount paths; `adminConfig`; admin secret references |
+| Terminal backend version | Image digest; `managed-ssh-v2` contract; UID/GID; CPU, memory and limits; idle and lifetime bounds; mount slots (volume name, path, read-only) |
+| Admin secret | Name, kind (`env`, `file` or `registry`), value (write-only) |
+| Assignment | Identity; access; template version; volumes (source plus path, or size); allowed terminal backend versions and default; terminal lifetime mode; optional `adminConfig` overrides and secret references |
+| Administrator grant | Identity; whether it can manage grants |
 
-Router/admin session stores use separate schemas or database roles from
-assignment writes. Encrypt stored provider tokens using deployment-supplied key
-references. Never put credentials in assignment API payloads, audit events or
-database URLs in logs.
+Storage sources are installation configuration (Helm values), not dashboard
+records. They decide what the controller may ever mount, so they are reviewed
+with the release configuration and also bound into the admission policies. The
+dashboard shows them read-only.
 
-Issuers and subjects are case-sensitive validated identity strings, not mutable
-display fields. The first version supports one configured issuer. It requires
-compatible public subjects across router and native OIDC clients. A new subject
-with an old email gets no access to the old subject's instance.
+For example, an administrator gives Bob:
 
-## Lifecycle and concurrency
+- the template `personal-default`, version 3;
+- a 20 GiB `workspace` volume on the local NVMe storage class, mounted at
+  `/workspace` in Hermes and in every terminal backend;
+- his existing network home `homes/bob` on the approved NFS export, mounted
+  read-write at `/home/worker/home`, in the `python-tools` backend only;
+- the terminal backends `python-tools` (the default) and `gpu-tools`.
 
-Assignment access states are `enabled`, `suspended` and `revoked`. Only explicit
-administrator commands can enable access. Suspension/revocation retain the
-identity, instance ID and data. Re-enabling requires a new audited command;
-directory synchronization cannot silently undo an administrator's revocation.
+Bob can change his own Hermes settings and choose either backend per profile.
+He cannot mount another folder, use another image or override admin
+settings.
 
-Enabled Hermes instances run continuously, including when no browser, HTTP
-request or terminal lease is active. Maintain one desired application replica;
-do not add an HTTP activator/autoscaler to stop or wake Hermes based on traffic.
-Its native cron scheduler stays inside the running gateway. Terminal Pods may
-be started, idled or retired independently by the unified manager's execution
-module. Explicit suspend/revoke, maintenance, recovery and failure handling still
-use the controlled manager lifecycle.
+Template versions and terminal backend versions are immutable once
+published. An assignment pins exact versions. Changing them is an explicit,
+audited assignment change; changing many assignments is one bulk command
+that reports the result for each assignment.
 
-Instance observed states include `Pending`, `Provisioning`, `Ready`, `Blocked`,
-`Suspending`, `Suspended`, `Retained`, `Deleting`, `Deleted` and `Error`.
-Conditions distinguish storage, native auth, execution policy and model-provider
-onboarding. `Ready` means the authenticated dashboard is usable; it does not
-claim that an owner without model credentials can invoke a model.
+Every mutation:
 
-Commissioning must reserve the instance ID durably before Kubernetes creation.
-Render only approved templates. Persist ownership and verify native owner pin,
-storage, network/admission policy and backend readiness before publishing a
-route. The controller must tolerate interruption after any step.
+- authorizes the actor against a current PostgreSQL grant;
+- requires an `Idempotency-Key`;
+- uses `If-Match` for updates;
+- writes an audit event in the same transaction.
 
-Use a transactional outbox, unique constraints and leased/fenced work. Do not
-hold SQL transactions across external calls. A stale worker cannot publish a
-route or delete resources after losing its lease or desired generation. A
-disable/create race must deny routing immediately, then reconcile owned partial
-resources to the disabled state. Retry cannot change the identity or adopt a
-same-named foreign object.
+Browser mutations also check `Origin` and a CSRF token.
 
-Permanent purge is distinct from revoke. It requires an authorized lifecycle
-command, an explicit target/version/retention decision, a matching checkpoint
-receipt or a separately explicit discard decision, and full ownership checks.
-It is not part of the initial UI's normal disable operation. Never cascade-delete
-homes because an identity disappeared from a directory response.
+The dashboard never exposes model keys, native tokens, chat history, private
+files, raw Pod specifications or an impersonation function. The optional
+Keycloak directory lookup is read-only.
 
-## Crash recovery and persistence boundaries
+## User experience
 
-Recovery must work after abrupt process death without shutdown hooks. Use logged
-PostgreSQL tables and durable commits; require `fsync`, `full_page_writes` and
-`synchronous_commit` enabled for manager state. In-memory queues, timers, watch
-caches and database notifications are accelerators, not recovery records.
-Database migrations and startup checks must verify the expected schema,
-installation identity and recovery/maintenance epoch before enabling operations.
-These are manager process-recovery requirements; coordinated database/data loss
-recovery follows the separate checkpoint contract.
+1. A user opens the common Hermes URL. The gateway signs them in with
+   Keycloak.
+2. With an enabled, ready instance, the gateway forwards to it. Native Hermes
+   performs its own OIDC login, which reuses the SSO session, and verifies that
+   the user is its exact owner.
+3. Without an assignment, or with access suspended or revoked, the user sees a
+   denial page (`403`). While the instance is being commissioned, they see an
+   owner-only status page (`202`). When the manager is unavailable they see
+   `503`. No path leads to another backend.
+4. In the native dashboard, the user selects a terminal backend per profile
+   (`terminal.runtime_id`). An empty selection means the assignment's default.
+5. Logging out ends the platform session and expires the native cookies,
+   even if the instance is unreachable.
 
-| Boundary | Commit before action or response | Recovery and completion rule |
+## Lifecycle
+
+Assignment access is `enabled`, `suspended` or `revoked`. Only administrator
+commands change it. Suspension and revocation keep the identity, instance
+ID, volumes and credentials. Re-enabling restarts the same instance on the
+same data.
+
+Instance phases are derived from observation:
+
+| Phase | Meaning |
+| --- | --- |
+| `Provisioning` | Enabled; objects being created or updated; not yet ready |
+| `Ready` | Desired generation observed; Deployment available; home initialization verified; native authentication gate verified |
+| `Stopping` | Not enabled; terminal work draining and Hermes scaling down |
+| `Retained` | Not enabled; nothing running; all data and credentials kept |
+| `Blocked` | Needs an administrator, with a typed reason (for example storage unavailable, namespace conflict, invalid template, invalid initialization receipt) |
+
+Conditions report storage, native initialization, native authentication and
+terminal state separately. `Ready` does not claim the owner has completed
+model-provider onboarding.
+
+Template or admin setting changes restart Hermes with a Recreate rollout.
+Hermes receives SIGTERM, with a 20 s application budget inside a 45 s Pod
+grace period. Active agent runs can be interrupted. There is no automatic
+rollback.
+
+Permanent purge of an instance's data is a separate future command. It
+never happens through suspension, revocation, directory changes or Helm
+uninstall.
+
+## Storage
+
+### Storage sources
+
+| Kind | Volumes it provides | Typical use |
 | --- | --- | --- |
-| Assignment/configuration mutation | Desired state, version, idempotency result, audit event and outbox operation in one transaction before `202`/success | Retry with the same key returns the recorded result; a process crash cannot lose an acknowledged change or its pending work |
-| Resource create/update | Stable target identity/name, pinned policy/spec digest, next step, operation fence and any encrypted bootstrap material before the Kubernetes call | Read the exact target and verify ownership, intent and applied spec; persist observed UID/result before advancing; an uncertain response is reconciled rather than blindly repeated |
-| Native initialization | Initialization operation, seed/schema version and create-once credential intent before dispatch | Reuse the matching durable receipt or resume an idempotent initializer; never reseed an existing home or regenerate credentials merely because a response was lost |
-| Execution lease grant/heartbeat/release | Scoped lease identity, environment/generation, expiry and request outcome committed before returning success | Lost-response retries reuse the committed live lease; expired/released leases remain terminal and cannot be revived; expiry uses database time |
-| Resource retirement/delete | Retiring/tombstone state, exact resource UID, retention decision and required checkpoint receipt before deletion | Delete with UID/resource-version preconditions; observe absence of that resource before marking complete; an accepted delete is not completed cleanup |
+| `storageClass` | New, dynamically provisioned volume of a given size | Private Hermes home; new workspaces. With a local-path provisioner this is node NVMe |
+| `localPath` | Existing directory under an approved root on an approved node | Pre-existing folders on the server's disks |
+| `nfs` | Existing directory under an approved export root on an approved server | Network homes and shared project folders |
 
-Creation has a specific recovery window: Kubernetes may create an object before
-the process records its UID. Before the call, persist a unique creation intent
-and verifiable installation/instance/operation/generation marker bound to the
-target and manifest digest. While the first UID is still unbound, recovery may
-bind only the exact outstanding intent after verifying that marker, namespace
-UID where applicable and intended resource fields. Namespace creation first
-verifies installation/cluster scope and binds the namespace UID before any
-child resource is created. Name/label matching alone is insufficient.
-Once bound, a different UID blocks adoption or replacement until the explicit
-lifecycle permits it. Generated bootstrap secrets must retain their original
-encrypted material or verified reference across retries.
+SMB (CSI) is the next storage kind.
 
-Track operation states such as `Pending`, `Running`, `Waiting`, `RetryAt`,
-`Succeeded`, `Blocked` and `Failed`, with durable step outcomes and bounded retry
-times. Claim work in short transactions, with database-time leases and increasing
-fencing tokens. No SQL transaction may remain open across an external call.
-Every result/state transition compares the operation fence, desired generation
-and installation epoch. Stale workers cannot commit progress or renew ownership.
-External updates/deletes also use Kubernetes UID/resource-version preconditions;
-a database lease check alone does not make a Kubernetes write atomic with SQL.
+Each source has an ID, a kind and its approved scope:
 
-After a timeout or lost response, record an unknown outcome, observe the target
-and reconcile it before issuing the next action. Delivery is at least once;
-operation identity, idempotent effects and verification provide convergence.
-Do not claim exactly-once execution across PostgreSQL and Kubernetes. An
-initializer or external action without a verifiable receipt/idempotency contract
-must enter `Blocked` for review instead of being replayed automatically.
+- `storageClass`: the class name;
+- `localPath`: the node and the root path;
+- `nfs`: the server and the export root.
 
-At startup, rebuild pending work and due timers from PostgreSQL, reclaim only
-expired operation leases and relist registered owned Kubernetes resources.
-Reconcile live UIDs/specs/readiness with pending steps, including actions that
-succeeded before a crash. Preserve unexpired execution leases and their original
-expiry; retire expired ones rather than extending them to restart time. Missing
-or failed observations must not be treated as proof of absence. Periodic resync
-must repair a missed watch event or lost notification without manual re-enqueue.
+The rules for volumes:
 
-Database unavailability stops new grants and lifecycle writes; it must not cause
-fresh-install fallback or a second local state store. Healthy Hermes/worker Pods
-are not restarted merely because the manager restarted. Arbitrary terminal
-commands, agent turns and cron side effects are not automatically replayed by
-manager recovery; their application execution receipts remain authoritative.
+- **Paths.** A volume from a `localPath` or `nfs` source names a relative
+  path inside the root. Absolute paths, `..`, empty segments and control
+  characters are rejected. Two instances' volume paths on the same source never
+  overlap (neither may be a prefix of the other).
+- **Existing data.** Static volumes (`localPath`, `nfs`) refer to existing
+  directories. The deployment creates them, owned by the installation's data
+  identity. The manager never creates, chowns or deletes host directories. A
+  missing or unreadable directory blocks that volume with a condition, and is
+  never replaced by an empty directory.
+- **Retention.** All volumes are retained on suspension and revocation.
+  PersistentVolumes created for static volumes use the `Retain` reclaim
+  policy.
+- **Sizes.** Dynamic volumes cannot shrink, and cannot change storage class
+  without a separate migration.
 
-## API contracts
+### Mounts
 
-The implementation must supply OpenAPI and typed request/response contracts.
-Endpoints below are API v1. The OpenAPI files in `contracts/hermes-manager/`
-are authoritative for the implemented subset.
+- **Private home.** The Hermes container always mounts its private home at
+  `/opt/data`. It holds native state, credentials and settings, and is never
+  mounted anywhere else.
+- **Shared volumes.** The template mounts its volumes into Hermes, and each
+  terminal backend version mounts its slots. A volume mounted in both must use
+  the same path (R14). The assignment cannot be saved otherwise
+  (`mount_path_mismatch`).
+- **Read-only.** A mount is read-only if the template or backend slot says
+  so, or if the assignment marks the volume read-only. Assignments can only
+  restrict access.
+- **Data identity.** All Hermes and terminal backend containers run as the
+  installation's data UID/GID, by default `1000:1000`. A terminal backend
+  version with a different UID/GID is rejected.
+- **Required slots.** A backend slot that the assignment does not bind makes
+  that backend unusable for the instance, unless the slot is optional. Missing
+  storage never falls back to an empty or different volume.
+- **Scheduling.** Volumes shared between Hermes and terminal backends must be
+  mountable by both Pods at once. NFS and RWX classes work on any node.
+  `localPath` and node-local storage classes pin all consumers to that node,
+  which is the expected setup for a single-server deployment.
 
-| Boundary | Proposed endpoints | Caller and behavior |
+## Terminal backends
+
+- **Immutable versions.** Terminal backend versions are immutable and pinned
+  by image digest. Custom images must implement `managed-ssh-v2`: non-root
+  user `worker` with the data UID/GID, SSH on port 2222, the provisioned
+  authorized key and host key, shell and file transfer. Private registries use
+  `registry` admin secrets. Pull or compatibility failures are reported, never
+  replaced by the default image.
+- **Lease protocol.** The `managed_execution` plugin requests a backend by
+  `runtime_id` with the instance's execution credential. The manager resolves
+  it within the current assignment and returns a lease and SSH endpoint only
+  after the worker is ready and its SSH host key is verified. A pending
+  worker returns `409`, so the plugin retries with the same request ID; a
+  dependency failure returns `503`.
+- **No local fallback.** Denial gives an error, never local execution or a
+  different backend.
+- **Lifetime modes.** The assignment's terminal lifetime mode
+  (`per_session`, the default; `per_profile_on_demand`;
+  `per_profile_always_running`) is written into the managed configuration. An
+  acquire request with a different mode is rejected. Idle and maximum
+  lifetimes come from the backend version.
+- **Changes.** Changes to an assignment's backends or volumes apply to new
+  environments. Existing leases keep the environment they were granted;
+  superseded environments drain when their leases end. A worker's image or
+  mounts are never modified in place.
+- **Removed backend.** Removing a backend from an assignment stops new
+  grants for it and drains its environments.
+- **Data on worker loss.** Worker loss, retirement or replacement never
+  deletes volume data. Interrupted commands are not replayed.
+
+## Configuration and admin secrets
+
+Hermes configuration precedence, highest first:
+
+1. **Platform-enforced:** `terminal.backend=managed_execution`, the
+   image-owned plugin, protected connection paths and plugin disable lists.
+2. Assignment `adminConfig` overrides.
+3. Template `adminConfig`.
+4. The user's own settings, on the private home.
+
+Layers 1–3 form the read-only managed configuration. They are not copied into
+the user's file, so removing an override exposes the user's retained value
+again. `adminConfig` is limited to 8 KiB and must not contain secret values;
+use admin secrets instead.
+
+How admin secrets work:
+
+- **Write-only storage.** They are stored encrypted. Only the controller can
+  decrypt them.
+- **Delivery.** A referenced secret is copied into the instance's namespace
+  as an environment variable, a read-only file under
+  `/run/hermes/admin-secrets/`, or an image pull secret.
+- **Rotation.** Rotating a secret creates a new version, and referencing
+  instances restart to receive it.
+- **What it protects.** A secret delivered to an instance can be read by
+  code running in that instance, which includes the agent acting for the
+  owner. Admin secrets keep values out of templates, the API and the dashboard.
+  They do not hide values from the owner's own agent. Use per-user or
+  revocable keys, or a model gateway that issues per-user keys, for shared
+  provider access.
+
+## Crash recovery and persistence
+
+The rules at each boundary:
+
+- **Administration change.** Commit desired state, audit event and
+  idempotency receipt together before acknowledging. A retry with the same key
+  returns the recorded result; the same key with a different body returns
+  `409`.
+- **Reconciliation.** It is level-triggered from PostgreSQL desired state and
+  observed Kubernetes state, and repeatable. A restart resumes by observation
+  and needs no in-memory record.
+- **Credential and material generation.** Generated once per instance and
+  purpose, and committed before use. Never regenerated because a response was
+  lost.
+- **Home initialization.** Guarded by a signed receipt on the home volume.
+  Never reseeded.
+- **Deletion.** Uses UID and resource-version preconditions from a fresh
+  observation. Completion is recorded only after absence is observed.
+- **Leases.** Granted, renewed and released in single transactions, using
+  database time. Expired and released leases are final.
+
+Further rules:
+
+- **Database unavailable.** No new grants, no administration writes, routing
+  denied. There is never a fallback to fresh or local state.
+- **Manager restarts.** Healthy Hermes and worker Pods are not restarted
+  merely because the manager restarted.
+- **PostgreSQL durability.** It must run with `fsync`, `full_page_writes` and
+  `synchronous_commit` enabled; the manager refuses to start otherwise.
+- **Startup checks.** Startup verifies schema version, installation identity,
+  issuer and cluster identity before doing anything.
+
+## Interfaces
+
+| Interface | Caller | Contract |
 | --- | --- | --- |
-| Administration session | `GET /api/v1/session` | Current administrator actor, permitted actions and browser CSRF token; no provider tokens |
-| Administration | `GET /api/v1/identities`, `GET /api/v1/assignments` | Authorized administrator; bounded pagination and optional read-only lookup |
-| Administration | `GET /api/v1/templates` | Authorized administrator; approved template IDs, versions and policy summaries, without manifests or secrets |
-| Administration | `GET/POST /api/v1/terminal-runtimes`, `GET /api/v1/terminal-runtimes/{id}/versions`, `POST /api/v1/terminal-runtimes/{id}/versions` | Inspect/register approved terminal definitions and immutable image/policy versions; mutations require idempotency and audit |
-| Administration | `GET/POST /api/v1/storage-bindings`, `GET/PATCH /api/v1/storage-bindings/{id}` | Register owner-bound storage references and permitted access; no inline credentials, raw Pod/PV specs or arbitrary cross-namespace claims |
-| Administration | `GET/PATCH /api/v1/assignments/{id}/execution` | Configure default/allowed terminal runtimes and mounts; inspect desired/effective policy and operation status; PATCH requires `If-Match` |
-| Administration | `POST /api/v1/assignments` | Create exact identity assignment; require `Idempotency-Key`; return `202` with operation and assignment |
-| Administration | `GET/PATCH /api/v1/assignments/{id}` | Inspect/update permitted fields; PATCH requires `If-Match`; identity and instance IDs are immutable |
-| Administration | `GET /api/v1/instances/{id}`, `POST /api/v1/instances/{id}/reconcile` | Inspect owned metadata or enqueue bounded retry; cannot supply workload manifests |
-| Administration | `GET /api/v1/instances/{id}/execution-environments` | Redacted environment/lease status and applied policy, without command content or credentials |
-| Administration | `GET /api/v1/operations/{id}`, `GET /api/v1/audit-events` | Inspect progress and redacted audit with administrator permission |
-| Router internal | `POST /internal/v1/routes/resolve` | mTLS Traefik plugin identity plus fresh audience-bound user access token; exact verified issuer/subject; no assignment mutation |
-| Execution internal | `POST /execution/v1/leases/acquire` | Instance-scoped Hermes client; profile/session/lifetime, idempotency request and optional approved `runtime_id`, parent lease and bounded invocation context; image/mount/template specs are invalid |
-| Execution internal | `POST /execution/v1/leases/heartbeat`, `POST /execution/v1/leases/release`, `POST /execution/v1/sessions/close`, `GET /execution/v1/environments` | Same scoped client; renew/release/close/inspect only its authorized execution state |
-| Checkpoint internal | `POST /internal/v1/checkpoints`, `GET /internal/v1/checkpoints/{id}/inventory`, `POST /internal/v1/checkpoints/{id}/complete`, `POST /internal/v1/checkpoints/{id}/resume` | Dedicated coordinator identity; fenced lifecycle, never available to router/browser roles |
-| Owner at router | `GET /_platform/me`, `GET /_platform/status` | Current authenticated owner's status only, with no arbitrary owner ID parameter |
-| Platform auth at router | `/_platform/login`, `/_platform/oidc/callback`, `POST /_platform/logout` | Router OIDC/session lifecycle; separate from native Hermes callbacks |
-| Native proxied API | Existing Hermes routes, including `/auth/callback`, `/auth/logout`, `/api/auth/ws-ticket` and `/api/ws` | Valid platform session and current route; native authentication remains mandatory |
+| Administration API `/api/v1/*`, browser auth `/auth/*`, dashboard | Administrators, external clients | `contracts/hermes-manager/openapi.yaml` |
+| Route resolution `POST /internal/v1/routes/resolve` | Gateway (mTLS) | `contracts/hermes-manager/router.openapi.yaml` |
+| Execution `/execution/v1/*` | `managed_execution` plugin (instance credential) | `contracts/hermes-manager/execution.openapi.yaml` |
+| Gateway public `/_platform/*` and native logout | Browsers | `contracts/hermes-manager/gateway.openapi.yaml` (replaces `router-auth.openapi.yaml`) |
+| CLI | Operators, chart | `hermes-manager {api, controller, migrate, check, initialize, grant-administrator, rebind-cluster, generate-sealing-key}`, `hermes-gateway` |
 
-An assignment creation body has this shape:
+The OpenAPI files are the authority for each implemented interface. Contract
+changes made by the rewrite are listed in the
+[architecture](architecture.md#interface-changes).
 
-```json
-{
-  "identity": {
-    "issuer": "https://sso.example.org/realms/agents",
-    "subject": "00000000-0000-4000-8000-000000000001"
-  },
-  "access": "enabled",
-  "templateId": "personal-default"
-}
-```
+Error semantics: `401` unauthenticated, `403` not permitted, `404` not
+found, `409` idempotency or state conflict, `412` stale `If-Match`, `422`
+invalid or unapproved input, `503` dependency unavailable or maintenance.
+Responses never reveal another owner's data.
 
-Repeated idempotency keys with the same actor/operation and body return the
-original result. A changed body returns `409`. Stale `If-Match` returns `412`.
-Malformed/unapproved configuration returns `422`; unauthenticated requests use
-`401` and insufficient permission uses `403`. Browser navigation may redirect to
-login, but API mutations must not be replayed across an authentication redirect.
-Responses and errors must not expose another owner's data or credentials.
+## Operational bounds
 
-Execution routes are part of this Rust manager, on a restricted internal
-listener/Service boundary. A per-instance credential determines instance scope
-server-side and cannot call administration, routing or checkpoint endpoints.
-Native Hermes can use a manager base URL ending in `/execution` with its current
-`/v1/...` request paths. The Rust API must preserve validated native lease
-payload/response semantics, while adding approved `runtime_id` selection.
-
-An acquire request returns the ready environment/generation, lease ID/TTL and
-SSH endpoint only after Pod readiness. Pending provisioning uses bounded `409`
-retry with the same client-scoped request ID; dependencies failing use `503`.
-No lease is active while the Pod is still provisioning. The database must
-deduplicate retries and fence exclusive acquisitions. Heartbeat/release/session
-close independently verify owner, environment and parent/delegate scope.
-The lease-grant transaction must recheck current assignment access and effective
-policy generation after provisioning. Reject new work during revoke/drain and
-never revive a lease that expired before a heartbeat or parent-lease join.
-
-The internal resolver returns `ready`, `pending`, `denied` or `unavailable` with
-bounded reason codes. A ready result contains a stable instance ID, registered
-namespace/Service/port, observed route generation and authorization version.
-It cannot contain a caller-provided upstream URL. The router maps pending to an
-owner-only `202` status view, denied to `403`, and unavailable to `503`.
-
-The proposed [resolver OpenAPI contract](../../contracts/hermes-manager/router.openapi.yaml)
-defines this endpoint, including response bodies and HTTP statuses. Both service
-mTLS and a Keycloak access token for the configured route-API audience are
-required. Restrict the token's authorized client to the router client and match
-its verified issuer/subject to the request. Enforce the identity-evidence age
-bound below. A service certificate alone cannot assert a user's identity.
-
-Ready responses identify the registered destination and its instance ID, route
-generation and authorization version. The plugin sets the instance/generation
-headers used by child routing only after validating that response. Denied,
-pending, malformed, stale-evidence and unavailable responses supply no destination.
-Use `Cache-Control: no-store`, a 2-second total deadline, bounded request/response
-sizes and no token, cookie or request-body logging for this internal boundary.
-
-The administration API accepts either its own browser session with CSRF checks
-or a validated administrator access token for its configured audience. A future
-panel can use the latter. Service authentication never supplies a human actor's
-permission by assertion alone. Do not expose assignment database credentials to
-the panel.
-
-## Routing, native auth and session requirements
-
-The router must validate the platform identity before selecting a destination.
-Every HTTP request resolves current assignment authorization; initially do not
-cache positive assignment decisions. Browser path, host, email, headers, cookie
-contents and callback parameters cannot independently select an instance.
-
-Derive identity from a validated OIDC session, including the verified issuer and
-subject. Decoding JWT claims without signature/issuer/audience validation is
-invalid. Manager assignments authorize that identity's backend; they do not
-replace OIDC authentication or allow a caller to nominate another subject.
-
-For Traefik, the parent router must run Rust OIDC/ForwardAuth validation, then
-the manager-querying plugin, before child selection. Remove client-supplied
-`X-Hermes-Instance`, `X-Hermes-Route-Generation` and internal identity/evidence
-headers before validation. Only the plugin may supply resolved routing headers,
-after a ready manager decision. Children map the exact instance/generation to
-registered Services and cannot be reached through a separate public entry point.
-Strip internal identity, evidence and decision headers before native forwarding.
-A failed or unavailable validator, plugin or manager cannot yield a route.
-
-Implement the thin plugin in Go/Yaegi using HTTP/mTLS to the manager, without SQL
-drivers or duplicated assignment rules. Pin and package its reviewed source with
-the platform release and load it at proxy startup. Keep the manager and OIDC
-component in Rust. A Rust/WASM plugin is an optional later implementation only
-after proving the required outbound networking and middleware compatibility.
-
-Generate hierarchical routes through the supported file provider using atomic,
-validated snapshots. Stale route configuration cannot override a revoked
-assignment. The proxy has no Kubernetes API credential, and neither the browser
-nor the UI can publish destinations or routing configuration.
-
-The native provider must independently check the expected instance owner after
-OIDC verification, including refresh and existing-session verification. Keep
-state/nonce/PKCE, audience, issuer, key and algorithm validation. A globally
-permitted identity trying another instance must still fail this native check.
-
-The router and native authorization-code flows have distinct callbacks and
-state. Forward a native callback only with a current platform session resolving
-to that same owner. Expired/switched sessions abort stale callbacks. Do not
-decode an unverified token to pick the callback destination.
-
-Platform cookies must be opaque, Secure, HttpOnly, host-only and SameSite
-compatible with the tested redirect flow. Keep platform tokens server-side.
-Do not send platform/admin cookies or platform bearer tokens upstream. Strip
-untrusted identity/forwarding headers and reject backend attempts to set reserved
-platform cookies. Native keys and cookies must not authenticate another instance.
-
-Require origin checks and native single-use WebSocket tickets. Authenticate and
-resolve ownership before upgrading, preserve full duplex streaming and repeat
-authorization for the established connection. Do not log ticket query strings,
-OIDC codes, bearer tokens, refresh tokens, cookies or private chat content.
-
-The middleware lookup occurs per HTTP request and once per WebSocket handshake,
-including reconnects. WebSocket frames do not re-enter the HTTP middleware.
-Periodic established-connection authorization is a separate mechanism that must
-meet the bounds below; a plugin at handshake time does not implement it alone.
-
-On logout, invalidate the platform session and expire native cookies even if
-the backend cannot be reached. Identity switching must invalidate old callbacks
-and prevent old native cookies or tickets reaching another identity's instance.
-
-Proposed initial operational bounds, configurable only within tested limits:
-
-| Setting | Initial requirement |
+| Setting | Requirement |
 | --- | --- |
-| Route resolution | 2-second total deadline; failure denies the request |
-| Assignment revocation | Next HTTP request denied after transaction commits; open WebSockets closed within 10 seconds |
-| WebSocket authorization | Recheck every 5 seconds; manager failure closes within the same 10-second bound |
-| Identity evidence | Refresh at most every 60 seconds; stop accepting evidence older than 120 seconds if refresh/directory verification fails |
-| External identity revocation | Effective within 130 seconds, including existing WebSockets; prove against configured Keycloak session behavior |
-| Upload size | 64 MiB maximum unless an explicitly tested deployment policy lowers it |
-| WebSocket/stream idle | Up to 1 hour with native heartbeat support and resource/connection limits |
-| Controller calls | Explicit connection/read deadlines, bounded work concurrency, capped retry backoff and cancellation |
-| Disable drain | At most 5 minutes for owned work, followed by controlled stop; access is already denied |
+| Route resolution | 2 s deadline; failure denies |
+| Authorization freshness | HTTP decisions at most 5 s old; open WebSockets re-checked every 5 s and closed within 10 s of denial or failure |
+| Identity evidence | Gateway refreshes provider state at most every 60 s; evidence older than 120 s is rejected |
+| External identity revocation | Effective within 130 s, including open WebSockets |
+| Upload size | 64 MiB unless a deployment lowers it |
+| WebSocket idle | Up to 1 h with native heartbeats |
+| Terminal drain | At most 5 min after access or policy change, then forced stop |
+| Kubernetes and HTTP calls | Explicit deadlines, bounded concurrency, capped backoff |
+| Administration request bodies | 16 KiB; `adminConfig` 8 KiB |
 
-Identity refresh must re-evaluate provider status/claims; checking an old JWT's
-signature repeatedly does not meet the revocation bound. A router/manager outage
-must not extend cached authorization indefinitely. Health probes are separate
-minimal endpoints and do not reveal user inventories.
+## Kubernetes
 
-The Traefik compatibility test must independently prove active-connection
-revocation. ForwardAuth at handshake time and configuration reloads alone are not
-accepted as proof that an existing WebSocket meets these bounds. Proxy adoption
-remains blocked until that mechanism is demonstrated.
+- **Namespaces.** One namespace per instance, named from the installation and
+  the random instance ID, never from personal data.
+- **Credentials.** The API, gateway, Hermes and terminal Pods have no
+  Kubernetes token. The controller has namespace bootstrap rights restricted
+  to its prefix, rights inside owned namespaces, and the right to create
+  PersistentVolumes for approved static sources. It has no cluster-wide Secret
+  access, impersonation or arbitrary role binding.
+- **Admission.** Static admission policies installed by the chart restrict:
+  - namespace names and labels;
+  - who may write in owned namespaces;
+  - Pod security: non-root, no privilege escalation, no host namespaces or
+    hostPath, digest-pinned images, no token automount;
+  - PersistentVolume sources: approved roots, nodes and servers only, with
+    `claimRef` into an owned namespace and `Retain`.
 
-## Kubernetes and storage requirements
+  Their parameters come from the installation values.
+- **Network.** Default-deny NetworkPolicies, with exactly these exceptions:
+  - the gateway reaches the native Hermes port;
+  - the controller reaches the native port and worker SSH for readiness
+    probes;
+  - Hermes reaches the manager execution API, its own workers' SSH and
+    approved egress;
+  - workers accept SSH only from their own Hermes and the controller.
 
-The manager API/UI and router have `automountServiceAccountToken: false`. Only
-the controller gets the constrained namespace-bootstrap permissions. Instance
-RoleBindings grant reconciliation access only inside registered namespaces;
-fail-closed admission must reject other names, installations, roles or subjects.
-Do not give the controller cluster-admin, impersonation, unrestricted role
-binding, or a cluster-wide permission to read Secrets.
+  The deployment must verify that its CNI enforces NetworkPolicy.
 
-Each instance has its own retained home/workspace claims, session keys,
-ServiceAccounts and execution credentials. Enforce restricted security contexts,
-selected volume/Secret references, non-root execution, resource limits and
-default-deny network policies. Namespaces and labels are identifiers, not a
-substitute for tested RBAC, admission and network enforcement.
+## Hermes image and plugin
 
-Execution workers can reference only that owner's approved runtime, profile,
-PVCs, Secret keys and services. A credential shared across instances or global
-mutable home is invalid. The shared Rust controller handles worker lifecycle,
-using exact instance/namespace/Pod UID bindings and the PostgreSQL policy.
-Preserve existing lease/task isolation, idle/recycle and crash recovery behavior
-without deploying a second execution manager. Unsupported storage sharing or
-scheduling blocks the affected terminal runtime rather than changing its mounts.
+- **Image.** This repository builds the Hermes image from pinned upstream
+  Hermes plus reviewed platform changes, and bundles the `managed_execution`
+  plugin. It downloads no code at startup, and contains no personal profiles,
+  prompts, memory or credentials. Templates select the image by digest.
+- **Plugin.** The plugin is the only terminal provider in personal instances.
+  Its connection settings come from the managed configuration. It
+  authenticates every request with the instance's execution credential over
+  verified TLS. It never forwards the user's browser cookie or token.
+- **Execution credential.** The manager derives instance, owner and scope from
+  the credential alone. Caller-supplied user, instance, namespace, Pod or
+  container identifiers are never trusted. Disabled or revoked instances fail
+  closed. Execution credentials grant nothing outside the execution API.
+- **SSH host key.** The plugin pins the SSH host key returned with the lease
+  and uses the instance's mounted SSH client key. No private key appears in an
+  API response.
 
-External service credentials are opt-in and scoped to the assigned owner. An
-optional deployment adapter may return approved Secret references; the default
-grants no external service access. Copying the original owner's MLflow, SkyPilot
-or other shared automation identity into every instance is invalid.
+## Backup and restore
 
-## Hermes application image, execution plugin and caller identity
+Backups are deployment-owned. The manager supplies what makes them
+restorable:
 
-This repository must build and supply the Hermes application image. Start from
-the supported upstream Hermes distribution pinned by digest/revision, then apply
-the reviewed platform modifications and bundle the plugin developed in this
-repository. Record the upstream origin and preserve its license notices. Build
-from the reviewed release inputs; do not download mutable plugin code at startup
-or include personal profiles, credentials, prompts, memory or live state in the
-image. Infrastructure selects the resulting immutable platform image digest in
-its instance template; it does not need to build a personal image for each user.
-
-The repository-owned `managed_execution` plugin is the Hermes integration for
-on-demand terminal containers. When Hermes needs command execution, the plugin
-requests an environment/lease from the shared manager over authenticated HTTPS.
-The manager selects the permitted terminal image, storage and policy for that
-Hermes instance and creates or reuses its worker. The plugin waits for a verified
-ready lease, then uses the returned SSH endpoint for execution and file transfer.
-It renews/releases leases and closes sessions according to the agreed protocol.
-The plugin has no Kubernetes credential and cannot directly create containers,
-choose arbitrary images/mounts or run a local execution fallback after denial.
-
-### Authentication and instance identification
-
-The manager must provision a distinct execution credential for each logical
-Hermes instance and register its server-side binding before supplying it to the
-application. Mount the credential read-only at runtime, keep it out of images,
-ordinary configuration and logs, and store only its authentication hash in the
-execution-client registry. Any raw bootstrap copy persisted in the manager
-database must remain encrypted and scoped to the same instance. The plugin reads
-this credential and authenticates every manager execution request over
-certificate-verified TLS.
-It does not forward the owner's browser cookie or Keycloak token as its service
-identity.
-
-The manager derives the caller's installation, instance, assignment/owner and
-execution scope from the authenticated credential and its own registry. A
-caller-supplied user, instance, namespace, Pod name, container ID or runtime name
-cannot select another identity or increase permissions. Recheck current access,
-installation epoch, approved runtime policy and lease ownership on requests;
-disabled/revoked or foreign execution clients must fail closed. Execution
-credentials grant no administration, routing or checkpoint access.
-
-Keep the following identities distinct:
-
-| Identity | Lifetime and purpose |
-| --- | --- |
-| Keycloak issuer/subject | Exact human owner; mapped by the manager to its assignment |
-| Manager instance ID | Stable logical Hermes identity across updates, Pod replacement and retained-state re-add |
-| Namespace/Deployment UID | Exact Kubernetes resource incarnation owned by that instance |
-| Hermes Pod UID | Exact Pod incarnation, linked through its ReplicaSet to the owned Deployment; changes when the Pod is replaced |
-| Container runtime ID | An individual runtime container incarnation; optional diagnostic metadata, not an authentication credential or stable owner identity |
-
-The controller must record and verify the Kubernetes ownership chain and Pod
-UID before authorizing native start. Knowing which resources it created lets
-the manager correlate the authenticated logical instance with its workload, but
-does not authenticate a request by itself. Do not infer authorization from a
-source IP, hostname or a self-reported container/Pod ID. The current per-instance
-credential authenticates the logical instance, not a particular live process;
-proof tied to a specific Pod/container would require a separate authenticated
-workload-identity design. No Kubernetes API token needs to be mounted in Hermes
-to support the per-instance protocol.
-
-This is the target image/plugin contract. The upstream-based Dockerfile,
-bundled plugin, instance credential authentication and recorded Pod ownership
-already exist. The [terminal backend guide](terminal-backends.md) describes the
-implemented profile selection, v2 provisioning, pinned SSH readiness and cleanup;
-the [implementation status](implementation.md) lists remaining integration gates.
-
-## Per-Hermes terminal images and mounts
-
-Terminal backend types are persistent database configuration items. Each has a
-stable unique type ID and immutable template versions, independently of the
-ephemeral Kubernetes Pod/Deployment UID used by a running worker. The current
-model uses a catalog ID such as `python-tools` together with its version; a UUID
-is not required for uniqueness. Administration APIs write these PostgreSQL
-records rather than maintaining a separate configuration source.
-
-The effective backend template combines its image/resources/SSH definition with
-the instance's permitted mount selections. A reusable backend type may declare
-mount requirements; concrete PVC bindings remain owner-specific. Each Hermes
-assignment explicitly allows type/version references, and the authenticated
-plugin requests a type ID rather than submitting an image or Kubernetes spec.
-The manager resolves that selection, renders the approved Kubernetes workload
-and owns its commissioning/lifecycle. Use a typed template so resource ownership,
-credentials, security settings and generation fencing remain manager-controlled.
-
-The Rust manager owns assignment policy, commissions Hermes and creates terminal
-worker Pods through its execution module. Creating an assignment does not require
-starting an idle terminal Pod or building a new image for that user.
-
-Keep two independent image choices:
-
-| Image | Source and behavior |
-| --- | --- |
-| Hermes application | Approved instance-template version, normally the platform release's Hermes image; includes native dashboard and compatible adapters |
-| Terminal worker | Approved terminal-runtime version selected for this assignment; exact digest may differ between owners or approved runtimes of one owner |
-
-The shipped `agent-runtime` is the default terminal image. Custom images must
-pass the managed SSH worker contract: non-root approved UID/GID, SSH on port
-2222, user `worker`, selected authorized-key mount, shell/file-transfer support,
-approved entrypoint and required native tool helpers. Image pull and compatibility
-failures must be reported; never substitute the default image silently. Private
-registries use explicit namespace-local pull-Secret references. The new Rust
-Kubernetes execution driver must apply those references to worker Pods.
-
-The manager's PostgreSQL records are the desired policy source. Each assignment
-selects a default runtime and an explicit set of allowed immutable runtime
-versions, with owner-specific mount bindings. Administrators may register exact
-custom images through the versioned API/UI. Neither login nor a native Hermes
-configuration edit can authorize a new image, mount or runtime version.
-
-An illustrative fragment of an assignment's execution policy is:
-
-```yaml
-execution:
-  defaultRuntimeId: python-tools
-  allowedRuntimes:
-    - runtimeId: python-tools
-      version: 1
-      mounts:
-        - storageBindingId: owner-network-home
-          mountPath: /mnt/home-network
-          readOnly: true
-```
-
-This describes a proposed manager API field, not a current Helm value or native
-Hermes field. The referenced runtime version contains the exact image digest;
-the storage binding resolves only to that assignment owner's approved claim.
-Different assignments may select different image versions, mounts and access.
-
-### Hermes selection and manager authority
-
-The native dashboard exposes profile-scoped `terminal.runtime_id`; the plugin
-forwards that backend ID as `runtime_id` in lease and session-close requests.
-Empty uses the assignment's default. Hermes owners can select a requested type,
-while the manager enforces its effective allowlist and resolves the exact
-image/mount policy. Lease requests carry no image, template, mount or caller
-scope fields. The [terminal backend guide](terminal-backends.md) describes the
-implementation.
-
-The manager must supply the verified SSH endpoint and server public key only
-after authenticated worker readiness. The plugin uses its mounted per-instance
-SSH client key and pins that returned server identity; no private key belongs in
-the API response or profile/dashboard configuration. A denied backend must
-produce an error without local execution or fallback to another image. Existing
-leases stay bound to their granted backend/generation when profile settings
-change; newly acquired environments use the new selection.
-
-The authenticated execution API resolves `runtime_id` within the exact client's
-instance policy, using the server-selected runtime version. A
-runtime name belonging to another owner is denied. Include runtime identity and
-effective policy generation in environment/cache identities; closing a session
-cannot retire another runtime's environment. Multiple Hermes profiles of one
-owner remain distinct from cross-owner authorization.
-
-The shared controller must render terminal worker specs and the exact admission
-policy from one PostgreSQL effective policy generation. Requests that omit
-`runtime_id` use the assignment's default. There is no static manager YAML or
-per-owner database as a second source of truth, and no agent-provided Pod spec.
-
-Image/mount changes create an audited desired generation and an operation.
-Validate image compatibility, owner binding, claim/Secret identities and
-resources first. Fence new acquisitions and drain affected leases before
-activating matching database policy generation and admission rules. Keep
-other owners running. Report desired/applied generation separately; a failed
-activation must not run a new image with old mounts or silently continue an old
-policy as if the requested change succeeded. Never modify a live worker's image
-or mounts in place, or delete its owner's retained data to apply a policy.
-
-### Owner storage and network folders
-
-Mounts specify owner-bound storage ID, absolute terminal path, optional bounded
-subpath and explicit read-only/read-write access. Validate overlapping/reserved
-paths, traversal, claim/Secret identity, namespace and storage permissions.
-An authorized mount may expose only a PVC subdirectory: for example, PVC
-`owner-data`, relative `subPath: projects/example`, mounted at `/workspace`.
-Render Kubernetes `volumeMounts[].subPath`; the container receives that selected
-directory at the mount point. Reject absolute subpaths and `.`/`..` traversal.
-The exact subpath/access selection must be permitted by the storage binding;
-the agent cannot expand it to the PVC root. The PVC must still be available in
-the worker's namespace and satisfy its storage/access/permission requirements.
-Custom mounts must not replace SSH authorization, internal credentials or
-another owner's home. Bind mounts to terminal Pods only unless a separate
-approved Hermes application mount is configured. Mount access never implies
-permission to browse that folder through the manager administration UI.
-
-A user's network home may use an existing NFS-backed claim or a supported SMB
-CSI-backed claim. The deployment/storage adapter provisions or registers the
-owner-specific PVC in the instance namespace; the Rust controller mounts that
-approved PVC in the terminal Pod. Do not add raw host paths or privileged
-in-container mount commands.
-See [Kubernetes persistent volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
-and the [SMB CSI driver](https://github.com/kubernetes-csi/csi-driver-smb).
-
-The deployment owns the storage driver, private network route, server/export or
-share setup, owner ACLs, UID/GID mapping and credential Secret references.
-Verify reachability from the node/CSI mount path as well as any needed Pod path;
-a browser or Hermes connection to the home network is insufficient. This does
-not grant the worker broad LAN access or the manager cluster-wide storage rights.
-Missing required mounts block that terminal runtime with a clear condition;
-never substitute an empty local directory. Preserve dashboard/admin access for
-repair when its own required storage is healthy.
-
-Register external-storage ownership, retention and backup policy explicitly.
-External network-home contents are not automatically included in platform
-backups, copied into images or deleted on assignment removal. Recovery inventories
-must include bindings and policy versions, while payload backup follows the
-selected policy. Restoration validates/rebinds namespace-local claims before
-admitting terminal work and reports unavailable external storage without
-commissioning replacement data.
-
-## Recovery and installation contract
-
-Require explicit fresh, restore or existing mode. Fresh mode refuses an
-unexplained existing registry or owned instance data. Restore mode fences routing
-and commissioning until a coordinated recovery receipt has been verified.
-Existing mode requires matching installation identity and supported schema.
-
-The versioned inventory must cover registry/assignments, owner keys, instance IDs,
-namespaces and resource UIDs, selected PVC datasets and Secrets, native settings
-and authentication state, execution environments/leases, template versions and
-image digests, terminal-runtime versions, effective policies and external storage
-bindings/backup disposition. Inventory generation must fence both administrator
-changes and reconciliation; the coordinator must stop all writers before taking
-its payload. Fence execution acquisitions, drain terminal work and invalidate
-pre-restore leases/endpoints before resuming restored workloads.
-
-Encrypted full-payload readback and a matching inventory/epoch receipt are
-mandatory before final teardown. Failed/incomplete snapshots do not become the
-latest completed recovery point. Restore must bind new Kubernetes UIDs explicitly
-while preserving stable OIDC ownership and instance IDs. Missing registry data
-alongside retained homes must block automatic provisioning.
-
-The platform provides lifecycle/inventory contracts and generic validation.
-External storage, encryption keys, transport and deployment-specific backup Jobs
-remain deployment-owned. A deployment must not run personal instances while its
-checkpoint integration backs up only a static dataset list.
-
-The chart's `hermesManager` section deploys the API/dashboard, controller and
-router-auth roles with existing database and Secret references, installation
-identity and per-listener ingress peers. Routing roles and a recovery gate are
-still to be added. Do not put per-user assignments or inline model credentials
-into Helm values; assignments live in PostgreSQL. Administrators are authorized
-by PostgreSQL grants on Keycloak identities, not a second user-password database.
+- **What to back up.** PostgreSQL (dump or WAL archive) and the data under
+  every storage source root (for example node NVMe paths and NFS exports), for
+  example to S3. Encryption keys and Secrets referenced by the chart are
+  backed up separately by the deployment.
+- **Same cluster.** Restore PostgreSQL and data while the manager is stopped,
+  then start it. The controller reconciles from the restored desired state.
+- **New cluster.** After restoring, run `hermes-manager rebind-cluster`. It
+  verifies that no owned namespaces exist in the new cluster, records the new
+  cluster identity, clears namespace bindings and retires recorded terminal
+  environments. The controller then recreates namespaces and volume bindings
+  against the restored paths. Without this explicit command, a changed cluster
+  identity blocks the controller.
+- **Dynamic volumes.** To be restorable they need deterministic host paths,
+  for example a local-path provisioner with a path pattern derived from
+  namespace and claim names. This is verified in the restore test.
+  Otherwise, keep restorable data on static sources.
+- **Never adopt.** The manager never adopts namespaces or volumes it has no
+  record of. It reports them as orphans.
 
 ## Acceptance matrix
 
-| Test | Required result |
+| Scenario | Required result |
 | --- | --- |
-| Two configured identities, one common URL | Distinct instances, settings, sessions, uploads and native owner checks |
-| Same hostname/path, different verified OIDC subjects | Each request reaches its assigned backend; changing browser headers, email or unverified JWT claims cannot select another backend |
-| Valid but unassigned identity | Denied; no commissioning side effect |
-| Concurrent enable/login/retry and controller crash | One stable instance; interrupted work reconciles safely |
-| Email rename or recreated email under a new subject | Original ownership unchanged; new subject cannot inherit data |
-| Forged headers, foreign cookie/ticket, callback race or backend target | No cross-user route, session or credential access |
-| Native HTTP and WebSocket through router | OIDC callback, mutations, upload, ticket, chat readiness/heartbeat and logout succeed |
-| Manager/database or identity-provider outage | Fail closed within stated bounds; no shared-instance fallback |
-| Suspend/revoke during an open chat or provisioning | New access denied, connection closed within bound, data retained |
-| Malicious worker/namespace bootstrap request | Cannot access another owner, bind into a foreign namespace or mount disallowed Secrets/PVCs |
-| New owner without provider authentication | Private onboarding is available; no inherited operator model login |
-| Built-in UI disabled and external API client used | Same assignment workflow and permissions without SQL/Kubernetes access |
-| Frontend build and browser requests | Static React/TypeScript build served by Rust; only the administration API is called, and browser bundles contain no credentials or live identities |
-| Plugin resolver boundary | Valid mTLS plus exact fresh identity resolves a registered destination; forged headers, wrong audience/client, malformed responses and manager failure deny routing |
-| Repository-built Hermes image | Pinned upstream base plus reviewed platform modifications and bundled repository-owned plugin; no startup plugin download, personal seeds or embedded credentials |
-| Plugin requests a terminal on demand | Authenticated acquire causes only that instance's approved worker to be created/reused; verified SSH readiness precedes a usable lease, and renewal/release/session close preserve owner scope |
-| Plugin caller identity and forged container metadata | Distinct instance credentials resolve to distinct assignments; a forged user/instance/Pod/container ID or source address cannot select another owner or substitute for authentication |
-| Hermes Pod replacement | New Pod UID remains bound to the same logical instance and owner; credentials/state are not reassigned, and an old Pod/container identifier cannot authorize a new start |
-| Two owners with distinct terminal images and mounts | Each terminal Pod uses its own exact image digest and authorized claims/access; changing one assignment leaves the other unchanged |
-| Same image, different owner storage | Shared image layers do not share homes, network folders, credentials or execution scope |
-| Native Hermes runtime selection | An approved `runtime_id` selects its server-defined image and policy; another owner's ID, raw image/mount fields and unsupported versions are rejected |
-| Custom terminal image and private registry | Compatible non-root SSH image runs with scoped pull credentials; image/entrypoint incompatibility or pull failure is reported without fallback |
-| Terminal policy change during active leases | Only affected work drains; matching database policy/admission activate together and desired/effective status remains accurate |
-| Shared manager restart and concurrent execution requests | PostgreSQL recovers environments, requests and leases; no duplicate Pod/lease grant, foreign owner access, expired-lease revival or per-owner manager service |
-| Kill manager before/after each commit and Kubernetes call | Resume from PostgreSQL and observed resources; one target generation, preserved owner data and accurate operation status, including create-success-before-UID-save |
-| API or lease response lost after commit | Retry the same idempotency key returns the recorded operation/live lease; changed payload conflicts and expired leases are not recreated |
-| Stale worker, delayed Kubernetes response or watch gap | Fences/preconditions reject stale progress, uncertain effects are reconciled and periodic resync finds missed work without destructive replay |
-| Restart during initialization, policy activation or deletion | Resume the recorded step and credentials; never reseed live state, mix policy generations or report deletion complete before verified absence |
-| Enabled Hermes with no browser traffic | One desired gateway replica remains running and a fixture cron job fires; it can acquire an on-demand terminal worker without a user request |
-| Idle terminal cleanup | Terminal worker retirement leaves Hermes, its native cron scheduler and retained state running |
-| Assignment revoke during terminal acquisition | No new ready lease after revocation; pending terminal generations are fenced and existing work drains within the configured bound |
-| Execution client tries another API boundary | Cannot call administration, route resolution or checkpoint methods, or nominate another instance/namespace |
-| Owner NFS/SMB folder and unavailable required share | Selected path/access is enforced; no foreign share, host path or empty-directory fallback; external data is retained on revoke/removal |
-| UI import/dependency boundary | Presentation cannot import database, directory or Kubernetes adapters |
-| Recovery with registry and both users' data | Stable owners/instance IDs restored, new UID bindings verified, stale sessions invalidated |
-| Missing registry, partial snapshot or wrong installation receipt | Provisioning/teardown blocked; no automatic adoption or replacement |
-
-Run isolated contract/domain tests, real PostgreSQL concurrency/migration tests
-and disposable local Kubernetes/OIDC/browser tests as appropriate. Generic
-acceptance uses fixture identities and model stubs; it must not require a paid
-GPU, private model account, public invitation or destructive live stack. Record
-actual results and untested cases before claiming these requirements are met.
+| Two assigned identities, one URL | Distinct instances, settings, sessions, uploads and native owner checks |
+| Same path, different verified subjects | Each reaches only its own instance; forged headers, email or unverified token claims change nothing |
+| Valid but unassigned identity | Denial page; no commissioning side effect |
+| Concurrent enable, retry and controller kill | One stable instance; credentials generated once |
+| Email change or new subject with an old email | Ownership unchanged; the new subject gets nothing |
+| Forged headers, foreign cookie or ticket, callback race | No cross-owner access |
+| Native HTTP, upload and WebSocket through the gateway | Login, mutations, upload, ticketed WebSocket and logout work |
+| Manager, database or Keycloak outage | Fail closed within the bounds; no fallback |
+| Suspend during an open chat and during provisioning | New access denied within 5 s, connection closed within 10 s, terminal work drained, data retained |
+| Re-enable after revoke | Same instance ID, same data and credentials |
+| Admin setting and admin secret | Enforced over the user's setting; the user's other settings unchanged; secret delivered only to referencing instances and never returned by the API |
+| Bob's example assignment | `/workspace` shows the same files in Hermes and both backends; `homes/bob` appears only in `python-tools`; another owner's path cannot be assigned to Bob (overlap rejected) |
+| Missing static volume directory | Volume blocked with a condition; no empty-directory substitute |
+| User requests a disallowed backend or edits profile YAML | Denied without fallback; no image or mount change |
+| Custom backend image and private registry | Runs with the registry secret; pull or contract failure reported without fallback |
+| Backend or volume change during an active lease | Active lease keeps its environment; new acquisitions use the new definition; superseded environment drains |
+| Revoke during terminal acquisition | No new lease after revocation; pending worker drained |
+| Hermes with no browser traffic | One replica keeps running; a cron job fires and acquires a terminal |
+| Idle terminal cleanup | Worker retired; Hermes and its data untouched |
+| Kill the manager at every injected fault point | Converges to the same state without duplicates or unobserved deletion |
+| Execution credential used against another interface or instance | Denied |
+| Restore PostgreSQL and data on a new cluster | After `rebind-cluster`, every instance returns with its data and the same IDs; unknown namespaces are reported, not adopted |
+| UI build and dependency boundary | Static assets served by Rust; no credentials or live data in bundles; presentation code cannot reach the database or Kubernetes |

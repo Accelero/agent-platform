@@ -1,26 +1,41 @@
 # Manager dashboard
 
+Status: target behaviour (rewrite in progress). Build, authentication,
+authoring, directory and frontend conventions match the current source. The
+views and template workflow below follow the target administration model in
+the [specification](specification.md#administration-model); the
+[implementation status](implementation.md) lists current differences.
+
 The manager serves an authenticated React/TypeScript administration dashboard
-from its Rust API role. Administrators use it to manage assignments, Hermes
-templates, terminal runtimes, storage bindings, activity and PostgreSQL
-administrator grants. Keycloak supplies verified identity; PostgreSQL grants are
-the sole authority for administrator access. Infrastructure-owned templates and
-assignments stay read-only in the dashboard.
+from its Rust API role. Administrators use it to manage:
+
+- who gets a Hermes instance (assignments);
+- Hermes templates;
+- terminal backends;
+- volumes;
+- admin secrets;
+- administrator grants.
+
+Keycloak supplies verified identity. PostgreSQL grants are the only authority
+for administrator access. The dashboard uses only the administration API, and
+every workflow is also available to an API-only client.
 
 ## Views
 
 Every collection uses server-side search, filters, sorting and bounded pages,
 with the query in the URL. Changing the query returns to the first page.
-Loading, empty, denied, unavailable and stale states are shown separately; a
+Loading, empty, denied, unavailable and stale states are shown separately. A
 failed query never looks like an empty database.
 
 | View | Shows | Actions |
 | --- | --- | --- |
-| Users | Exact issuer/subject, optional labels, provenance, current assignment and instance state; optional live Keycloak directory tab | Create an assignment for an exact identity, or open the existing one |
-| Hermes templates | Template ID, version, image digest, source/ownership, draft/published state, assignment count | Inspect, compare versions, clone, draft, validate, publish and apply |
-| Terminal runtimes | Runtime ID, immutable versions, image, SSH contract, resources, storage summaries | Inspect a version, see which assignments may request it, create the next version |
-| Assignments | Identity, template version, access, desired/observed generation, conditions | Change template, access or execution policy; retry; inspect operation history |
-| Administrators | Exact identities with PostgreSQL grants and audit metadata | Grant, demote or revoke access (with `canManageAdministrators`) |
+| Users | Exact issuer/subject, optional labels, assignment and instance state; optional live Keycloak directory tab | Create an assignment for an exact identity, or open the existing one |
+| Assignments | Identity, access, template version, volumes, allowed terminal backends and default, lifetime mode, admin overrides, desired and observed generation, phase and conditions | Change access, template version, volumes, backends, overrides or secret references; retry; bulk set-template |
+| Hermes templates | Template ID, versions (Draft, Published, Withdrawn), image digest, assignment count | Inspect, compare, clone, edit drafts, validate, publish, withdraw |
+| Terminal backends | Backend ID, versions, image, SSH contract, resources, limits, mount slots, assignments allowed to use each version | Inspect, create and publish the next version, withdraw |
+| Storage | Installation storage sources (read-only, from Helm values), the volumes on each by instance and path, and orphaned namespaces and volumes | Open the owning assignment |
+| Secrets | Admin secret names, kinds, versions, writer, time and references — never values | Create, write a new version, delete when unreferenced |
+| Administrators | Exact identities with grants and audit metadata | Grant, demote or revoke (requires the manage-administrators grant) |
 | Activity | Actor, action, affected records, outcome and time | Open related records and redacted change details |
 
 Exact `(issuer, subject)` is authoritative everywhere. Email and display names
@@ -39,29 +54,32 @@ uv run python -m agent_platform.manager_build
 
 This builds `hermes-manager:local`. A pinned Node stage installs the npm
 lockfile, generates API types, tests and bundles the UI; a pinned Rust stage
-builds both manager executables with the Cargo lockfile. The final Debian image
-runs as UID/GID 10001 with the binaries, CA certificates, SSH client and static
-UI, and no Node/Vite server. Only files listed under
+builds `hermes-manager` and `hermes-gateway` with the Cargo lockfile. The final
+Debian image runs as UID/GID 10001 with the binaries, CA certificates and the
+static UI, and no Node/Vite server. Only files listed under
 `development_contexts.hermes-manager` in `release-policy.json` enter the build.
 Build diagnostics are bounded in `.local/hermes-manager-build.log`. The same
 input set is the `hermes-manager` release target, and the chart installs it; see
-the [chart guide](../../charts/agent-platform/README.md#rust-manager-and-dashboard).
+the [chart guide](../../charts/agent-platform/README.md).
 
-Use [the API configuration example](../../services/hermes-manager/api.example.json)
-as a nonsecret shape reference. The chart sets `admin.uiDirectory` to
-`/usr/share/hermes-manager/ui` when browser sessions are configured; when
-running the binary locally, point it at the absolute `ui/dist` path. Supply the
-installation, PostgreSQL, TLS and browser-session inputs through private mounted
-files, and initialize or migrate the registry before starting the API role:
+The chart generates the `api` role's configuration. Its `administration`
+section sets `dashboardDirectory` to `/usr/share/hermes-manager/ui` when browser
+sessions are enabled (`hermesManager.api.browser.enabled`), the optional
+`directory`, and `secretSealingPublicKeyFile`, the controller's 32-byte X25519
+public key that admin secrets are sealed to. The installation's
+`storageSources` and `dataIdentity` come from Helm values, and the dashboard
+shows them read-only. When running the binary locally, point
+`dashboardDirectory` at the absolute `ui/dist` path:
 
 ```bash
-hermes-manager api --config /run/manager/config.json
+hermes-manager api --config /run/hermes/config/config.json
 ```
 
 The dashboard is at `/` on the administration HTTPS listener, sharing its origin
 with `/api/v1/...` and `/auth/...`. Resolver and execution listeners do not serve
-it. Omit `admin.uiDirectory` for API-only mode. Enabling it without `admin.browser`,
-or supplying a missing/invalid asset directory, fails startup.
+it. Without browser sessions the API runs API-only; a dashboard directory
+without browser sessions, or a missing or invalid asset directory, fails
+startup.
 
 ## Keycloak identity and PostgreSQL administrator access
 
@@ -69,40 +87,40 @@ Use a dedicated Keycloak OIDC client, for example `manager-admin`, on a separate
 administration hostname from personal Hermes. Configure an exact HTTPS callback
 (`https://hermes-admin.example.org/auth/oidc/callback`), authorization-code flow
 with S256 PKCE, public subject identifiers, the trusted issuer/JWKS endpoint and
-an audience mapper matching `admin.audience`. Configure the authorized client IDs
-and browser `clientId`; confidential clients use a private mounted secret file.
+an audience mapper matching `hermesManager.api.tokens.audience`. Configure the
+authorized client IDs and the browser `clientId`; a confidential client's secret
+is the `oidc-client-secret` key of the API's Secret.
 
 The manager verifies signature, issuer, subject, audience, authorized client,
-user-session evidence, token type and validity. Token roles confer no manager
-permission. The `managementClient` and `administratorRole` configuration fields
-are accepted and ignored by authorization. No Keycloak role-management
-credentials are needed.
+user-session evidence, token type and validity. Token roles grant no manager
+permission, and no Keycloak role-management credentials are needed.
 
-Migration 0022 creates installation-scoped grants keyed by exact issuer/subject.
-It creates no implicit administrators. After migrating, bootstrap the first
-administrator. Put a verified identity in a private file outside the checkout
-and build context:
+Grants are installation-scoped and keyed by exact issuer/subject. A fresh
+installation has no administrators. Grant the first one with the
+`operations.grantAdministrator` Job, whose Secret holds the identity file, kept
+outside the checkout and build context:
 
 ```json
 {"issuer":"https://sso.example.org/realms/agents","subject":"<exact Keycloak subject>"}
 ```
 
-Set `administratorIdentityFile` in the private API configuration, then run:
+The Job runs:
 
 ```bash
-hermes-manager administrator-bootstrap --config /run/manager/config.json
+hermes-manager grant-administrator --config /run/hermes/config/config.json \
+  --identity-file /run/hermes/secrets/identity.json
 ```
 
-Bootstrap succeeds only when no grant exists. For explicit operator recovery,
-`hermes-manager administrator-recover --config /run/manager/config.json` restores
-the configured exact identity's active management grant. Both commands audit the
-action, require database/operator access and never print the identity or accept
-it as a command-line argument.
+By default the command succeeds only while no grant exists. `--recover`
+restores an active manage-administrators grant for that exact identity when
+grants already exist. Both forms are audited, require database and operator
+access, and never print the identity or accept it as a command-line argument.
 
-An active grant permits administration; `canManageAdministrators` additionally
-permits grant changes. Grant targets must have verified login evidence. Grant
-edits use ETags, actor-scoped idempotency, audit and transactional protection
-against removing or demoting the last administrator who can manage grants.
+An active grant permits administration; the manage-administrators flag
+additionally permits grant changes. Grant targets must have verified login
+evidence. Grant edits use ETags, actor-scoped idempotency, audit and
+transactional protection against removing or demoting the last administrator
+who can manage grants.
 
 Every page, asset and API request checks the current PostgreSQL grant, including
 bearer requests, and mutation transactions recheck it under a lock. Revocation
@@ -120,73 +138,92 @@ script, CDN, dynamic code compilation or blob worker.
 
 ## Inspection
 
-Open a user to create an assignment for that exact identity or manage the
-existing one. Creation reviews the selected immutable template, managed overrides
-and enforced platform settings before submission.
+- **Users.** Open a user to create an assignment for that exact identity, or
+  to manage the existing one. Creation reviews the selected template version,
+  the managed settings layers, the volumes and the terminal backends before
+  submission.
+- **Assignments.** Assignment details show:
+  - desired and observed generation;
+  - the instance phase and its conditions (storage, native initialization,
+    native authentication, terminal);
+  - each volume with its source, path or size and where it is mounted;
+  - its terminal environments with their state, lease count and, for a
+    failed worker, the reason (no addresses or keys).
 
-Assignment details show desired and observed template versions, desired and
-verified applied execution configurations, and paged operation history. Activity
-provides redacted change details; execution configuration events say Recorded,
-acknowledging the configuration write rather than completed reconciliation.
-Journal payloads and private user configuration are never exposed.
-
-Terminal runtime details show the immutable definition and version history and
-the assignments allowed to request each version. Runtime and storage-binding
-selectors use searchable manager references scoped to the selected instance's
-namespace and UID. Storage-class suggestions come from published templates;
-Kubernetes availability is checked during reconciliation.
+  Activity shows redacted change details. A recorded command means the change
+  was accepted, not that reconciliation has completed.
+- **Never shown.** Private user configuration, secret values and command
+  content.
+- **Validation before saving.** When editing an assignment, the dashboard
+  validates source paths for overlap with other instances, required mount
+  slots and mount paths shared between Hermes and backends. It shows the
+  server's errors (`volume_overlap`, `mount_slot_unbound`,
+  `mount_path_mismatch`) on the affected fields.
 
 ## Templates, publication and rollout
 
-A Hermes template holds deployment inputs and its managed Hermes configuration:
+A Hermes template version holds the instance definition and its admin settings.
+See [instances](instances.md#hermes-templates) for the fields:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "image": "registry.example.org/platform/hermes@sha256:<64 lowercase hex digits>",
-  "storageClass": "local-path",
-  "homeGib": 5,
-  "workspaceGib": 10,
-  "cpuMillis": 1000,
-  "memoryMib": 2048,
-  "adminConfig": {
-    "agent": { "max_turns": 30 }
-  }
+  "resources": { "cpuMillis": 1000, "memoryMib": 2048 },
+  "home": { "source": "nvme", "sizeGib": 5 },
+  "mounts": { "workspace": { "mountPath": "/workspace" } },
+  "defaultVolumes": { "workspace": { "source": "nvme", "sizeGib": 10 } },
+  "adminConfig": { "agent": { "max_turns": 30 } },
+  "secrets": [{ "name": "llm-gateway-key", "env": "OPENAI_API_KEY" }]
 }
 ```
 
-`adminConfig` holds administrator-enforced Hermes settings for every assigned
-user; other native settings stay on the user's home PVC and editable in Hermes.
-The managed configuration preview distinguishes three layers:
+The managed configuration preview distinguishes four layers:
 
-1. Template overrides in `adminConfig`, such as a turn limit or a pinned
-   default `terminal.runtime_id`.
-2. Platform-enforced settings: `terminal.backend=managed_execution`, the
-   image-owned plugin and protected connection paths. Neither editor can disable
-   them, and no credential value is shown.
-3. Settings left to the user. Removing an override can expose the user's
-   retained value again; it never erases their config.
+1. **Platform-enforced settings:**
+   - `terminal.backend=managed_execution`;
+   - the image-owned plugin;
+   - protected connection paths.
 
-Choosing a default runtime in a template does not grant backend permission; the
-assignment's execution allowlist decides. `adminConfig` must not contain model
-keys, passwords, personal prompts or other private seed data.
+   No editor can change them, and no credential value is shown.
+2. **Assignment overrides.**
+3. **Template `adminConfig`**, such as a turn limit, a pinned LLM provider or a
+   pinned default `terminal.runtime_id`.
+4. **Settings left to the user.** Removing an override can expose the user's
+   retained value again; it never erases their configuration.
 
-Manager drafts live in dedicated authoring tables, never in infrastructure
-desired-state rows. Infrastructure definitions can be inspected with redaction
-and diagnostics but not edited or adopted. Publishing validates a draft and
-creates an immutable catalog version; it never updates existing assignments.
-Review the semantic diff, select an exact version and apply it explicitly.
-Access, identity, instance, retained PVC data and native credentials stay with
-the same owner.
+Choosing a default backend in a template grants no backend permission; the
+assignment's allowed backends decide. `adminConfig` must not contain model
+keys, passwords, personal prompts or other private seed data. Use admin
+secrets for values.
 
-Apply previews show resources, managed overrides, storage and restart effects.
-Storage-class changes, shrinking and infrastructure source conflicts block
-dispatch. Enabled instances drain execution and update through the native
-Recreate path. Bulk apply covers only explicitly selected IDs and reviewed
-versions (at most 50). Its durable result page separates dispatch acceptance
-from each instance's operation, and the original administrator can resume
-pending dispatch without reapplying accepted members. Polling backs off and
-stops after ten minutes or a terminal result.
+Template versions:
+
+- **Draft versions** are edited in place.
+- **Publishing** validates a draft and makes it immutable. It never changes
+  existing assignments.
+- **Withdrawing** a version prevents new selections.
+
+To roll out, select the exact version and apply it explicitly. The apply
+preview shows resources, settings, storage and restart effects. Storage-class
+changes and shrinking block the change.
+
+Bulk set-template:
+
+- applies one reviewed version to explicitly selected assignments (at most
+  50);
+- the response reports each assignment's result: accepted with its new
+  version, or rejected with a reason;
+- accepted changes are ordinary assignment changes, whose progress shows in
+  each instance's status;
+- rejected members can be retried with a new request.
+
+Access, identity, instance, volumes and native credentials stay with the same
+owner throughout.
+
+Terminal backend versions follow the same Draft, Published and Withdrawn
+workflow. See [terminal backends](terminal-backends.md#define-a-terminal-backend-administrator)
+for the definition.
 
 ## Form, JSON and YAML authoring
 
@@ -211,17 +248,19 @@ positions.
 
 ## Read-only Keycloak directory
 
-Optionally set `admin.directory` in the private API configuration:
+Optionally enable `hermesManager.api.directory` with its client ID; the client
+secret is the `directory-client-secret` key of the API's Secret. The generated
+configuration then contains:
 
 ```json
-{"clientId":"manager-directory-reader","clientSecretFile":"/run/manager/secrets/directory-client-secret"}
+{"clientId":"manager-directory-reader","clientSecretFile":"/run/hermes/secrets/directory-client-secret"}
 ```
 
 Use a dedicated confidential service-account client in the installation's realm
 with only user query/view permissions (for example `realm-management`
 `query-users` and `view-users`), never user- or role-management privileges. The
-adapter uses client credentials over verified HTTPS; `oidc.caFile` also supplies
-private-CA trust. Token and users endpoints derive from the configured issuer.
+adapter uses client credentials over verified HTTPS; `hermesManager.oidcPrivateCa`
+also supplies private-CA trust. Token and users endpoints derive from the configured issuer.
 Use public subjects so the provider user ID matches the OIDC subject. See
 [Keycloak's Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/index.html#_users).
 
@@ -275,7 +314,8 @@ Installed versions are recorded in `ui/package.json`, `ui/package-lock.json`,
 
 ## Frontend development and checks
 
-Node and npm versions are pinned by the image and frontend configuration:
+The dashboard lives in `services/hermes-manager/ui`. Node and npm versions are
+pinned by the image and frontend configuration:
 
 ```bash
 cd services/hermes-manager/ui
@@ -289,17 +329,18 @@ npx --no-install playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-CI rejects stale generated types and checks the TypeScript build, browser
-workflows, Rust OIDC/PostgreSQL-grant/asset authorization, the compiled process
-and the full multi-stage image. Presentation tests use synthetic API fixtures;
-Rust protocol tests use real HTTPS and PostgreSQL with a signed OIDC provider
-fixture. The production browser test runs the built assets under Rust's real
-authentication and CSP:
+CI rejects stale generated types and schema validators, and checks the
+TypeScript build, browser workflows, Rust OIDC/PostgreSQL-grant/asset
+authorization and the compiled process. Browser workflow tests use a synthetic
+API fixture (`e2e/fixtures.ts`); Rust protocol tests use real HTTPS and
+PostgreSQL with a signed OIDC provider fixture, and check every response
+against the contract. The production browser test runs the built assets under
+the real authentication, CSRF, grants and CSP:
 
 ```bash
 cd services/hermes-manager
 MANAGER_UI_DIST="$PWD/ui/dist" DATABASE_URL=postgres://hermes_test@127.0.0.1:5432/hermes_test \
-  cargo test -p hermes-adapters --test browser production_dashboard_browser_csp --locked -- --ignored
+  cargo test -p hermes-http --test dashboard_browser --locked -- --ignored
 ```
 
 These fixtures do not provision a deployed Keycloak realm.

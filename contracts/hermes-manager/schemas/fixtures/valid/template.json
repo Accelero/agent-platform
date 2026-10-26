@@ -1,18 +1,34 @@
 {
-  "schemaVersion": 1,
-  "image": "ghcr.io/example/hermes@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "storageClass": "standard",
-  "homeGib": 8,
-  "workspaceGib": 16,
-  "cpuMillis": 1000,
-  "memoryMib": 1024,
-  "adminConfig": {
-    "terminal": {
-      "backend": "managed_execution",
-      "runtime_id": "python-tools"
-    },
-    "advanced": {
-      "retained": true
+  "schemaVersion": 2,
+  "image": "ghcr.io/accelero/agent-platform/hermes@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "resources": {
+    "cpuMillis": 1000,
+    "memoryMib": 2048
+  },
+  "home": {
+    "source": "nvme",
+    "sizeGib": 5
+  },
+  "mounts": {
+    "workspace": {
+      "mountPath": "/workspace"
     }
-  }
+  },
+  "defaultVolumes": {
+    "workspace": {
+      "source": "nvme",
+      "sizeGib": 10
+    }
+  },
+  "adminConfig": {
+    "model": {
+      "provider": "custom"
+    }
+  },
+  "secrets": [
+    {
+      "name": "llm-key",
+      "env": "OPENAI_API_KEY"
+    }
+  ]
 }

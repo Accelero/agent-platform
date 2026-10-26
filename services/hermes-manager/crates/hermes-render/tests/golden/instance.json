@@ -1,0 +1,979 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Namespace",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager",
+        "pod-security.kubernetes.io/enforce": "restricted",
+        "pod-security.kubernetes.io/enforce-version": "latest"
+      },
+      "name": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes-controller",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "hermes-manager-instance"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "hermes-manager-controller",
+        "namespace": "hermes-system"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "automountServiceAccountToken": false,
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "automountServiceAccountToken": false,
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "worker",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "default-deny",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "spec": {
+      "podSelector": {},
+      "policyTypes": [
+        "Ingress",
+        "Egress"
+      ]
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "spec": {
+      "egress": [
+        {
+          "ports": [
+            {
+              "port": 53,
+              "protocol": "UDP"
+            },
+            {
+              "port": 53,
+              "protocol": "TCP"
+            }
+          ],
+          "to": [
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "kubernetes.io/metadata.name": "kube-system"
+                }
+              },
+              "podSelector": {
+                "matchLabels": {
+                  "k8s-app": "kube-dns"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ports": [
+            {
+              "port": 8443,
+              "protocol": "TCP"
+            }
+          ],
+          "to": [
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "kubernetes.io/metadata.name": "hermes-system"
+                }
+              },
+              "podSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/component": "hermes-manager-api"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ports": [
+            {
+              "port": 2222,
+              "protocol": "TCP"
+            }
+          ],
+          "to": [
+            {
+              "podSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/component": "worker"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ports": [
+            {
+              "port": 443,
+              "protocol": "TCP"
+            }
+          ],
+          "to": [
+            {
+              "ipBlock": {
+                "cidr": "0.0.0.0/0",
+                "except": [
+                  "0.0.0.0/8",
+                  "10.0.0.0/8",
+                  "100.64.0.0/10",
+                  "127.0.0.0/8",
+                  "169.254.0.0/16",
+                  "172.16.0.0/12",
+                  "192.0.0.0/24",
+                  "192.168.0.0/16",
+                  "198.18.0.0/15",
+                  "224.0.0.0/4",
+                  "240.0.0.0/4"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "ingress": [
+        {
+          "from": [
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "kubernetes.io/metadata.name": "hermes-system"
+                }
+              },
+              "podSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/component": "hermes-gateway"
+                }
+              }
+            },
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "kubernetes.io/metadata.name": "hermes-system"
+                }
+              },
+              "podSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/component": "hermes-controller"
+                }
+              }
+            }
+          ],
+          "ports": [
+            {
+              "port": 9119,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      ],
+      "podSelector": {
+        "matchLabels": {
+          "app.kubernetes.io/component": "hermes"
+        }
+      },
+      "policyTypes": [
+        "Ingress",
+        "Egress"
+      ]
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "worker",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "spec": {
+      "egress": [
+        {
+          "ports": [
+            {
+              "port": 53,
+              "protocol": "UDP"
+            },
+            {
+              "port": 53,
+              "protocol": "TCP"
+            }
+          ],
+          "to": [
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "kubernetes.io/metadata.name": "kube-system"
+                }
+              },
+              "podSelector": {
+                "matchLabels": {
+                  "k8s-app": "kube-dns"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ports": [
+            {
+              "port": 443,
+              "protocol": "TCP"
+            }
+          ],
+          "to": [
+            {
+              "ipBlock": {
+                "cidr": "0.0.0.0/0",
+                "except": [
+                  "0.0.0.0/8",
+                  "10.0.0.0/8",
+                  "100.64.0.0/10",
+                  "127.0.0.0/8",
+                  "169.254.0.0/16",
+                  "172.16.0.0/12",
+                  "192.0.0.0/24",
+                  "192.168.0.0/16",
+                  "198.18.0.0/15",
+                  "224.0.0.0/4",
+                  "240.0.0.0/4"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "ingress": [
+        {
+          "from": [
+            {
+              "podSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/component": "hermes"
+                }
+              }
+            },
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "kubernetes.io/metadata.name": "hermes-system"
+                }
+              },
+              "podSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/component": "hermes-controller"
+                }
+              }
+            }
+          ],
+          "ports": [
+            {
+              "port": 2222,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      ],
+      "podSelector": {
+        "matchLabels": {
+          "app.kubernetes.io/component": "worker"
+        }
+      },
+      "policyTypes": [
+        "Ingress",
+        "Egress"
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes-home",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "5Gi"
+        }
+      },
+      "storageClassName": "local-nvme"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolume",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b-home"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "capacity": {
+        "storage": "1Gi"
+      },
+      "claimRef": {
+        "name": "home",
+        "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+      },
+      "local": {
+        "path": "/srv/hermes-data/bob/home"
+      },
+      "nodeAffinity": {
+        "required": {
+          "nodeSelectorTerms": [
+            {
+              "matchExpressions": [
+                {
+                  "key": "kubernetes.io/hostname",
+                  "operator": "In",
+                  "values": [
+                    "server-1"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "persistentVolumeReclaimPolicy": "Retain",
+      "storageClassName": "",
+      "volumeMode": "Filesystem"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "home",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "1Gi"
+        }
+      },
+      "storageClassName": "",
+      "volumeName": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b-home"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "workspace",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "20Gi"
+        }
+      },
+      "storageClassName": "local-nvme"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "data": {
+      "dashboard-session-token": "Zml4dHVyZS1kYXNoYm9hcmQtc2Vzc2lvbg==",
+      "execution-client-token": "Zml4dHVyZS1leGVjdXRpb24tY3JlZGVudGlhbA==",
+      "id_ed25519": "Zml4dHVyZS1zc2gtY2xpZW50",
+      "init-key": "Zml4dHVyZS1pbml0aWFsaXphdGlvbg=="
+    },
+    "kind": "Secret",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes-credentials",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "type": "Opaque"
+  },
+  {
+    "apiVersion": "v1",
+    "data": {
+      "ca-bundle": "YnVuZGxl",
+      "llm-key": "c2stZml4dHVyZQ=="
+    },
+    "kind": "Secret",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes-admin-secrets",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "type": "Opaque"
+  },
+  {
+    "apiVersion": "v1",
+    "data": {
+      "authorized-keys": "c3NoLWVkMjU1MTkgQUFBQWNsaWVudAo=",
+      "host-key": "Zml4dHVyZS13b3JrZXItaG9zdA=="
+    },
+    "kind": "Secret",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes-worker-keys",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "type": "Opaque"
+  },
+  {
+    "apiVersion": "v1",
+    "data": {
+      ".dockerconfigjson": "eyJhdXRocyI6e319"
+    },
+    "kind": "Secret",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes-registry-registry",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "type": "kubernetes.io/dockerconfigjson"
+  },
+  {
+    "apiVersion": "v1",
+    "data": {
+      "context.json": "{\"installationId\":\"7d6c0e1a-0000-4000-8000-000000000001\",\"instanceId\":\"0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b\",\"materialId\":\"00000000-0000-0000-0000-000000000002\",\"owner\":{\"issuer\":\"https://sso.example.org/realms/agents\",\"subject\":\"bob\"},\"schemaVersion\":1,\"template\":{\"id\":\"personal-default\",\"version\":1}}"
+    },
+    "kind": "ConfigMap",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes-owner",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "data": {
+      "native-config.json": "{\"plugins\":{\"enabled\":[\"managed_execution\"]},\"terminal\":{\"backend\":\"managed_execution\"}}"
+    },
+    "kind": "ConfigMap",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes-init",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "data": {
+      ".env": "TERMINAL_ENV=managed_execution\n",
+      "ca.crt": "-----BEGIN CERTIFICATE-----\nMIIBfixture\n-----END CERTIFICATE-----\n",
+      "config.yaml": "{\"model\":{\"provider\":\"custom\"},\"plugins\":{\"disabled\":[],\"enabled\":[\"managed_execution\"],\"entries\":{\"managed_execution\":{\"settings\":{\"acquire_timeout_seconds\":180,\"ca_file\":\"/run/hermes/execution-ca/ca.crt\",\"manager_url\":\"https://hermes-manager-api.hermes-system.svc:8443/execution\",\"mode\":\"per_profile_on_demand\",\"runtime_id\":\"python-tools\",\"ssh_key\":\"/run/hermes/credentials/id_ed25519\",\"token_file\":\"/run/hermes/credentials/execution-client-token\"}}}},\"terminal\":{\"backend\":\"managed_execution\",\"ssh_key\":\"/run/hermes/credentials/id_ed25519\"}}"
+    },
+    "kind": "ConfigMap",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes-trust",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 8080,
+          "protocol": "TCP",
+          "targetPort": "dashboard"
+        }
+      ],
+      "selector": {
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/component": "hermes"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "annotations": {
+        "agent-platform.io/desired-generation": "3"
+      },
+      "labels": {
+        "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+        "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+        "app.kubernetes.io/managed-by": "hermes-manager"
+      },
+      "name": "hermes",
+      "namespace": "hi-7d6c0e1a0000-0b7d4c1e2a3f4e5d8c6b7a9f0e1d2c3b"
+    },
+    "spec": {
+      "replicas": 1,
+      "revisionHistoryLimit": 2,
+      "selector": {
+        "matchLabels": {
+          "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+          "app.kubernetes.io/component": "hermes"
+        }
+      },
+      "strategy": {
+        "type": "Recreate"
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "agent-platform.io/config-digest": "9b153cb6a8753df0536eab6e1661c338987e6641a6914cefe75e4c47440027fb"
+          },
+          "labels": {
+            "agent-platform.io/installation": "7d6c0e1a-0000-4000-8000-000000000001",
+            "agent-platform.io/instance": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b",
+            "app.kubernetes.io/component": "hermes"
+          }
+        },
+        "spec": {
+          "automountServiceAccountToken": false,
+          "containers": [
+            {
+              "command": [
+                "/opt/hermes/.venv/bin/python",
+                "/usr/local/lib/personal-run.py"
+              ],
+              "env": [
+                {
+                  "name": "HOME",
+                  "value": "/opt/data"
+                },
+                {
+                  "name": "HERMES_HOME",
+                  "value": "/opt/data"
+                },
+                {
+                  "name": "HERMES_MANAGED_DIR",
+                  "value": "/run/hermes/execution-ca"
+                },
+                {
+                  "name": "HERMES_DASHBOARD_OIDC_ISSUER",
+                  "value": "https://sso.example.org/realms/agents"
+                },
+                {
+                  "name": "HERMES_DASHBOARD_OIDC_CLIENT_ID",
+                  "value": "hermes-native"
+                },
+                {
+                  "name": "HERMES_DASHBOARD_PUBLIC_URL",
+                  "value": "https://hermes.example.org/"
+                },
+                {
+                  "name": "HERMES_DASHBOARD_OIDC_SCOPES",
+                  "value": "openid profile email"
+                },
+                {
+                  "name": "HERMES_PERSONAL_INSTANCE_ID",
+                  "value": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b"
+                },
+                {
+                  "name": "API_SERVER_ENABLED",
+                  "value": "false"
+                },
+                {
+                  "name": "PYTHONDONTWRITEBYTECODE",
+                  "value": "1"
+                },
+                {
+                  "name": "OPENAI_API_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "llm-key",
+                      "name": "hermes-admin-secrets"
+                    }
+                  }
+                }
+              ],
+              "image": "ghcr.io/accelero/agent-platform/hermes@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "name": "hermes",
+              "ports": [
+                {
+                  "containerPort": 9119,
+                  "name": "dashboard",
+                  "protocol": "TCP"
+                }
+              ],
+              "readinessProbe": {
+                "periodSeconds": 5,
+                "tcpSocket": {
+                  "port": "dashboard"
+                }
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "1500m",
+                  "memory": "2Gi"
+                },
+                "requests": {
+                  "cpu": "1500m",
+                  "memory": "2Gi"
+                }
+              },
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "startupProbe": {
+                "failureThreshold": 60,
+                "periodSeconds": 5,
+                "tcpSocket": {
+                  "port": "dashboard"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/opt/data",
+                  "name": "hermes-home"
+                },
+                {
+                  "mountPath": "/tmp",
+                  "name": "hermes-tmp"
+                },
+                {
+                  "mountPath": "/run/hermes/owner",
+                  "name": "hermes-owner",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/run/hermes/execution-ca",
+                  "name": "hermes-trust",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/run/hermes/credentials",
+                  "name": "hermes-credentials",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/run/hermes/admin-secrets",
+                  "name": "hermes-admin-secrets",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/data/home",
+                  "name": "home",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/workspace",
+                  "name": "workspace",
+                  "readOnly": false
+                }
+              ]
+            }
+          ],
+          "enableServiceLinks": false,
+          "initContainers": [
+            {
+              "args": [
+                "--context",
+                "/run/hermes/owner/context.json"
+              ],
+              "command": [
+                "/opt/hermes/.venv/bin/python",
+                "/usr/local/lib/personal-init.py"
+              ],
+              "image": "ghcr.io/accelero/agent-platform/hermes@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "name": "native-home",
+              "resources": {
+                "limits": {
+                  "cpu": "1500m",
+                  "memory": "2Gi"
+                },
+                "requests": {
+                  "cpu": "1500m",
+                  "memory": "2Gi"
+                }
+              },
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "terminationMessagePath": "/tmp/native-init-result.json",
+              "terminationMessagePolicy": "File",
+              "volumeMounts": [
+                {
+                  "mountPath": "/opt/data",
+                  "name": "hermes-home"
+                },
+                {
+                  "mountPath": "/tmp",
+                  "name": "hermes-tmp"
+                },
+                {
+                  "mountPath": "/run/hermes/owner",
+                  "name": "hermes-owner",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/run/hermes/init",
+                  "name": "hermes-init",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "securityContext": {
+            "fsGroup": 1000,
+            "fsGroupChangePolicy": "OnRootMismatch",
+            "runAsGroup": 1000,
+            "runAsNonRoot": true,
+            "runAsUser": 1000,
+            "seccompProfile": {
+              "type": "RuntimeDefault"
+            }
+          },
+          "serviceAccountName": "hermes",
+          "terminationGracePeriodSeconds": 45,
+          "volumes": [
+            {
+              "name": "hermes-home",
+              "persistentVolumeClaim": {
+                "claimName": "hermes-home"
+              }
+            },
+            {
+              "emptyDir": {
+                "sizeLimit": "256Mi"
+              },
+              "name": "hermes-tmp"
+            },
+            {
+              "configMap": {
+                "name": "hermes-owner"
+              },
+              "name": "hermes-owner"
+            },
+            {
+              "configMap": {
+                "name": "hermes-trust"
+              },
+              "name": "hermes-trust"
+            },
+            {
+              "name": "hermes-init",
+              "projected": {
+                "defaultMode": 288,
+                "sources": [
+                  {
+                    "secret": {
+                      "items": [
+                        {
+                          "key": "init-key",
+                          "path": "init-key"
+                        }
+                      ],
+                      "name": "hermes-credentials"
+                    }
+                  },
+                  {
+                    "configMap": {
+                      "items": [
+                        {
+                          "key": "native-config.json",
+                          "path": "native-config.json"
+                        }
+                      ],
+                      "name": "hermes-init"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "hermes-credentials",
+              "secret": {
+                "defaultMode": 288,
+                "items": [
+                  {
+                    "key": "dashboard-session-token",
+                    "path": "dashboard-session-token"
+                  },
+                  {
+                    "key": "execution-client-token",
+                    "path": "execution-client-token"
+                  },
+                  {
+                    "key": "id_ed25519",
+                    "path": "id_ed25519"
+                  }
+                ],
+                "secretName": "hermes-credentials"
+              }
+            },
+            {
+              "name": "hermes-admin-secrets",
+              "secret": {
+                "defaultMode": 288,
+                "items": [
+                  {
+                    "key": "ca-bundle",
+                    "path": "ca-bundle"
+                  }
+                ],
+                "secretName": "hermes-admin-secrets"
+              }
+            },
+            {
+              "name": "home",
+              "persistentVolumeClaim": {
+                "claimName": "home"
+              }
+            },
+            {
+              "name": "workspace",
+              "persistentVolumeClaim": {
+                "claimName": "workspace"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]
