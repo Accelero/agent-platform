@@ -19,7 +19,11 @@ REPOSITORY = "https://github.com/Accelero/agent-platform"
 REGISTRY = "ghcr.io/accelero/agent-platform"
 CHART_REGISTRY = "oci://" + REGISTRY + "/charts"
 DIGEST = re.compile(r"sha256:[a-f0-9]{64}")
-VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+# MAJOR.MINOR.PATCH, or a development prerelease MAJOR.MINOR.PATCH-dev.N that
+# never collides with a stable version and is never resolved as the latest one.
+VERSION = re.compile(
+    r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-dev\.(?:0|[1-9][0-9]*))?"
+)
 
 
 def image_references(metadata: dict, registry: str) -> dict[str, str]:

@@ -41,13 +41,20 @@ def test_packaged_chart_has_pins_and_wiring_without_modifying_source(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "version", ["latest", "v0.1.0", "01.1.0", "../escape", "0.1", "0.1.0-beta"]
+    "version",
+    ["latest", "v0.1.0", "01.1.0", "../escape", "0.1", "0.1.0-beta", "0.7.0-dev.01"],
 )
 def test_invalid_version_never_runs_build_commands(version):
     with patch.object(release, "run") as run:
         with pytest.raises(ValueError, match="semantic version"):
             release.build(version, "a" * 40, publish=True)
         run.assert_not_called()
+
+
+def test_stable_and_development_versions_are_distinct():
+    for version in ("0.6.9", "0.7.0", "0.7.0-dev.0", "0.7.0-dev.12"):
+        assert release.VERSION.fullmatch(version), version
+    assert not release.VERSION.fullmatch("0.7.0-rc.1")
 
 
 @pytest.mark.parametrize("github_cache", [False, True])

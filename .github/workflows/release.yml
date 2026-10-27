@@ -45,7 +45,7 @@ jobs:
           import yaml
           from agent_platform.release import VERSION
           version = os.environ['GITHUB_REF_NAME'].removeprefix('v')
-          assert VERSION.fullmatch(version), 'Release tag must be vMAJOR.MINOR.PATCH'
+          assert VERSION.fullmatch(version), 'Release tag must be vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-dev.N'
           assert yaml.safe_load(Path('charts/agent-platform/Chart.yaml').read_text())['version'] == version
           assert tomllib.loads(Path('pyproject.toml').read_text())['project']['version'] == version
           PY
@@ -108,7 +108,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" --verify-tag \
+          # Development builds are prereleases, never the latest release.
+          PRERELEASE=()
+          case "$VERSION" in *-dev.*) PRERELEASE=(--prerelease --latest=false) ;; esac
+          gh release create "$GITHUB_REF_NAME" --verify-tag "${PRERELEASE[@]}" \
             --title "Agent platform $VERSION" \
             --notes "Self-contained application chart with pinned runtime images. The same chart package is attached here and published to GHCR. artifacts.json is informational." \
             ".local/releases/$VERSION/artifacts.json" \
