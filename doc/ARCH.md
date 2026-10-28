@@ -588,43 +588,51 @@ Each trigger names the domain rule it mirrors.
 
 ## Verification strategy
 
-Every requirement has a named test at the lowest level that can prove it.
-There are three levels.
+The [testing strategy](testing-strategy.md) specifies the required language-native
+unit, dependency integration and Python/pytest E2E layers, with k3d as the
+standard cluster fixture. Its fixture, isolation, obligation mapping, security,
+timing and candidate-gating rules are requirements for the test system. The
+[coverage assessment](testing-coverage.md) records current evidence and the
+[gap register](testing-gaps.md) identifies the refactors and additional cases.
+Do not interpret that target setup as already implemented.
 
-| Level | Where | Runs against | Proves | When |
-| --- | --- | --- | --- | --- |
-| Unit | `#[cfg(test)]` modules and `tests/` of each crate | Nothing external: pure code, in-memory port fakes, routers with fake use cases | Domain: transition tables, planners over every desired × observed case, lease rules, mount compatibility, overlap, eligibility, validators and `proptest` invariants. Application: the command envelope (grant, idempotency, audit) and the controller loop, including leader loss and injected crashes. Wire: every contract path, status, error code and header rule; gateway header and cookie stripping; WebSocket revocation timing | Every build |
-| Integration | Adapter and binary crate `tests/`; `tests/personal_hermes/kubernetes.py`; `tests/test_manager_chart.py` | One real dependency at a time: PostgreSQL, a disposable k3s API server, TLS/JWKS fixtures, an SSH stub, the compiled binaries | Shared port contract suites, run against both fakes and real adapters; SQL races; server-side apply idempotency; preconditioned deletes; admission policies with the real ServiceAccount; listener separation and configuration gates; SIGKILL at fault points | PostgreSQL and process tests per PR; k3s nightly and on adapter changes |
-| E2E | `tests/personal_hermes/*` system fixtures | k3s with the real Hermes and terminal images, a Keycloak container, a fake model and a private registry | The acceptance matrix rows that need a cluster, real Hermes or real OIDC: two owners, the gateway, chat, uploads and cron, settings and secrets, shared and static volumes, terminal backends and registries, outages, suspend and re-enable, restore with `rebind-cluster` and orphans | Nightly and before release |
+Current test implementation:
 
-Supporting practices:
+| Level | Existing runner and proving boundary | Current execution |
+| --- | --- | --- |
+| Unit | Cargo domain/application fakes, finite planner state-grid and targeted transition tests; pytest Python runtime/plugin/release/privacy units; Vitest UI logic | PRs and main commits; Cargo also runs external-dependency tests in the same workspace invocation |
+| Integration | Shared store cases on memory and PostgreSQL; actual HTTP/TLS/OIDC/SSH fixtures; binary abort tests; runtime-image checks; chart/render/golden comparisons; mocked UI browser workflows and the separate production-server CSP case | PR/main jobs; PostgreSQL and selected explicitly ignored/feature-gated tests need their dedicated commands |
+| E2E | The standalone Python native scenario installs the chart and reaches real Hermes through the gateway with Keycloak, a fake model and a private registry; restores onto a second cluster | The native CI job runs the script through the direct single-server k3s fixture on PRs/main. It is not collected by pytest; k3d is only an optional adapter-runner path |
 
-- **Port contract suites.** Each port has one reusable suite, written once
-  next to the port. It runs at unit level against the fake and at integration
-  level against the real adapter, so the fakes stay honest.
-- **Fault injection.** A test-only `fault-injection` feature aborts the
-  process at named points: before and after apply, after a material insert,
-  after a delete, before a status write, and before and after an envelope
-  commit. Unit tests run every planner scenario with a crash at every point.
-  Integration tests abort the real `api` and `controller` processes at each
-  point. A build test proves the feature is absent from release images.
-- **Traceability.** `services/hermes-manager/TESTS.md` maps every
-  requirement, acceptance scenario and contract operation to tests and their
-  level. CI fails on unmapped rows or missing test names.
-- **Test data.** Contract cases build state through commands and ports; only
-  the database guard tests write SQL directly, to prove the triggers refuse it.
-- **Golden files.** Rendered manifests, admission output and error tables
-  change only with `UPDATE_GOLDEN=1`.
-- **CI.** `.github/workflows/checks.yml` runs on pull requests and pushes to
-  `main`:
-  - `checks`: Python lint, format and tests, Helm lint, the rendered manager
-    deployment and the privacy preflight;
-  - `hermes-manager`: dashboard checks and Chromium tests, Rust format,
-    Clippy and the workspace tests with PostgreSQL, the API abort tests with
-    `fault-injection`, the production dashboard under its CSP, and the k3s
-    suite;
-  - `hermes-manager-image`: the reviewed image build and its non-root check;
-  - `hermes-personal-native-runtime`: the Hermes runtime tests, the native
-    owner pin, and the full native end-to-end run.
+Existing mechanisms and their limits:
 
-  Tags run the release workflow; pushes to `main` warm the build caches.
+- **Shared store contracts.** One macro instantiates the common application/store
+  cases for the in-memory and PostgreSQL stores. Other external ports have
+  focused adapter tests; there is not one generic conformance suite for every port.
+- **Fault injection.** The test-only feature aborts the API around envelope
+  commit and the controller at material/apply/status/delete boundaries. The
+  process tests prove those locations; this is not a claim that every worker,
+  lease or concurrent leader interleaving is tested. Release builds exclude
+  the feature.
+- **Traceability.** `services/hermes-manager/TESTS.md` maps requirement,
+  acceptance and operation rows to named functions. Architecture tests enforce
+  row/name consistency, but do not validate actual collection/execution,
+  parameter coverage or every clause/status/header combination.
+- **Planner coverage.** A finite desired/observed state-grid test and targeted
+  cases exist. Property-generation, fuzz and mutation infrastructure is not
+  currently implemented.
+- **Golden files.** Rendered manifests, admission and chart/config fixtures are
+  reviewed outputs; supported tests update them only with `UPDATE_GOLDEN=1`.
+  Golden agreement complements real authorization and packet-level tests.
+- **CI.** `.github/workflows/checks.yml` runs Python/chart/privacy checks,
+  dashboard and Rust suites, binary/image/runtime checks, Kubernetes adapter
+  and controller-process checks, and the full native system script on PRs and
+  pushes to `main`. No scheduled extended/soak profile exists there.
+  Tag publication has separate Python/build smoke checks and does not yet
+  require full cluster evidence for the exact candidate; this is tracked in G20.
+
+The [current verification commands](personal-hermes/implementation.md#verification-commands)
+remain valid until their replacements are implemented. The standard pytest/k3d
+setup, independent reporting and extended profiles must not be advertised as
+working commands or passing evidence before the gap register's completion
+criteria are met.

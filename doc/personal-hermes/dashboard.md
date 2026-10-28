@@ -338,7 +338,13 @@ MANAGER_UI_DIST="$PWD/ui/dist" DATABASE_URL=postgres://hermes_test@127.0.0.1:543
   cargo test -p hermes-http --test dashboard_browser --locked -- --ignored
 ```
 
-These fixtures do not provision a deployed Keycloak realm.
+These fixtures do not provision a deployed Keycloak realm. The presentation
+tests mock the API; the production case injects session cookies created by the
+Rust fixture. They do not prove a real browser login-to-commissioning journey
+through the installed chart. The [testing strategy](../testing-strategy.md)
+requires Python/pytest browser E2E on k3d while preserving these frontend
+unit/integration tests. See [G13 in the gap register](../testing-gaps.md#g13--real-browser-and-native-workflow-coverage)
+for the missing browser scenarios.
 
 `npm run dev` starts the Vite development server. For authenticated hot reload,
 serve it over HTTPS with `MANAGER_DEV_TLS_CERT_FILE` and `MANAGER_DEV_TLS_KEY_FILE`
