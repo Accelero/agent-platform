@@ -9,6 +9,8 @@ import yaml
 
 from agent_platform import build, privacy, release
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def inputs(tmp_path):
@@ -65,6 +67,7 @@ def test_untracked_private_prompts_and_credentials_never_enter_contexts(inputs):
         b"-----BEGIN " + b"PRIVATE KEY-----",
         b"alice@company.com",
     ],
+    ids=["github-token", "provider-token", "private-key", "personal-identity"],
 )
 def test_sensitive_payload_fails_before_staging_without_echoing_values(inputs, payload):
     root, target = inputs

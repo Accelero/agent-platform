@@ -35,7 +35,10 @@ def main() -> None:
                 }
             )
         )
-        with patch.object(policy, "MANAGED_DIR", managed):
+        with (
+            patch.object(policy, "MANAGED_DIR", managed),
+            patch.dict(os.environ, {"HERMES_MANAGED_DIR": str(managed)}),
+        ):
             verify_plugin_and_initializer()
             managed_policy_binds_new_profiles()
     print(

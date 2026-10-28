@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+pytestmark = pytest.mark.integration
+
 ROOT = Path(__file__).resolve().parents[1]
 CRATES = ROOT / "services/hermes-manager/crates"
 RENDER_GOLDEN = CRATES / "hermes-render/tests/golden"

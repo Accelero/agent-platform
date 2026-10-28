@@ -8,6 +8,8 @@ import pytest
 import yaml
 from openapi_spec_validator import validate
 
+pytestmark = pytest.mark.unit
+
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = ROOT / "contracts/hermes-manager"
 

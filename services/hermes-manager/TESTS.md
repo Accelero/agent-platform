@@ -2,13 +2,17 @@
 
 Every requirement and acceptance scenario in the
 [specification](../../doc/SPEC.md) and every operation
-in the OpenAPI contracts under `contracts/hermes-manager/` has a row here. A row names the
-tests that prove it and the level they run at (unit, integration or e2e; see
+in the OpenAPI contracts under `contracts/hermes-manager/` has a row here. Operational
+bounds have their own table. A row names tests exercising examples and the
+level they run at (unit, integration or e2e; see
 the [verification strategy](../../doc/ARCH.md#verification-strategy)).
 
 The `hermes-architecture` traceability tests enforce this file:
 
-- the row sets must equal the specification's and contracts' current sets;
+- the row sets must equal the specification's and contracts' current sets,
+  including all nine operational bounds;
+- interface identities include contract filename, operation ID and method/path;
+  duplicate rows and duplicate operation IDs within a contract fail;
 - every named test must exist as a Rust `fn` in this workspace or a Python
   `def` under `tests/`;
 - `pass` and `partial` rows must name at least one test.
@@ -17,8 +21,18 @@ Statuses:
 
 - `pending`: not implemented;
 - `partial`: some cases proven;
-- `pass`: proven at the named levels;
+- `pass`: cited examples at the named levels; not exhaustive clause coverage
+  or an execution receipt for a particular run;
 - `manual`: needs an environment CI does not have; the procedure is linked.
+
+The [execution ledger](../../tests/verification/README.md) adds exact compiled
+Cargo and collected pytest identities, reviewed levels, profile-specific gates,
+and sanitized JSON/JUnit outcomes. CI requires collection and passing execution
+for the Python, Rust workspace, fault, production-browser, Kubernetes adapter
+and controller-process profiles. Source helpers from the standalone native
+scripts remain explicitly uncollected G01 entries; their existence never counts
+as a collected result. TypeScript and the native system script retain their
+existing jobs. Full clause/interface variant mapping remains G03 work.
 
 ## Requirements
 
@@ -35,7 +49,7 @@ Statuses:
 | R9 | Suspend and revoke bounds; data retained | `suspension_stops_then_retains_and_reenabling_reuses_everything`, `stopping_scales_down_waits_for_pods_and_workers_then_deletes_exactly_what_it_saw`, `the_controller_commissions_and_stops_an_instance_through_the_real_api`, `decisions_follow_access_and_readiness_without_waiting_for_the_controller`, `ready_decisions_are_cached_per_session_for_the_cache_lifetime_only`, `open_websockets_close_when_access_changes_within_the_bound`, `streamed_responses_end_when_access_is_revoked`, `default_timing_meets_the_specified_bounds`, `suspension_closes_open_connections_and_reenabling_keeps_data`, `outages_and_provider_revocation_fail_closed_within_the_bounds` | unit, integration, e2e | pass |
 | R10 | Admin settings precedence | `drafts_are_versioned_and_publication_validates_settings`, `assignments_commission_one_instance_and_changes_are_versioned`, `credentials_go_only_where_they_are_used`, `rendering_is_deterministic_and_restarts_only_for_pod_inputs`, `chat_settings_and_the_admin_secret_reach_only_the_referencing_instance` | unit, integration, e2e | pass |
 | R11 | Admin secrets delivered only to referencing instances, never returned | `secrets_are_sealed_versions_with_a_fixed_kind`, `referenced_secrets_cannot_be_deleted_and_new_versions_restart_users`, `secrets_are_write_only_sealed_to_the_controller_and_kept_while_used`, `only_the_controller_key_opens_and_only_for_the_same_secret`, `secrets_are_delivered_opened_at_their_latest_version`, `admin_secrets_sealed_by_the_api_open_in_the_vault`, `chat_settings_and_the_admin_secret_reach_only_the_referencing_instance` | unit, integration, e2e | pass |
-| R12 | Terminal backend allowlist; no fallback | `only_published_versions_can_be_newly_selected`, `terminal_backends_share_the_catalog_lifecycle`, `backends_resolve_only_within_the_assignment`, `only_the_assignments_backends_and_mode_are_served`, `drain_triggers_follow_the_specification`, `workers_refuse_backends_outside_the_contract`, `a_failing_worker_drains_with_its_reason_and_is_never_replaced`, `a_failed_worker_is_reported_and_never_replaced`, `a_failed_backend_is_refused_with_its_contract_error`, `a_worker_whose_image_cannot_be_pulled_is_reported_as_unavailable`, `a_hermes_without_browser_traffic_acquires_a_terminal_backend`, `bobs_backends_share_the_workspace_and_idle_workers_retire`, `a_backend_change_keeps_active_leases_and_drains_superseded_environments`, `a_private_backend_pulls_with_its_registry_secret_and_reports_failures`, `chat_settings_and_the_admin_secret_reach_only_the_referencing_instance`, `test_workers_start_in_the_workspace_unless_a_directory_is_declared`, `test_terminal_policy_is_required_without_owner_or_environment_markers`, `test_mounted_terminal_policy_applies_despite_changed_environment` | unit, integration, e2e | pass |
+| R12 | Terminal backend allowlist; no fallback | `only_published_versions_can_be_newly_selected`, `terminal_backends_share_the_catalog_lifecycle`, `backends_resolve_only_within_the_assignment`, `only_the_assignments_backends_and_mode_are_served`, `drain_triggers_follow_the_specification`, `workers_refuse_backends_outside_the_contract`, `a_failing_worker_drains_with_its_reason_and_is_never_replaced`, `a_failed_worker_is_reported_and_never_replaced`, `a_failed_backend_is_refused_with_its_contract_error`, `a_worker_whose_image_cannot_be_pulled_is_reported_as_unavailable`, `a_hermes_without_browser_traffic_acquires_a_terminal_backend`, `bobs_backends_share_the_workspace_and_idle_workers_retire`, `a_backend_change_keeps_active_leases_and_drains_superseded_environments`, `a_private_backend_pulls_with_its_registry_secret_and_reports_failures`, `chat_settings_and_the_admin_secret_reach_only_the_referencing_instance`, `test_workers_start_in_the_workspace_unless_a_directory_is_declared`, `test_terminal_policy_is_required`, `test_mounted_terminal_policy_applies_despite_changed_environment` | unit, integration, e2e | pass |
 | R13 | Storage from approved sources; no overlap; no user mounts; private home never in workers | `owner_paths_never_overlap_even_concurrently`, `mount_rules_are_enforced_when_saving`, `publication_refuses_definitions_the_installation_cannot_honour`, `volumes_use_their_sources_and_mounts_follow_the_template`, `admission_and_rbac_refuse_what_the_controller_must_never_write`, `workers_mount_only_bound_slots_with_the_instance_keys`, `published_versions_commission_ready_instances_from_the_api`, `dynamic_claims_bind_when_the_scheduler_places_the_hermes_pod`, `a_failed_volume_mount_blocks_with_a_storage_condition_and_keeps_applying`, `a_missing_static_directory_blocks_until_it_can_be_mounted`, `a_missing_static_directory_blocks_without_a_substitute`, `another_owners_path_cannot_be_assigned`, `bobs_backends_share_the_workspace_and_idle_workers_retire`, `uploads_reach_only_the_owners_private_home` | unit, integration, e2e | pass |
 | R14 | Shared volumes: same path and data identity | `bob_gets_a_shared_workspace_and_his_network_home`, `mount_rules_are_enforced_when_saving`, `workers_mount_only_bound_slots_with_the_instance_keys`, `published_versions_commission_ready_instances_from_the_api`, `a_hermes_without_browser_traffic_acquires_a_terminal_backend`, `bobs_backends_share_the_workspace_and_idle_workers_retire` | unit, integration, e2e | pass |
 | R15 | Only the controller holds Kubernetes credentials; static admission | `admission_and_rbac_refuse_what_the_controller_must_never_write`, `rbac_and_policies_are_valid_objects`, `the_controller_applies_an_instance_idempotently_under_admission`, `explicit_context_and_credential_references_cannot_fall_back`, `executable_kubeconfig_is_rejected_without_running_its_command`, `kubernetes_access_is_explicit_and_takes_no_inline_secret`, `published_versions_commission_ready_instances_from_the_api`, `dynamic_claims_bind_when_the_scheduler_places_the_hermes_pod`, `only_the_controller_holds_kubernetes_credentials_and_logs_hold_no_secrets` | unit, integration, e2e | pass |
@@ -76,63 +90,81 @@ Statuses:
 
 These rows track the contracts in `contracts/hermes-manager/`.
 
-| Operation | Contract | Tests | Status |
-| --- | --- | --- | --- |
-| `DELETE /api/v1/secrets/{secretName}` | `openapi.yaml` | `secrets_are_write_only_sealed_to_the_controller_and_kept_while_used` | pass |
-| `GET /_platform/healthz` | `gateway.openapi.yaml` | `requests_without_a_valid_session_reach_nothing` | pass |
-| `GET /_platform/login` | `gateway.openapi.yaml` | `two_owners_on_one_hostname_reach_only_their_own_instances` | pass |
-| `GET /_platform/me` | `gateway.openapi.yaml` | `two_owners_on_one_hostname_reach_only_their_own_instances`, `logout_ends_the_session_and_expires_every_cookie_even_when_the_instance_is_down` | pass |
-| `GET /_platform/oidc/callback` | `gateway.openapi.yaml` | `two_owners_on_one_hostname_reach_only_their_own_instances` | pass |
-| `GET /_platform/signed-out` | `gateway.openapi.yaml` | `logout_ends_the_session_and_expires_every_cookie_even_when_the_instance_is_down` | pass |
-| `GET /api/v1/administrator-candidates` | `openapi.yaml` | `administrator_grants_need_a_verified_identity_and_a_manager`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/administrators/{identityId}` | `openapi.yaml` | `administrator_grants_need_a_verified_identity_and_a_manager` | pass |
-| `GET /api/v1/administrators` | `openapi.yaml` | `administrator_grants_need_a_verified_identity_and_a_manager`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/assignments/{assignmentId}` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
-| `GET /api/v1/assignments` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned`, `requests_are_strict_and_refusals_never_echo_input`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/audit-events/{eventId}` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
-| `GET /api/v1/audit-events` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned`, `secrets_are_write_only_sealed_to_the_controller_and_kept_while_used`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/directory-users` | `openapi.yaml` | `directory_lookup_is_optional_and_failures_are_not_empty`, `without_a_directory_lookup_reports_it_disabled`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/identities/{identityId}` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
-| `GET /api/v1/identities` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/instances/{instanceId}/environments` | `openapi.yaml` | `instance_environments_are_listed_without_keys_or_addresses` | pass |
-| `GET /api/v1/instances/{instanceId}` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
-| `GET /api/v1/orphans` | `openapi.yaml` | `orphans_are_listed_as_the_controller_last_recorded_them`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/secrets` | `openapi.yaml` | `secrets_are_write_only_sealed_to_the_controller_and_kept_while_used`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/session` | `openapi.yaml` | `bearer_administrators_get_their_session_without_csrf`, `session_matches_the_administration_contract` | pass |
-| `GET /api/v1/storage-sources` | `openapi.yaml` | `without_a_directory_lookup_reports_it_disabled`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/templates/{catalogId}/versions/{version}` | `openapi.yaml` | `templates_move_from_draft_to_published_to_withdrawn` | pass |
-| `GET /api/v1/templates/{catalogId}/versions` | `openapi.yaml` | `templates_move_from_draft_to_published_to_withdrawn` | pass |
-| `GET /api/v1/templates` | `openapi.yaml` | `templates_move_from_draft_to_published_to_withdrawn`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/terminal-backends/{catalogId}/versions/{version}` | `openapi.yaml` | `terminal_backends_share_the_catalog_lifecycle` | pass |
-| `GET /api/v1/terminal-backends/{catalogId}/versions` | `openapi.yaml` | `terminal_backends_share_the_catalog_lifecycle` | pass |
-| `GET /api/v1/terminal-backends` | `openapi.yaml` | `terminal_backends_share_the_catalog_lifecycle`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /api/v1/volumes` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
-| `GET /auth/login` | `openapi.yaml` | `browser_sessions_carry_csrf_and_logout_needs_origin_and_token` | pass |
-| `GET /auth/oidc/callback` | `openapi.yaml` | `browser_sessions_carry_csrf_and_logout_needs_origin_and_token`, `identities_without_a_grant_cannot_create_a_browser_session` | pass |
-| `GET /execution/v1/environments` | `execution.openapi.yaml` | `the_plugin_acquires_renews_releases_and_closes_through_the_contract`, `credentials_scope_and_strictness_are_enforced`, `closing_a_session_drains_its_environment_and_waits_for_retirement` | pass |
-| `PATCH /api/v1/administrators/{identityId}` | `openapi.yaml` | `administrator_grants_need_a_verified_identity_and_a_manager` | pass |
-| `PATCH /api/v1/assignments/{assignmentId}` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned`, `requests_are_strict_and_refusals_never_echo_input` | pass |
-| `PATCH /api/v1/templates/{catalogId}/versions/{version}` | `openapi.yaml` | `templates_move_from_draft_to_published_to_withdrawn` | pass |
-| `PATCH /api/v1/terminal-backends/{catalogId}/versions/{version}` | `openapi.yaml` | `terminal_backends_share_the_catalog_lifecycle` | pass |
-| `POST /_platform/logout` | `gateway.openapi.yaml` | `platform_logout_needs_origin_and_csrf_and_expires_native_cookies` | pass |
-| `POST /api/v1/administrators` | `openapi.yaml` | `administrator_grants_need_a_verified_identity_and_a_manager` | pass |
-| `POST /api/v1/assignment-rollouts` | `openapi.yaml` | `rollouts_report_each_assignment_on_its_own` | pass |
-| `POST /api/v1/assignments/{assignmentId}/preview` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
-| `POST /api/v1/assignments/{assignmentId}/retry` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
-| `POST /api/v1/assignments` | `openapi.yaml` | `assignments_commission_one_instance_and_changes_are_versioned`, `requests_are_strict_and_refusals_never_echo_input` | pass |
-| `POST /api/v1/templates/validate` | `openapi.yaml` | `templates_move_from_draft_to_published_to_withdrawn` | pass |
-| `POST /api/v1/templates/{catalogId}/versions/{version}/publish` | `openapi.yaml` | `templates_move_from_draft_to_published_to_withdrawn`, `publication_refuses_definitions_the_installation_cannot_honour` | pass |
-| `POST /api/v1/templates/{catalogId}/versions/{version}/withdraw` | `openapi.yaml` | `templates_move_from_draft_to_published_to_withdrawn` | pass |
-| `POST /api/v1/templates/{catalogId}/versions` | `openapi.yaml` | `templates_move_from_draft_to_published_to_withdrawn`, `publication_refuses_definitions_the_installation_cannot_honour` | pass |
-| `POST /api/v1/terminal-backends/validate` | `openapi.yaml` | `publication_refuses_definitions_the_installation_cannot_honour` | pass |
-| `POST /api/v1/terminal-backends/{catalogId}/versions/{version}/publish` | `openapi.yaml` | `terminal_backends_share_the_catalog_lifecycle`, `rollouts_report_each_assignment_on_its_own` | pass |
-| `POST /api/v1/terminal-backends/{catalogId}/versions/{version}/withdraw` | `openapi.yaml` | `terminal_backends_share_the_catalog_lifecycle` | pass |
-| `POST /api/v1/terminal-backends/{catalogId}/versions` | `openapi.yaml` | `terminal_backends_share_the_catalog_lifecycle`, `rollouts_report_each_assignment_on_its_own` | pass |
-| `POST /auth/logout` | `openapi.yaml` | `browser_sessions_carry_csrf_and_logout_needs_origin_and_token` | pass |
-| `POST /auth/logout` | `gateway.openapi.yaml` | `logout_ends_the_session_and_expires_every_cookie_even_when_the_instance_is_down` | pass |
-| `POST /execution/v1/leases/acquire` | `execution.openapi.yaml` | `the_plugin_acquires_renews_releases_and_closes_through_the_contract`, `credentials_scope_and_strictness_are_enforced`, `acquisition_waits_for_a_ready_environment_then_grants_and_replays`, `only_the_assignments_backends_and_mode_are_served`, `parent_leases_join_only_live_leases_in_the_same_environment`, `each_instance_holds_a_bounded_number_of_environments` | pass |
-| `POST /execution/v1/leases/heartbeat` | `execution.openapi.yaml` | `the_plugin_acquires_renews_releases_and_closes_through_the_contract`, `leases_renew_release_and_expire_by_database_time_and_never_revive` | pass |
-| `POST /execution/v1/leases/release` | `execution.openapi.yaml` | `the_plugin_acquires_renews_releases_and_closes_through_the_contract`, `leases_renew_release_and_expire_by_database_time_and_never_revive` | pass |
-| `POST /execution/v1/sessions/close` | `execution.openapi.yaml` | `the_plugin_acquires_renews_releases_and_closes_through_the_contract`, `closing_a_session_drains_its_environment_and_waits_for_retirement` | pass |
-| `POST /internal/v1/routes/resolve` | `router.openapi.yaml` | `the_resolver_routes_only_for_the_gateway_by_exact_identity`, `resolver_requests_are_strict_and_never_reflected`, `a_stalled_registry_is_unavailable_within_the_deadline`, `route_decisions_match_the_router_contract`, `api_serves_from_the_registry_across_an_abrupt_kill` | pass |
-| `PUT /api/v1/secrets/{secretName}` | `openapi.yaml` | `secrets_are_write_only_sealed_to_the_controller_and_kept_while_used`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| Operation | Contract | Operation ID | Tests | Status |
+| --- | --- | --- | --- | --- |
+| `DELETE /api/v1/secrets/{secretName}` | `openapi.yaml` | `deleteSecret` | `secrets_are_write_only_sealed_to_the_controller_and_kept_while_used` | pass |
+| `GET /_platform/healthz` | `gateway.openapi.yaml` | `gatewayHealth` | `requests_without_a_valid_session_reach_nothing` | pass |
+| `GET /_platform/login` | `gateway.openapi.yaml` | `beginPlatformLogin` | `two_owners_on_one_hostname_reach_only_their_own_instances` | pass |
+| `GET /_platform/me` | `gateway.openapi.yaml` | `getPlatformSession` | `two_owners_on_one_hostname_reach_only_their_own_instances`, `logout_ends_the_session_and_expires_every_cookie_even_when_the_instance_is_down` | pass |
+| `GET /_platform/oidc/callback` | `gateway.openapi.yaml` | `completePlatformLogin` | `two_owners_on_one_hostname_reach_only_their_own_instances` | pass |
+| `GET /_platform/signed-out` | `gateway.openapi.yaml` | `platformSignedOut` | `logout_ends_the_session_and_expires_every_cookie_even_when_the_instance_is_down` | pass |
+| `GET /api/v1/administrator-candidates` | `openapi.yaml` | `listAdministratorCandidates` | `administrator_grants_need_a_verified_identity_and_a_manager`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/administrators/{identityId}` | `openapi.yaml` | `getAdministrator` | `administrator_grants_need_a_verified_identity_and_a_manager` | pass |
+| `GET /api/v1/administrators` | `openapi.yaml` | `listAdministrators` | `administrator_grants_need_a_verified_identity_and_a_manager`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/assignments/{assignmentId}` | `openapi.yaml` | `getAssignment` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
+| `GET /api/v1/assignments` | `openapi.yaml` | `listAssignments` | `assignments_commission_one_instance_and_changes_are_versioned`, `requests_are_strict_and_refusals_never_echo_input`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/audit-events/{eventId}` | `openapi.yaml` | `getAuditEvent` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
+| `GET /api/v1/audit-events` | `openapi.yaml` | `listAuditEvents` | `assignments_commission_one_instance_and_changes_are_versioned`, `secrets_are_write_only_sealed_to_the_controller_and_kept_while_used`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/directory-users` | `openapi.yaml` | `searchDirectory` | `directory_lookup_is_optional_and_failures_are_not_empty`, `without_a_directory_lookup_reports_it_disabled`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/identities/{identityId}` | `openapi.yaml` | `getIdentity` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
+| `GET /api/v1/identities` | `openapi.yaml` | `listIdentities` | `assignments_commission_one_instance_and_changes_are_versioned`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/instances/{instanceId}/environments` | `openapi.yaml` | `listEnvironments` | `instance_environments_are_listed_without_keys_or_addresses` | pass |
+| `GET /api/v1/instances/{instanceId}` | `openapi.yaml` | `getInstance` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
+| `GET /api/v1/orphans` | `openapi.yaml` | `listOrphans` | `orphans_are_listed_as_the_controller_last_recorded_them`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/secrets` | `openapi.yaml` | `listSecrets` | `secrets_are_write_only_sealed_to_the_controller_and_kept_while_used`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/session` | `openapi.yaml` | `getSession` | `bearer_administrators_get_their_session_without_csrf`, `session_matches_the_administration_contract` | pass |
+| `GET /api/v1/storage-sources` | `openapi.yaml` | `listStorageSources` | `without_a_directory_lookup_reports_it_disabled`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/templates/{catalogId}/versions/{version}` | `openapi.yaml` | `getTemplateVersion` | `templates_move_from_draft_to_published_to_withdrawn` | pass |
+| `GET /api/v1/templates/{catalogId}/versions` | `openapi.yaml` | `listTemplateVersions` | `templates_move_from_draft_to_published_to_withdrawn` | pass |
+| `GET /api/v1/templates` | `openapi.yaml` | `listTemplates` | `templates_move_from_draft_to_published_to_withdrawn`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/terminal-backends/{catalogId}/versions/{version}` | `openapi.yaml` | `getTerminalBackendVersion` | `terminal_backends_share_the_catalog_lifecycle` | pass |
+| `GET /api/v1/terminal-backends/{catalogId}/versions` | `openapi.yaml` | `listTerminalBackendVersions` | `terminal_backends_share_the_catalog_lifecycle` | pass |
+| `GET /api/v1/terminal-backends` | `openapi.yaml` | `listTerminalBackends` | `terminal_backends_share_the_catalog_lifecycle`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /api/v1/volumes` | `openapi.yaml` | `listVolumes` | `assignments_commission_one_instance_and_changes_are_versioned`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+| `GET /auth/login` | `openapi.yaml` | `beginAdministratorLogin` | `browser_sessions_carry_csrf_and_logout_needs_origin_and_token` | pass |
+| `GET /auth/oidc/callback` | `openapi.yaml` | `completeAdministratorLogin` | `browser_sessions_carry_csrf_and_logout_needs_origin_and_token`, `identities_without_a_grant_cannot_create_a_browser_session` | pass |
+| `GET /execution/v1/environments` | `execution.openapi.yaml` | `listNativeExecutionEnvironments` | `the_plugin_acquires_renews_releases_and_closes_through_the_contract`, `credentials_scope_and_strictness_are_enforced`, `closing_a_session_drains_its_environment_and_waits_for_retirement` | pass |
+| `PATCH /api/v1/administrators/{identityId}` | `openapi.yaml` | `updateAdministrator` | `administrator_grants_need_a_verified_identity_and_a_manager` | pass |
+| `PATCH /api/v1/assignments/{assignmentId}` | `openapi.yaml` | `updateAssignment` | `assignments_commission_one_instance_and_changes_are_versioned`, `requests_are_strict_and_refusals_never_echo_input` | pass |
+| `PATCH /api/v1/templates/{catalogId}/versions/{version}` | `openapi.yaml` | `editTemplateDraft` | `templates_move_from_draft_to_published_to_withdrawn` | pass |
+| `PATCH /api/v1/terminal-backends/{catalogId}/versions/{version}` | `openapi.yaml` | `editTerminalBackendDraft` | `terminal_backends_share_the_catalog_lifecycle` | pass |
+| `POST /_platform/logout` | `gateway.openapi.yaml` | `logoutPlatform` | `platform_logout_needs_origin_and_csrf_and_expires_native_cookies` | pass |
+| `POST /api/v1/administrators` | `openapi.yaml` | `grantAdministrator` | `administrator_grants_need_a_verified_identity_and_a_manager` | pass |
+| `POST /api/v1/assignment-rollouts` | `openapi.yaml` | `rolloutTemplate` | `rollouts_report_each_assignment_on_its_own` | pass |
+| `POST /api/v1/assignments/{assignmentId}/preview` | `openapi.yaml` | `previewAssignment` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
+| `POST /api/v1/assignments/{assignmentId}/retry` | `openapi.yaml` | `retryAssignment` | `assignments_commission_one_instance_and_changes_are_versioned` | pass |
+| `POST /api/v1/assignments` | `openapi.yaml` | `createAssignment` | `assignments_commission_one_instance_and_changes_are_versioned`, `requests_are_strict_and_refusals_never_echo_input` | pass |
+| `POST /api/v1/templates/validate` | `openapi.yaml` | `validateTemplate` | `templates_move_from_draft_to_published_to_withdrawn` | pass |
+| `POST /api/v1/templates/{catalogId}/versions/{version}/publish` | `openapi.yaml` | `publishTemplate` | `templates_move_from_draft_to_published_to_withdrawn`, `publication_refuses_definitions_the_installation_cannot_honour` | pass |
+| `POST /api/v1/templates/{catalogId}/versions/{version}/withdraw` | `openapi.yaml` | `withdrawTemplate` | `templates_move_from_draft_to_published_to_withdrawn` | pass |
+| `POST /api/v1/templates/{catalogId}/versions` | `openapi.yaml` | `createTemplateDraft` | `templates_move_from_draft_to_published_to_withdrawn`, `publication_refuses_definitions_the_installation_cannot_honour` | pass |
+| `POST /api/v1/terminal-backends/validate` | `openapi.yaml` | `validateTerminalBackend` | `publication_refuses_definitions_the_installation_cannot_honour` | pass |
+| `POST /api/v1/terminal-backends/{catalogId}/versions/{version}/publish` | `openapi.yaml` | `publishTerminalBackend` | `terminal_backends_share_the_catalog_lifecycle`, `rollouts_report_each_assignment_on_its_own` | pass |
+| `POST /api/v1/terminal-backends/{catalogId}/versions/{version}/withdraw` | `openapi.yaml` | `withdrawTerminalBackend` | `terminal_backends_share_the_catalog_lifecycle` | pass |
+| `POST /api/v1/terminal-backends/{catalogId}/versions` | `openapi.yaml` | `createTerminalBackendDraft` | `terminal_backends_share_the_catalog_lifecycle`, `rollouts_report_each_assignment_on_its_own` | pass |
+| `POST /auth/logout` | `openapi.yaml` | `logoutAdministrator` | `browser_sessions_carry_csrf_and_logout_needs_origin_and_token` | pass |
+| `POST /auth/logout` | `gateway.openapi.yaml` | `logoutNative` | `logout_ends_the_session_and_expires_every_cookie_even_when_the_instance_is_down` | pass |
+| `POST /execution/v1/leases/acquire` | `execution.openapi.yaml` | `acquireExecutionLease` | `the_plugin_acquires_renews_releases_and_closes_through_the_contract`, `credentials_scope_and_strictness_are_enforced`, `acquisition_waits_for_a_ready_environment_then_grants_and_replays`, `only_the_assignments_backends_and_mode_are_served`, `parent_leases_join_only_live_leases_in_the_same_environment`, `each_instance_holds_a_bounded_number_of_environments` | pass |
+| `POST /execution/v1/leases/heartbeat` | `execution.openapi.yaml` | `heartbeatExecutionLease` | `the_plugin_acquires_renews_releases_and_closes_through_the_contract`, `leases_renew_release_and_expire_by_database_time_and_never_revive` | pass |
+| `POST /execution/v1/leases/release` | `execution.openapi.yaml` | `releaseExecutionLease` | `the_plugin_acquires_renews_releases_and_closes_through_the_contract`, `leases_renew_release_and_expire_by_database_time_and_never_revive` | pass |
+| `POST /execution/v1/sessions/close` | `execution.openapi.yaml` | `closeExecutionSession` | `the_plugin_acquires_renews_releases_and_closes_through_the_contract`, `closing_a_session_drains_its_environment_and_waits_for_retirement` | pass |
+| `POST /internal/v1/routes/resolve` | `router.openapi.yaml` | `resolvePersonalHermesRoute` | `the_resolver_routes_only_for_the_gateway_by_exact_identity`, `resolver_requests_are_strict_and_never_reflected`, `a_stalled_registry_is_unavailable_within_the_deadline`, `route_decisions_match_the_router_contract`, `api_serves_from_the_registry_across_an_abrupt_kill` | pass |
+| `PUT /api/v1/secrets/{secretName}` | `openapi.yaml` | `writeSecret` | `secrets_are_write_only_sealed_to_the_controller_and_kept_while_used`, `people_without_a_grant_reach_no_administration_endpoint` | pass |
+
+## Operational bounds
+
+These cases exercise mechanisms and selected examples. Every bound remains
+`partial` until the precise measurements in [G06](../../doc/testing/gaps.md#g06--prove-the-specified-deadlines)
+are implemented and executed; accelerated timings do not prove production deadlines.
+
+| Setting | Tests | Status |
+| --- | --- | --- |
+| Route resolution | `a_stalled_registry_is_unavailable_within_the_deadline` | partial |
+| Authorization freshness | `default_timing_meets_the_specified_bounds`, `open_websockets_close_when_access_changes_within_the_bound`, `streamed_responses_end_when_access_is_revoked` | partial |
+| Identity evidence | `refresh_rechecks_the_provider_and_revokes_on_failure`, `tokens_with_wrong_claims_are_rejected` | partial |
+| External identity revocation | `outages_and_provider_revocation_fail_closed_within_the_bounds` | partial |
+| Upload size | `uploads_are_bounded_and_bodies_reach_the_instance` | partial |
+| WebSocket idle | `websockets_need_the_public_origin_and_carry_bytes_unchanged` | partial |
+| Terminal drain | `draining_waits_for_leases_until_the_deadline_then_deletes_exactly_the_pod`, `workers_start_only_after_ssh_verification_and_drain_when_suspended` | partial |
+| Kubernetes and HTTP calls | `complete_probe_has_one_four_second_deadline_across_all_requests`, `a_stalled_registry_is_unavailable_within_the_deadline` | partial |
+| Administration request bodies | `requests_are_strict_and_refusals_never_echo_input` | partial |

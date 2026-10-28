@@ -698,10 +698,6 @@
                   "value": "openid profile email"
                 },
                 {
-                  "name": "HERMES_PERSONAL_INSTANCE_ID",
-                  "value": "0b7d4c1e-2a3f-4e5d-8c6b-7a9f0e1d2c3b"
-                },
-                {
                   "name": "API_SERVER_ENABLED",
                   "value": "false"
                 },

@@ -61,7 +61,6 @@ def environment():
             "HOME": "/opt/data",
             "HERMES_HOME": "/opt/data",
             "PYTHONDONTWRITEBYTECODE": "1",
-            "HERMES_PERSONAL_INSTANCE_ID": context["instanceId"],
             "HERMES_DASHBOARD_SESSION_TOKEN": token,
             "API_SERVER_ENABLED": "false",
         }

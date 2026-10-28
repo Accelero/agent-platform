@@ -6,9 +6,9 @@ What the personal Hermes platform must do. The
 [`TESTS.md`](../services/hermes-manager/TESTS.md) maps every requirement and
 acceptance row to its tests.
 
-The [testing strategy](testing-strategy.md) defines how those obligations are
-proved. The [coverage assessment](testing-coverage.md) separates existing
-evidence from untested variants; the [gap register](testing-gaps.md) specifies
+The [testing strategy](TESTING.md) defines how those obligations are
+proved. The [coverage assessment](testing/coverage.md) separates existing
+evidence from untested variants; the [gap register](testing/gaps.md) specifies
 the test changes required.
 
 ## Scope

@@ -27,7 +27,8 @@ jobs:
       - run: uv run ruff check agent_platform tests
       - run: uv run ruff format --check agent_platform tests
       - run: uv run python -m agent_platform.privacy
-      - run: uv run pytest -q
+      - name: Verify collected and executed Python cases
+        run: uv run python -m tests.support.verification run python --output .local/verification/python.json
       - run: helm lint charts/agent-platform
       - name: Render manager deployment
         run: |
@@ -38,6 +39,17 @@ jobs:
           output.mkdir(parents=True)
           render_chart(output, ROOT / "charts/agent-platform")
           PY
+      - name: Upload sanitized case reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: python-case-reports
+          path: |
+            .local/verification/*.json
+            .local/verification/*.xml
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
 
   hermes-manager:
     runs-on: ubuntu-latest
@@ -84,20 +96,35 @@ jobs:
         run: |
           npx --no-install playwright install --with-deps chromium
           npm run test:e2e
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
-      - name: Abort the API process around a commit
-        run: cargo test -p hermes-manager --features fault-injection --test process --locked
-      - name: Check the built dashboard under the real authentication and CSP
-        run: MANAGER_UI_DIST="$PWD/ui/dist" cargo test -p hermes-http --test dashboard_browser --locked -- --ignored
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: '0.13.0'
           python-version: '3.14'
       - run: uv sync --locked
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Verify collected and executed Rust workspace cases
+        working-directory: .
+        run: uv run python -m tests.support.verification run rust --output .local/verification/rust.json
+      - name: Abort the API process around a commit
+        working-directory: .
+        run: uv run python -m tests.support.verification run rust-faults --output .local/verification/rust-faults.json
+      - name: Check the built dashboard under the real authentication and CSP
+        working-directory: .
+        run: MANAGER_UI_DIST="$PWD/services/hermes-manager/ui/dist" uv run python -m tests.support.verification run rust-browser --output .local/verification/rust-browser.json
       - name: Test the controller with a disposable Kubernetes API server
         run: uv run python ../../tests/personal_hermes/kubernetes.py --postgres-container '${{ job.services.postgres.id }}'
+      - name: Upload sanitized case reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: rust-case-reports
+          path: |
+            .local/verification/*.json
+            .local/verification/*.xml
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
 
   hermes-manager-image:
     runs-on: ubuntu-latest
@@ -156,3 +183,14 @@ jobs:
         run: uv run python -m agent_platform.manager_build --tag hermes-manager:e2e
       - name: Install the chart and reach real native instances through the gateway with Keycloak
         run: uv run python -m tests.personal_hermes.kubernetes --native --postgres-container '${{ job.services.postgres.id }}'
+      - name: Upload sanitized adapter case reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: native-adapter-case-reports
+          path: |
+            .local/verification/*.json
+            .local/verification/*.xml
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7

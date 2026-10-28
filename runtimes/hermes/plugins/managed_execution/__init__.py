@@ -26,11 +26,6 @@ MANAGED_CONFIG = Path('/run/hermes/execution-ca/config.yaml')
 WORKSPACE = '/workspace'
 
 
-def personal_instance():
-    return (Path('/run/hermes/owner/context.json').is_file()
-            or bool(os.environ.get('HERMES_PERSONAL_INSTANCE_ID')))
-
-
 def session_key():
     from gateway.session_context import get_session_env
     return get_session_env("HERMES_SESSION_KEY", "")
@@ -386,8 +381,6 @@ class Provider(TerminalEnvironmentProvider):
         return settings
 
     def is_available(self):
-        if not personal_instance():
-            return False
         try:
             return Path(self.settings()['token_file']).is_file()
         except (ValueError, OSError, KeyError):

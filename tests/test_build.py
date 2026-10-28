@@ -9,6 +9,8 @@ import yaml
 
 from agent_platform import build, release
 
+pytestmark = pytest.mark.unit
+
 ROOT = Path(__file__).resolve().parents[1]
 
 

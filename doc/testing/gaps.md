@@ -1,17 +1,39 @@
 # Test gaps and required changes
 
 This is the implementation specification for adapting the tests to the
-[testing strategy](testing-strategy.md). The evidence and requirement/acceptance
-matrices are in the [coverage assessment](testing-coverage.md). All items are
-documentation findings at source commit `5a05a59`; no test or application code
-is changed by this review. An uncovered case is not, by itself, a confirmed
-runtime vulnerability.
+[testing strategy](../TESTING.md). The evidence and requirement/acceptance
+matrices are in the [coverage assessment](coverage.md). The initial
+findings refer to source commit `5a05a59`; current implementation notes identify
+the added evidence. An uncovered case is not, by itself, a confirmed runtime
+vulnerability. An item remains open until its full completion criteria hold.
 
 Priorities describe test work: **P0** closes a critical proof or harness-safety
 gap; **P1** extends edge/failure coverage; **P2** establishes longer-running
 capacity/stability evidence. Track each item through assertions implemented,
 collected in its required profile, executed, and reported for a specific
 candidate. File/function existence is not completion.
+
+## Working a gap
+
+1. Read the gap, the [strategy](../TESTING.md) rules it touches and the cited
+   SPEC.md requirements. Write the obligations it covers (behaviour, actors,
+   variants, expected effects) before the tests.
+2. Add or change tests at the lowest proving level. Every Python test carries
+   exactly one level marker plus its capability markers; parameter IDs describe
+   behaviour.
+3. In the same change, update [`cases.json`](../../tests/verification/README.md)
+   for every added, renamed or removed identity, and name obligation-proving
+   tests in the matching [`TESTS.md`](../../services/hermes-manager/TESTS.md) row.
+4. Run the affected verifier profiles and the repository checks in `AGENTS.md`.
+   A product defect found by a new test is fixed in the product with its
+   regression test; never weaken a SPEC.md bound or skip a case to pass.
+5. Rewrite the gap's "Current" paragraph to what now exists. When its "Done"
+   criteria hold, delete the entry and its references, and correct the
+   [coverage assessment](coverage.md).
+
+Product code changes are allowed only to make a behaviour testable (a fault
+point, a clock seam, a probe) or to fix a defect a test exposed. They follow the
+ARCH.md rules like any other change.
 
 ## G01 — Independently collected pytest scenarios
 
@@ -53,20 +75,30 @@ and multi-node profiles; test the setup's admission and NetworkPolicy enforcemen
 before counting security results. Do not simply append `--k3d` to the old CI
 command and assume fixture parity.
 
-**Done:** clean core, multi-node and restore profiles run through the same
-fixture without editing a default kubecontext or relying on Docker node IPs
-being directly reachable from the driver/browser.
+**Done:** clean core and restore profiles run through the same fixture without
+editing a default kubecontext or relying on Docker node IPs being directly
+reachable from the driver/browser. Multi-node is a topology parameter of the
+same fixture; its cases belong to G07 and G16.
 
 ## G03 — Trace executed obligations, not function names
 
 **P0 · Extend traceability and reporting · All requirements/contracts.**
 
-Current: `hermes-architecture/tests/traceability.rs` scans Rust/Python source for
-`fn`/`def` names. A helper or an omitted macro case can satisfy it. It does not
-prove test collection, feature/ignore selection, execution, parameter coverage,
-the claimed level or assertion quality. HTTP rows are keyed by method/path in
-a set; the two different `POST /auth/logout` contract operations collapse to
-one key. There are 58 operations across four contracts.
+Current: the [execution ledger](../../tests/verification/README.md) records exact
+collected Python and compiled Rust IDs and reviewed levels. CI gates collection
+and passing execution separately for the workspace, fault-enabled process,
+production browser, Kubernetes adapter and controller-process profiles. Both
+44-case store instantiations are included. Skips, missing cases, additions,
+level changes and absent execution results fail. Reports contain sanitized
+JSON/JUnit outcomes, source/profile/catalogue metadata and unresolved helper
+names; standalone native helpers explicitly remain uncollected G01 gaps.
+
+Architecture checks still scan source names for static consistency. Interface
+rows now use contract filename, operation ID and method/path, so all 58
+operations and both `POST /auth/logout` rows remain distinct. All nine
+operational bounds have required `partial` traceability rows. Full clause,
+actor/status/header/side-effect/timing mapping and TypeScript collection/result
+inventories are not implemented; passing existing examples does not close them.
 
 Keep the useful static consistency checks and add a case ledger linking
 individual specification clauses, all 23 acceptance rows, nine operational
@@ -262,9 +294,11 @@ mount is possible without a failing assertion.
 
 **P0 · Extend image integration and k3d cases · R4, R6, R8, R10, R18.**
 
-Current: singleton fallbacks are removed. Unit and in-image checks already
-refuse missing policies, changed environment pins and shadow plugins; initializer
-tests already cover interrupted/concurrent writes, symlinks and tampered receipts.
+Current: every instance requires the mounted owner and terminal policies; there
+is no non-personal mode and no environment marker that selects one. Unit and
+in-image checks refuse missing policies, environment pins and shadow plugins;
+`runtime-init.py` refuses to start without the managed policy. Initializer
+tests cover interrupted/concurrent writes, symlinks and tampered receipts.
 
 Exercise actual installed init/run entry points with missing, malformed,
 oversized, foreign-owner and wrong-instance/material policy/receipt inputs,
@@ -434,9 +468,9 @@ scale promise. Keep external model/provider benchmarks optional and separate.
 
 Current: release unit tests mock build/publish commands, and image checks smoke
 specific properties. The tag workflow does not require the complete Rust/k3d/
-E2E result for the same source and artifact digests before publishing. Its
-source-version-equals-tag assertions also conflict with the repository's
-source-placeholder version policy; current tests do not expose that mismatch.
+E2E result for the same source and artifact digests before publishing. It
+requires the chart and project versions in the tagged commit to equal the tag,
+while ordinary commits keep the `0.0.0` placeholder; no test covers that rule.
 
 Test installing the packaged chart with all three exact built image digests,
 then supported upgrade and uninstall retention. Verify labels/licenses,
@@ -446,7 +480,8 @@ binary with the fault environment set during a real command: it must not abort
 at the test hook. Add failure-path tests
 that validation errors prevent promotion/chart publication and that an
 unrelated passing source revision cannot satisfy the candidate gate. Resolve
-the version-policy/workflow disagreement explicitly and test that rule. Local
+the tag/version rule (including `-dev.N`) and the placeholder on untagged
+commits. Local
 artifact tests need no public push; publication remains separately authorized.
 
 **Done:** release eligibility refers to the tested candidate, not merely a tag
@@ -492,12 +527,19 @@ profiles and required-case reporting, then update command documentation and
 in a requested profile must fail. Any remaining scope limitation or accepted
 gap needs a reason, responsible owner and review point rather than a `pass`.
 
+The Python/Rust baseline profiles and strict level/marker checks are
+implemented and described in the [execution ledger](../../tests/verification/README.md).
+They retain the existing PR/main system job. They do not implement the required
+pytest/k3d core, extended/soak or exact-artifact release profiles. The flat
+`tests/test_*.py` modules still sit outside `tests/unit/` and
+`tests/integration/`. TypeScript cases are not in the ledger.
+
 **Done:** documented commands and schedules match CI, and each reported result
 identifies the executed profile, candidate, cases and coverage limitations.
 
 ## Order of work and preservation rules
 
-1. Establish the case ledger and a baseline inventory (G03). Keep the existing
+1. The baseline case ledger exists (G03, partly). Keep it and the existing
    native/shared/Rust/TypeScript suites and their PR gates running.
 2. Build and test ownership-safe fixtures and reproducible inputs (G04, G05),
    then the canonical k3d lifecycle including restore (G02).

@@ -18,18 +18,23 @@ mutable application state or deployment-specific backup scripts.
 - `runtimes/agent-runtime/`: default SSH terminal worker image.
 - `charts/agent-platform/`: self-contained application chart.
 - `examples/manager/`: nonsecret manager render fixture.
-- `tests/`: release invariants, chart and contract tests and acceptance fixtures
-  (`tests/personal_hermes/`: the k3s suite runner, the native end-to-end run,
-  its fake model and registry proxy).
-- `doc/`: `SPEC.md` (specification) and `ARCH.md` (architecture); the guides
-  and the implementation status are under `doc/personal-hermes/`.
+- `tests/`: pytest suites by level (`unit/`, `integration/`, older flat
+  modules), shared `support/` including the case verifier, the reviewed case
+  ledger in `verification/`, and the standalone cluster and native drivers in
+  `personal_hermes/` (k3s suite runner, native end-to-end run, fake model,
+  registry proxy).
+- `doc/`: `SPEC.md` (specification), `ARCH.md` (architecture) and `TESTING.md`
+  (test system); the coverage assessment and gap register under `doc/testing/`;
+  the guides and the implementation status under `doc/personal-hermes/`.
 
 ## Manager design
 
 `doc/SPEC.md` (what) and `doc/ARCH.md` (how) define the manager and gateway;
 keep the guides in `doc/personal-hermes/` and the implementation status there in step
 with the code. Documentation describes what is built: no plans, phases or
-migration history. Manager code follows these rules:
+migration history. The one exception is `doc/testing/gaps.md`, the register of
+test work still to do; delete an entry once its completion criteria hold.
+Manager code follows these rules:
 
 - Every desired-state write is a `Command` run through the command envelope.
 - Reconciliation is level-triggered: a pure planner, then idempotent
@@ -54,7 +59,14 @@ uv run ruff check agent_platform tests
 uv run ruff format --check agent_platform tests
 uv run pytest -q
 helm lint charts/agent-platform
+uv run python -m tests.support.verification run python --output .local/verification/python.json
 ```
+
+Every Python test carries exactly one level marker (`unit`, `integration`,
+`e2e`); collection fails otherwise. Adding, renaming or removing any Python or
+Rust test updates `tests/verification/cases.json` in the same change, and a
+test that proves a requirement is named in its `TESTS.md` row. Follow the
+procedure in `doc/testing/gaps.md` when closing a test gap.
 
 Run the Rust checks in `services/hermes-manager/README.md` after manager edits.
 After changes to the controller, the chart, the runtime image or the gateway,
@@ -73,7 +85,8 @@ Review the staged diff and `git diff --check` before committing.
 
 ## Releases
 
-Source chart and project versions stay at the `0.0.0` placeholder; do not add
+Source chart and project versions stay at the `0.0.0` placeholder except in the
+tagged release commit, which sets both to the tag's version; do not add
 release numbers to documentation. A release requires an explicit
 `vMAJOR.MINOR.PATCH` tag, or `vMAJOR.MINOR.PATCH-dev.N` for a prerelease of
 unmerged work. GHCR already holds versions up to 0.6.9 under these package

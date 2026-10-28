@@ -7,7 +7,7 @@ manager, gateway and runtimes described in the [specification](../SPEC.md), the
 [`TESTS.md`](../../services/hermes-manager/TESTS.md) maps every requirement,
 acceptance scenario and contract operation to named tests and their levels;
 every row currently records `pass` for its cited examples. The
-[coverage assessment](../testing-coverage.md) identifies the additional
+[coverage assessment](../testing/coverage.md) identifies the additional
 clause, boundary and security evidence needed beyond those examples.
 
 ## What exists
@@ -42,17 +42,17 @@ nothing rolls back automatically.
 | `tests.personal_hermes.kubernetes --native` (`native_e2e`) | The chart installed with its operator Jobs; real Hermes instances commissioned from published versions through the administration API; two owners on one hostname through the gateway with Keycloak and the native owner pin; denial and no enrollment without an assignment; distinct credentials; overlapping paths refused; a missing static directory blocking the instance until it exists; chat over the native WebSocket against an in-cluster fake model, with the template's and assignment's settings enforced over the owner's and the owner's own settings kept; the model key delivered only to the referencing instance and never returned; uploads in the owner's private home only, bounded by the gateway; a cron job firing without browser traffic and running its command in a terminal backend; two backends sharing the workspace, a backend-only static fixture home mounted only in one and the private home in neither; idle workers retired; a backend change during an active lease; a private registry backend with wrong credentials reported and right ones pulling; foreign cookies, tickets and forged headers refused; an email change at the provider; the manager, the database and the provider unavailable, and a person disabled at the provider, denied under the current test thresholds; suspension closing an open WebSocket and draining a pending worker; data and claims kept on re-enable; only the controller holding cluster rights, an execution credential refused by the administration API and the gateway, and no secret in any log; a restore onto a new cluster with `rebind-cluster`, static volume data and the original material; an instance missing from an older backup reported as orphans and left alone | A real model provider, NFS sources and multi-node scheduling |
 | `tests/test_manager_chart.py` | The chart's admission policies and RBAC equal the renderer's; generated role configurations are the ones the Rust parsers load; pod security, NetworkPolicy peers, strict values and operator Jobs | A live installation |
 | `tests.personal_hermes.native_runtime --build` | Reviewed runtime image; non-root gateway and dashboard, private API denial, CA handling, init-only key isolation, managed configuration precedence and state after a forced restart | Cluster or provider acceptance |
-| `tests.personal_hermes.native_owner` | The pinned Hermes provider requires the mounted owner policy and accepts only the exact issuer and subject on login, session and refresh; missing or malformed policy is refused regardless of environment markers | A real Keycloak exchange |
+| `tests.personal_hermes.native_owner` | The pinned Hermes provider requires the mounted owner policy and accepts only the exact issuer and subject on login, session and refresh; missing or malformed policy is refused, and environment pins cannot replace it | A real Keycloak exchange |
 | Dashboard (`ui`) | Unit tests, Chromium presentation workflows with mocked APIs, and a separate real-server production-build/CSP browser case | A real browser Keycloak login and dashboard-driven commissioning on the installed chart |
 
 ## Testing strategy and coverage limits
 
-The [testing strategy](../testing-strategy.md) specifies language-native units,
+The [testing strategy](../TESTING.md) specifies language-native units,
 integration tests at their proving boundary, and independently collected
 Python/pytest E2E on disposable k3d clusters. The
-[coverage assessment](../testing-coverage.md) inventories current evidence
+[coverage assessment](../testing/coverage.md) inventories current evidence
 against every requirement, acceptance row and operational bound. The
-[gap register](../testing-gaps.md) specifies the missing tests and fixture/runner
+[gap register](../testing/gaps.md) specifies the missing tests and fixture/runner
 changes. These documents distinguish required test-system behaviour from
 features that are already implemented.
 
@@ -66,6 +66,14 @@ and full private-home restore are not established by the evidence table.
 
 The commands below describe the current implementation. They are not the
 proposed pytest/k3d invocation surface, which does not exist yet.
+
+The [collected-case verifier](../../tests/verification/README.md) provides
+working Python/Rust inventory and execution commands with exact profile gates
+and sanitized JSON/JUnit reports. It accounts for compiled shared-store cases,
+fault-enabled process cases and explicitly ignored browser/cluster cases.
+Standalone system helpers remain marked uncollected; TypeScript retains its
+separate gates. This is baseline execution evidence, with clause and scenario
+coverage limitations still recorded in G01/G03.
 
 ## Verification commands
 
@@ -119,6 +127,6 @@ onto a second disposable cluster. For development,
 part. It keeps the cluster after failure and disables test-database cleanup;
 a successful run still removes its cluster. `--reuse <container>` resets and
 reruns on it. Use reuse only with disposable run-owned fixtures; its broad
-reset/cleanup scope is recorded in G04 of the [gap register](../testing-gaps.md).
+reset/cleanup scope is recorded in G04 of the [gap register](../testing/gaps.md).
 Clean up only the exact disposable PostgreSQL fixture after verification. Keep
 fixture credentials out of logs and release inputs.

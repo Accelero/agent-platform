@@ -14,6 +14,8 @@ import jsonschema
 import pytest
 import yaml
 
+pytestmark = pytest.mark.unit
+
 SOURCE = (
     Path(__file__).resolve().parents[1]
     / "runtimes/hermes/plugins/managed_execution/__init__.py"
@@ -86,7 +88,7 @@ def test_acquire_retry_preserves_selected_runtime_and_request_identity(
     assert requests[0][1]["request"]
 
 
-def test_absent_selector_keeps_legacy_request_compatible(plugin, monkeypatch):
+def test_absent_selector_requests_the_default_runtime(plugin, monkeypatch):
     client = plugin.Client(settings())
     monkeypatch.setattr(client, "call", lambda path, body, timeout: body)
     assert "runtime_id" not in client.acquire("conversation")
@@ -181,8 +183,7 @@ def test_dashboard_profile_selection_overrides_plugin_default(plugin, monkeypatc
         provider.settings()
 
 
-def test_personal_connection_requires_manager_host_identity(plugin, monkeypatch):
-    monkeypatch.setenv("HERMES_PERSONAL_INSTANCE_ID", "fixture-instance")
+def test_personal_connection_requires_manager_host_identity(plugin):
     environment = plugin.ManagedSSHEnvironment.__new__(plugin.ManagedSSHEnvironment)
     environment.managed_generation = None
     with pytest.raises(RuntimeError, match="verified SSH host identity"):

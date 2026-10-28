@@ -89,17 +89,11 @@ def main():
         helper = sys.modules["plugins.dashboard_auth.self_hosted._platform_owner"]
         policy = Path(temporary) / "context.json"
         helper.POLICY_FILE = policy
-        # Neither an absent marker nor forged environment pins can replace the
-        # required mounted owner policy.
-        for marker in [None, "", "fixture-instance"]:
-            os.environ.pop("HERMES_PERSONAL_INSTANCE_ID", None)
-            if marker is not None:
-                os.environ["HERMES_PERSONAL_INSTANCE_ID"] = marker
-            for issuer, subject in [("", ""), (ISSUER, "owner-a")]:
-                os.environ["HERMES_DASHBOARD_EXPECTED_ISSUER"] = issuer
-                os.environ["HERMES_DASHBOARD_EXPECTED_SUBJECT"] = subject
-                expect_error(ValueError, provider)
-        os.environ.pop("HERMES_PERSONAL_INSTANCE_ID", None)
+        # Environment pins cannot replace the required mounted owner policy.
+        for issuer, subject in [("", ""), (ISSUER, "owner-a")]:
+            os.environ["HERMES_DASHBOARD_EXPECTED_ISSUER"] = issuer
+            os.environ["HERMES_DASHBOARD_EXPECTED_SUBJECT"] = subject
+            expect_error(ValueError, provider)
         os.environ.pop("HERMES_DASHBOARD_EXPECTED_ISSUER")
         os.environ.pop("HERMES_DASHBOARD_EXPECTED_SUBJECT")
         policy.write_text(

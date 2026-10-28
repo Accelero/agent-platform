@@ -15,6 +15,21 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "--strict-config --strict-markers"
+markers = [
+    "unit: no external service or cluster",
+    "integration: a real dependency, image or process boundary",
+    "e2e: the Helm-installed system",
+    "cluster: requires a disposable cluster",
+    "database: requires a disposable PostgreSQL fixture",
+    "native: requires native runtime artifacts",
+    "browser: requires a real browser",
+    "security: verifies an authorization or isolation boundary",
+    "destructive: requires exclusive disposable infrastructure",
+    "multi_node: requires multiple cluster nodes",
+    "slow: longer bounded verification",
+    "soak: explicitly budgeted stability profile",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

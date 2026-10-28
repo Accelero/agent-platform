@@ -9,6 +9,8 @@ import yaml
 
 from agent_platform import release
 
+pytestmark = pytest.mark.unit
+
 
 def test_requires_real_registry_manifest_digests():
     metadata = {

@@ -588,13 +588,11 @@ Each trigger names the domain rule it mirrors.
 
 ## Verification strategy
 
-The [testing strategy](testing-strategy.md) specifies the required language-native
-unit, dependency integration and Python/pytest E2E layers, with k3d as the
-standard cluster fixture. Its fixture, isolation, obligation mapping, security,
-timing and candidate-gating rules are requirements for the test system. The
-[coverage assessment](testing-coverage.md) records current evidence and the
-[gap register](testing-gaps.md) identifies the refactors and additional cases.
-Do not interpret that target setup as already implemented.
+[TESTING.md](TESTING.md) specifies the test system: language-native unit,
+dependency integration and Python/pytest E2E layers, with k3d as the standard
+cluster fixture. The [coverage assessment](testing/coverage.md) records current
+evidence and the [gap register](testing/gaps.md) the remaining work. This
+section describes what exists.
 
 Current test implementation:
 
@@ -615,9 +613,13 @@ Existing mechanisms and their limits:
   lease or concurrent leader interleaving is tested. Release builds exclude
   the feature.
 - **Traceability.** `services/hermes-manager/TESTS.md` maps requirement,
-  acceptance and operation rows to named functions. Architecture tests enforce
-  row/name consistency, but do not validate actual collection/execution,
-  parameter coverage or every clause/status/header combination.
+  acceptance, bound and composite contract-operation rows to named functions.
+  Architecture tests enforce row/name consistency. The
+  [execution ledger](../tests/verification/README.md) separately requires exact
+  Python/Rust collection, reviewed proving levels and passing per-case outcomes
+  in dedicated profiles, including shared macros, faults and ignored cases.
+  Standalone helpers are explicitly uncollected gaps. Full clause/status/header
+  coverage and TypeScript execution inventories are not implemented.
 - **Planner coverage.** A finite desired/observed state-grid test and targeted
   cases exist. Property-generation, fuzz and mutation infrastructure is not
   currently implemented.
@@ -627,12 +629,10 @@ Existing mechanisms and their limits:
 - **CI.** `.github/workflows/checks.yml` runs Python/chart/privacy checks,
   dashboard and Rust suites, binary/image/runtime checks, Kubernetes adapter
   and controller-process checks, and the full native system script on PRs and
-  pushes to `main`. No scheduled extended/soak profile exists there.
+  pushes to `main`. Python/Rust profiles retain sanitized JSON/JUnit reports.
+  No scheduled extended/soak profile exists there.
   Tag publication has separate Python/build smoke checks and does not yet
   require full cluster evidence for the exact candidate; this is tracked in G20.
 
-The [current verification commands](personal-hermes/implementation.md#verification-commands)
-remain valid until their replacements are implemented. The standard pytest/k3d
-setup, independent reporting and extended profiles must not be advertised as
-working commands or passing evidence before the gap register's completion
-criteria are met.
+The [verification commands](personal-hermes/implementation.md#verification-commands)
+are the working commands.

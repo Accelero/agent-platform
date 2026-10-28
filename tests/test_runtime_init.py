@@ -7,6 +7,8 @@ import pytest
 
 from agent_platform.build import ROOT
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def initializer(monkeypatch: pytest.MonkeyPatch):
@@ -45,13 +47,31 @@ def test_managed_backend_covers_profiles_saved_without_terminal_backend(
     assert "model: chosen" in (profile / "config.yaml").read_text()
 
 
-def test_profile_without_managed_backend_policy_is_refused(tmp_path: Path, initializer):
+def test_profile_without_managed_backend_policy_is_refused(
+    tmp_path: Path, initializer, monkeypatch: pytest.MonkeyPatch
+):
     home = tmp_path / "home"
     profile = home / "profiles/research"
     profile.mkdir(parents=True)
     # personal-init.py writes the root config from manager-supplied input.
     (home / "config.yaml").write_text("terminal: {backend: managed_execution}\n")
     (profile / "config.yaml").write_text("terminal: {backend: local}\n")
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    (managed / "config.yaml").write_text("model: managed\n")
+    monkeypatch.setenv("HERMES_MANAGED_DIR", str(managed))
     with pytest.raises(RuntimeError, match="Unsafe native terminal backend"):
         initializer.initialize(root=home, plugin_home=_adapter_home(tmp_path))
     assert not (profile / "plugins").exists()
+
+
+def test_missing_managed_policy_is_refused(
+    tmp_path: Path, initializer, monkeypatch: pytest.MonkeyPatch
+):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "config.yaml").write_text("terminal: {backend: managed_execution}\n")
+    monkeypatch.delenv("HERMES_MANAGED_DIR", raising=False)
+    with pytest.raises(RuntimeError, match="Managed Hermes configuration is required"):
+        initializer.initialize(root=home, plugin_home=_adapter_home(tmp_path))
+    assert not (home / "plugins").exists()

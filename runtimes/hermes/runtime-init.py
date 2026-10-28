@@ -29,11 +29,12 @@ def initialize(root: Path = Path('/opt/data'), plugin_home: Path = Path('/opt/he
         homes.extend(profile for profile in sorted((root / 'profiles').iterdir())
                      if profile.is_dir() and (profile / 'config.yaml').is_file())
     # personal-run.py points HERMES_MANAGED_DIR at the manager's read-only policy.
-    admin = {}
-    if os.environ.get('HERMES_MANAGED_DIR'):
-        admin = yaml.safe_load((Path(os.environ['HERMES_MANAGED_DIR']) / 'config.yaml').read_text())
-        if not isinstance(admin, dict):
-            raise RuntimeError('Managed Hermes configuration must be a mapping')
+    managed = os.environ.get('HERMES_MANAGED_DIR')
+    if not managed:
+        raise RuntimeError('Managed Hermes configuration is required')
+    admin = yaml.safe_load((Path(managed) / 'config.yaml').read_text())
+    if not isinstance(admin, dict):
+        raise RuntimeError('Managed Hermes configuration must be a mapping')
     source = plugin_home / 'plugins' / 'hindsight'
     if not source.is_dir():
         raise RuntimeError('Installed runtime adapter source is absent: ' + str(source))

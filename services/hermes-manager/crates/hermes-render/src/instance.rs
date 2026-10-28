@@ -528,7 +528,6 @@ fn deployment(
         json!({"name": "HERMES_DASHBOARD_OIDC_CLIENT_ID", "value": config.native_client_id}),
         json!({"name": "HERMES_DASHBOARD_PUBLIC_URL", "value": config.public_origin}),
         json!({"name": "HERMES_DASHBOARD_OIDC_SCOPES", "value": "openid profile email"}),
-        json!({"name": "HERMES_PERSONAL_INSTANCE_ID", "value": instance}),
         json!({"name": "API_SERVER_ENABLED", "value": "false"}),
         json!({"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}),
     ];

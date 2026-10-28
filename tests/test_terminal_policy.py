@@ -8,6 +8,8 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def policy(tmp_path, monkeypatch):
@@ -17,7 +19,6 @@ def policy(tmp_path, monkeypatch):
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, "MANAGED_DIR", tmp_path)
     monkeypatch.setattr(module, "PLUGIN_DIR", tmp_path / "image-plugin")
-    monkeypatch.delenv("HERMES_PERSONAL_INSTANCE_ID", raising=False)
     return module
 
 
@@ -30,12 +31,7 @@ def enable(policy):
     return config
 
 
-@pytest.mark.parametrize("marker", [None, "", "fixture-instance"])
-def test_terminal_policy_is_required_without_owner_or_environment_markers(
-    policy, monkeypatch, marker
-):
-    if marker is not None:
-        monkeypatch.setenv("HERMES_PERSONAL_INSTANCE_ID", marker)
+def test_terminal_policy_is_required(policy):
     for operation in [
         lambda: policy.enforce_backend("local"),
         lambda: policy.enforce_backend("managed_execution"),
@@ -51,6 +47,7 @@ def test_terminal_policy_is_required_without_owner_or_environment_markers(
 @pytest.mark.parametrize(
     "content",
     [None, "secret malformed config", "[]", "{}", '"secret"', "x" * 16385],
+    ids=["missing", "malformed", "array", "empty-object", "scalar", "oversized"],
 )
 def test_missing_or_invalid_policy_fails_closed_without_config_in_error(
     policy, content
@@ -64,7 +61,9 @@ def test_missing_or_invalid_policy_fails_closed_without_config_in_error(
 
 
 @pytest.mark.parametrize(
-    "field,value", [("enabled", []), ("disabled", ["managed_execution"])]
+    "field,value",
+    [("enabled", []), ("disabled", ["managed_execution"])],
+    ids=["not-enabled", "explicitly-disabled"],
 )
 def test_policy_must_enable_required_plugin(policy, field, value):
     config = enable(policy)
@@ -79,7 +78,6 @@ def test_mounted_terminal_policy_applies_despite_changed_environment(
 ):
     enable(policy)
     monkeypatch.setenv("HERMES_MANAGED_DIR", "/tmp/untrusted")
-    monkeypatch.setenv("HERMES_PERSONAL_INSTANCE_ID", "")
     assert policy.managed_directory() == policy.MANAGED_DIR
     policy.enforce_backend("managed_execution")
     for backend in ["local", "ssh", "docker", "other-plugin"]:

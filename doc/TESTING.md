@@ -1,4 +1,4 @@
-# Testing strategy
+# Testing
 
 This specifies the required test system for personal Hermes: language-native
 unit tests, dependency-focused integration tests, and independently collected
@@ -6,12 +6,36 @@ Python/pytest end-to-end tests on disposable k3d clusters. Python is the default
 for new system-test orchestration and external-interface integration tests.
 
 The decisions here are requirements for the test system, not a claim that its
-implementation already exists. [Coverage](testing-coverage.md) records the
-current evidence; [gaps and required changes](testing-gaps.md) specify the work.
+implementation already exists. [Coverage](testing/coverage.md) records the
+current evidence; [gaps and required changes](testing/gaps.md) specify the work.
 The existing runnable commands remain in the
 [implementation guide](personal-hermes/implementation.md#verification-commands).
 Product behaviour remains defined by [SPEC.md](SPEC.md), [ARCH.md](ARCH.md) and
 the [OpenAPI contracts](../contracts/hermes-manager/).
+
+Test only the platform the specification defines: per-user instances, one
+manager and gateway installation, and the storage sources and terminal backends
+it lists. Its out-of-scope items (team instances, SMB, automatic backups,
+coordinated checkpoints and the others) get no test infrastructure. The core
+profile below is the merge gate; extended profiles add evidence without
+blocking ordinary changes.
+
+## Evidence records
+
+There are exactly two maintained records; extend them rather than adding a third.
+
+| Record | Holds | Enforced by |
+| --- | --- | --- |
+| [`TESTS.md`](../services/hermes-manager/TESTS.md) | Requirement, acceptance, bound and contract-operation rows, each naming its proving tests, levels and status | `hermes-architecture` traceability tests: every row exists and every named test exists in source |
+| [`tests/verification/cases.json`](../tests/verification/README.md) | Every collected Python and compiled Rust test identity, its level and its CI profile; native helpers not yet collected | `tests.support.verification`: collection and per-case passing outcomes per profile |
+
+Clause-level obligations (the case IDs below) extend `TESTS.md`. A new or
+renamed test changes `cases.json` in the same change; a test that proves an
+obligation also appears in its `TESTS.md` row. The
+[coverage assessment](testing/coverage.md) and the
+[gap register](testing/gaps.md) are reviews of these records, not further
+records: when a gap's completion criteria hold, delete its entry and correct
+the assessment.
 
 ## Levels and ownership
 
@@ -178,8 +202,11 @@ use a separate worker/profile. No resource creation during test collection.
 
 ## Pytest structure and selection contract
 
-The following is the required organization, **not existing paths or working
-commands**:
+The required organization is below. `unit/`, `integration/`, `support/` and
+`conftest.py` exist; `e2e/` does not yet. The older flat `tests/test_*.py`
+modules already carry their level markers and move into `unit/` or
+`integration/` when next changed, with their `cases.json` identities updated
+in the same change:
 
 ```text
 tests/
@@ -193,8 +220,10 @@ tests/
     test_failures.py
     test_storage.py
     test_restore.py
-  support/                 cluster, clients, identity, waits and safe diagnostics
-  conftest.py               fixture wiring and profile selection
+  support/                 cluster, clients, identity, waits, safe diagnostics and the case verifier
+  verification/            the reviewed case ledger (cases.json)
+  personal_hermes/         current standalone cluster/native drivers, retired by G01/G02
+  conftest.py              level enforcement, fixture wiring and profile selection
 ```
 
 Keep Python assertions in pytest test functions; shared support owns mechanics,
@@ -203,10 +232,12 @@ that invokes the entire old script does not provide scenario-level collection,
 isolation or reporting. Keep intentional multi-step lifecycle journeys together
 when those steps are the behaviour being tested.
 
-Every test has exactly one level (`unit`, `integration`, `e2e`), requirement/case
-metadata and applicable capabilities (`cluster`, `database`, `native`, `browser`,
-`security`, `destructive`, `multi_node`, `slow`, `soak`). Register markers and
-reject unknown markers and configuration mistakes.
+Every test has exactly one level (`unit`, `integration`, `e2e`) and its
+applicable capabilities (`cluster`, `database`, `native`, `browser`,
+`security`, `destructive`, `multi_node`, `slow`, `soak`); a test proving an
+obligation also carries its requirement/case ID. Register markers and
+reject unknown markers and configuration mistakes. `tests/conftest.py`
+already enforces the level and `pyproject.toml` the strict markers.
 [pytest marker reference](https://docs.pytest.org/en/stable/example/markers.html).
 Parameter IDs describe behaviour, never credentials or personal labels.
 

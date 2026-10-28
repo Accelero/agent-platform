@@ -9,6 +9,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -286,38 +287,30 @@ def main():
             environment["HERMES_TEST_POSTGRES_CONTAINER"] = args.postgres_container
             result = subprocess.run(
                 [
-                    "cargo",
-                    "test",
-                    "-p",
-                    "hermes-kube",
-                    "--test",
-                    "cluster",
-                    "--locked",
-                    "--",
-                    "--ignored",
-                    "--test-threads",
-                    "2",
+                    sys.executable,
+                    "-m",
+                    "tests.support.verification",
+                    "run",
+                    "rust-cluster",
+                    "--output",
+                    ".local/verification/rust-cluster.json",
                 ],
-                cwd=ROOT / "services/hermes-manager",
+                cwd=ROOT,
                 env=environment,
                 timeout=600,
             )
             assert result.returncode == 0, "Real Kubernetes adapter test failed"
             result = subprocess.run(
                 [
-                    "cargo",
-                    "test",
-                    "-p",
-                    "hermes-manager",
-                    "--features",
-                    "fault-injection",
-                    "--test",
-                    "controller_process",
-                    "--locked",
-                    "--",
-                    "--ignored",
+                    sys.executable,
+                    "-m",
+                    "tests.support.verification",
+                    "run",
+                    "rust-controller",
+                    "--output",
+                    ".local/verification/rust-controller.json",
                 ],
-                cwd=ROOT / "services/hermes-manager",
+                cwd=ROOT,
                 env=environment,
                 timeout=600,
             )

@@ -50,23 +50,22 @@ def missing_instance_policies_are_refused():
 import os
 from hermes_cli._platform_terminal_policy import enforce_backend, managed_directory
 from plugins.dashboard_auth.self_hosted import SelfHostedOIDCProvider
-for marker in ['', 'fixture-instance']:
-    os.environ['HERMES_PERSONAL_INSTANCE_ID'] = marker
-    os.environ['HERMES_DASHBOARD_EXPECTED_ISSUER'] = 'https://sso.example.org/realms/agents'
-    os.environ['HERMES_DASHBOARD_EXPECTED_SUBJECT'] = 'owner-a'
-    for operation in [
-        lambda: enforce_backend('local'),
-        lambda: enforce_backend('managed_execution'),
-        managed_directory,
-        lambda: SelfHostedOIDCProvider(
-            issuer='https://sso.example.org/realms/agents', client_id='native-hermes'),
-    ]:
-        try:
-            operation()
-        except (RuntimeError, ValueError):
-            pass
-        else:
-            raise AssertionError('Missing instance policy was accepted')
+# Environment pins cannot stand in for the mounted owner policy.
+os.environ['HERMES_DASHBOARD_EXPECTED_ISSUER'] = 'https://sso.example.org/realms/agents'
+os.environ['HERMES_DASHBOARD_EXPECTED_SUBJECT'] = 'owner-a'
+for operation in [
+    lambda: enforce_backend('local'),
+    lambda: enforce_backend('managed_execution'),
+    managed_directory,
+    lambda: SelfHostedOIDCProvider(
+        issuer='https://sso.example.org/realms/agents', client_id='native-hermes'),
+]:
+    try:
+        operation()
+    except (RuntimeError, ValueError):
+        pass
+    else:
+        raise AssertionError('Missing instance policy was accepted')
 """,
         ],
         timeout=30,
@@ -250,8 +249,6 @@ def main():
                     "HERMES_DASHBOARD_PUBLIC_URL=https://hermes.example.org",
                     "--env",
                     "HERMES_PERSONAL_OIDC_CA_FILE=/run/hermes/execution-ca/oidc-ca.crt",
-                    "--env",
-                    f"HERMES_PERSONAL_INSTANCE_ID={context['instanceId']}",
                     "--entrypoint",
                     "/opt/hermes/.venv/bin/python",
                     IMAGE,
@@ -275,7 +272,6 @@ context=PluginContext(PluginManifest(name='managed_execution',key='managed_execu
 assert context.get_config('manager_url')=='https://manager.example.org/execution'
 assert context.get_config('mode')=='per_session'
 from hermes_cli.managed_scope import get_managed_dir
-os.environ['HERMES_PERSONAL_INSTANCE_ID']=''
 os.environ['HERMES_MANAGED_DIR']='/tmp/owner-selected-policy'
 os.environ['TERMINAL_ENV']='local'
 assert get_managed_dir()==pathlib.Path('/run/hermes/execution-ca')

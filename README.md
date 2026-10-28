@@ -56,6 +56,9 @@ backends chosen by an administrator.
    built, the evidence and the verification commands.
 5. [`TESTS.md`](services/hermes-manager/TESTS.md): every requirement,
    acceptance row and contract operation mapped to its tests.
+6. [`doc/TESTING.md`](doc/TESTING.md): the test system, with the
+   [coverage assessment](doc/testing/coverage.md) and the
+   [gap register](doc/testing/gaps.md).
 
 The OpenAPI contracts in [`contracts/hermes-manager/`](contracts/hermes-manager/)
 are the authority for every interface: administration, execution (the plugin's

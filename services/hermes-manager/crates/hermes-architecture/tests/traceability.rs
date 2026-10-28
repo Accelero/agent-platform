@@ -1,5 +1,6 @@
 //! `TESTS.md` must cover every requirement, acceptance scenario and contract
-//! operation, and every test it names must exist.
+//! operation and operational bound, and every test it names must exist.
+//! Execution is checked separately by `tests.support.verification`.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -48,8 +49,39 @@ fn specification() -> String {
     read(&repository().join("doc/SPEC.md"))
 }
 
-/// `METHOD /path` for every operation in every OpenAPI contract.
-fn contract_operations() -> BTreeSet<String> {
+/// Contract, operation ID and `METHOD /path` together identify an operation.
+type Operation = (String, String, String);
+
+fn operations_in(contract: &str, document: &serde_yaml_ng::Value) -> BTreeSet<Operation> {
+    let mut operations = BTreeSet::new();
+    let mut ids = BTreeSet::new();
+    for (route, item) in document["paths"].as_mapping().expect("paths") {
+        for (method, operation) in item.as_mapping().expect("path item") {
+            let method = method.as_str().expect("method");
+            if [
+                "get", "post", "put", "patch", "delete", "head", "options", "trace",
+            ]
+            .contains(&method)
+            {
+                let id = operation["operationId"].as_str().expect("operationId");
+                assert!(!id.is_empty(), "{contract}: empty operationId");
+                assert!(ids.insert(id), "{contract}: duplicate operationId `{id}`");
+                operations.insert((
+                    contract.to_owned(),
+                    id.to_owned(),
+                    format!(
+                        "{} {}",
+                        method.to_uppercase(),
+                        route.as_str().expect("route")
+                    ),
+                ));
+            }
+        }
+    }
+    operations
+}
+
+fn contract_operations() -> BTreeSet<Operation> {
     let mut operations = BTreeSet::new();
     let contracts = repository().join("contracts/hermes-manager");
     for entry in std::fs::read_dir(&contracts).expect("contracts") {
@@ -59,18 +91,10 @@ fn contract_operations() -> BTreeSet<String> {
         }
         let document: serde_yaml_ng::Value =
             serde_yaml_ng::from_str(&read(&path)).expect("contract is YAML");
-        for (route, item) in document["paths"].as_mapping().expect("paths") {
-            for method in item.as_mapping().expect("path item").keys() {
-                let method = method.as_str().expect("method");
-                if ["get", "post", "put", "patch", "delete"].contains(&method) {
-                    operations.insert(format!(
-                        "`{} {}`",
-                        method.to_uppercase(),
-                        route.as_str().expect("route")
-                    ));
-                }
-            }
-        }
+        operations.extend(operations_in(
+            path.file_name().unwrap().to_str().unwrap(),
+            &document,
+        ));
     }
     operations
 }
@@ -170,6 +194,61 @@ fn every_acceptance_scenario_has_a_traceability_row() {
 #[test]
 fn every_contract_operation_has_a_traceability_row() {
     let rows = table(&tests_md(), "Interfaces");
-    assert_eq!(first_column(&rows), contract_operations());
-    check_rows("Interfaces", &rows, 2, 3);
+    let actual: BTreeSet<_> = rows
+        .iter()
+        .map(|row| {
+            assert_eq!(row.len(), 5, "interface row has five columns");
+            (
+                row[1].trim_matches('`').to_owned(),
+                row[2].trim_matches('`').to_owned(),
+                row[0].trim_matches('`').to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(actual.len(), rows.len(), "duplicate interface rows");
+    assert_eq!(actual, contract_operations());
+    check_rows("Interfaces", &rows, 3, 4);
+}
+
+#[test]
+fn every_operational_bound_has_a_traceability_row() {
+    let expected = first_column(&table(&specification(), "Operational bounds"));
+    let rows = table(&tests_md(), "Operational bounds");
+    assert_eq!(
+        first_column(&rows).len(),
+        rows.len(),
+        "duplicate bound rows"
+    );
+    assert_eq!(first_column(&rows), expected);
+    check_rows("Operational bounds", &rows, 1, 2);
+}
+
+#[test]
+fn matching_paths_in_different_contracts_remain_distinct() {
+    let document =
+        serde_yaml_ng::from_str("paths:\n  /auth/logout:\n    post:\n      operationId: logout\n")
+            .unwrap();
+    let mut operations = operations_in("openapi.yaml", &document);
+    operations.extend(operations_in("gateway.openapi.yaml", &document));
+    assert_eq!(operations.len(), 2);
+    operations.remove(&(
+        "openapi.yaml".into(),
+        "logout".into(),
+        "POST /auth/logout".into(),
+    ));
+    assert!(operations.contains(&(
+        "gateway.openapi.yaml".into(),
+        "logout".into(),
+        "POST /auth/logout".into(),
+    )));
+}
+
+#[test]
+#[should_panic(expected = "duplicate operationId")]
+fn duplicate_operation_ids_within_a_contract_are_rejected() {
+    let document = serde_yaml_ng::from_str(
+        "paths:\n  /one:\n    get:\n      operationId: repeated\n  /two:\n    get:\n      operationId: repeated\n",
+    )
+    .unwrap();
+    operations_in("openapi.yaml", &document);
 }
