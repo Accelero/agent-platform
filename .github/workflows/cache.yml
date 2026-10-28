@@ -11,8 +11,6 @@ name: Build image cache
       - 'runtimes/**'
       - 'services/**'
       - 'contracts/**'
-      - 'vendor/**'
-      - 'config/**'
       - 'pyproject.toml'
       - 'release-policy.json'
       - 'uv.lock'

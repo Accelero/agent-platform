@@ -16,7 +16,7 @@ def test_requires_real_registry_manifest_digests():
         for name in release.TARGETS
     }
     images = release.image_references(metadata, release.REGISTRY)
-    assert len(images) == len(release.TARGETS) == 4
+    assert len(images) == len(release.TARGETS) == 3
     assert all("@sha256:" in value for value in images.values())
     metadata["hermes"] = {"containerimage.config.digest": "sha256:" + "b" * 64}
     with pytest.raises(ValueError, match="registry digest"):
@@ -35,7 +35,6 @@ def test_packaged_chart_has_pins_and_wiring_without_modifying_source(tmp_path):
     assert definition["version"] == "0.1.0"
     assert definition["annotations"]["org.opencontainers.image.revision"] == "b" * 40
     assert (chart / "templates/hermes-manager.yaml").is_file()
-    assert (chart / "files/multica-gateway.nginx.conf").is_file()
     assert not (tmp_path / "contract.zip").exists()
     assert (release.ROOT / "charts/agent-platform/values.yaml").read_bytes() == original
 

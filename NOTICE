@@ -1,6 +1,0 @@
-Runtime adapters originated in Accelero/hermes-agent-prototype at
-6974cc9dca6995320e0e03a934463ef691872c41. The initial extraction and changes are
-recorded in provenance/import.json. Multica server sources are pinned to
- ea94c7cd5bbce9c8e1f28c5fa049c47ee7651d02 and retain vendor/multica/LICENSE and
-vendor/multica/NOTICE. Container bases and bundled tools retain their respective
-upstream licenses and notices. This notice does not relicense third-party code.

@@ -45,7 +45,7 @@ fn tests_md() -> String {
 }
 
 fn specification() -> String {
-    read(&repository().join("docs/personal-hermes/specification.md"))
+    read(&repository().join("doc/SPEC.md"))
 }
 
 /// `METHOD /path` for every operation in every OpenAPI contract.

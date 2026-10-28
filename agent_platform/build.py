@@ -15,7 +15,6 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGETS = (
     "hermes",
     "agent-runtime",
-    "multica-backend",
     "hermes-manager",
 )
 
@@ -23,12 +22,7 @@ TARGETS = (
 def _context_arguments(contexts: dict[str, Path]) -> list[str]:
     args = []
     for name, path in contexts.items():
-        setting = (
-            "multica-backend.contexts.multica-source"
-            if name == "multica-source"
-            else name + ".context"
-        )
-        args.extend(["--set", setting + "=" + str(path)])
+        args.extend(["--set", name + ".context=" + str(path)])
     return args
 
 

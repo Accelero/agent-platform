@@ -1,2 +1,0 @@
-# Unified patch context preserves upstream tabs and blank-line prefixes.
-*.patch -whitespace

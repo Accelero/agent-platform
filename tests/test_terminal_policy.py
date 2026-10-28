@@ -15,7 +15,6 @@ def policy(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location("terminal_policy", source)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    monkeypatch.setattr(module, "OWNER_CONTEXT", tmp_path / "owner.json")
     monkeypatch.setattr(module, "MANAGED_DIR", tmp_path)
     monkeypatch.setattr(module, "PLUGIN_DIR", tmp_path / "image-plugin")
     monkeypatch.delenv("HERMES_PERSONAL_INSTANCE_ID", raising=False)
@@ -23,7 +22,6 @@ def policy(tmp_path, monkeypatch):
 
 
 def enable(policy):
-    policy.OWNER_CONTEXT.write_text("{}")
     config = {
         "terminal": {"backend": "managed_execution"},
         "plugins": {"enabled": ["managed_execution"], "disabled": []},
@@ -32,11 +30,22 @@ def enable(policy):
     return config
 
 
-def test_legacy_policy_preserves_upstream_backend_and_discovery(policy):
-    policy.enforce_backend("local")
-    manifests = [SimpleNamespace(name="managed_execution", source="user")]
-    assert policy.trusted_manifests(manifests) is manifests
-    assert policy.managed_directory() is None
+@pytest.mark.parametrize("marker", [None, "", "fixture-instance"])
+def test_terminal_policy_is_required_without_owner_or_environment_markers(
+    policy, monkeypatch, marker
+):
+    if marker is not None:
+        monkeypatch.setenv("HERMES_PERSONAL_INSTANCE_ID", marker)
+    for operation in [
+        lambda: policy.enforce_backend("local"),
+        lambda: policy.enforce_backend("managed_execution"),
+        policy.managed_directory,
+        lambda: policy.terminal_override("TERMINAL_ENV"),
+        lambda: policy.trusted_manifests([]),
+        lambda: policy.required_manifest(SimpleNamespace(name="other")),
+    ]:
+        with pytest.raises(RuntimeError, match="policy is missing or invalid"):
+            operation()
 
 
 @pytest.mark.parametrize(
@@ -46,7 +55,6 @@ def test_legacy_policy_preserves_upstream_backend_and_discovery(policy):
 def test_missing_or_invalid_policy_fails_closed_without_config_in_error(
     policy, content
 ):
-    policy.OWNER_CONTEXT.touch()
     if content is not None:
         (policy.MANAGED_DIR / "config.yaml").write_text(content)
     with pytest.raises(
@@ -66,7 +74,9 @@ def test_policy_must_enable_required_plugin(policy, field, value):
         policy.load_policy()
 
 
-def test_owner_mount_pins_policy_despite_changed_environment(policy, monkeypatch):
+def test_mounted_terminal_policy_applies_despite_changed_environment(
+    policy, monkeypatch
+):
     enable(policy)
     monkeypatch.setenv("HERMES_MANAGED_DIR", "/tmp/untrusted")
     monkeypatch.setenv("HERMES_PERSONAL_INSTANCE_ID", "")

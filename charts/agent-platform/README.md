@@ -4,11 +4,8 @@ The chart installs personal Hermes: the manager's `api` and `controller` roles
 and `hermes-gateway`, all from the one `hermes-manager` image. The controller
 commissions one Hermes instance per assigned user and their terminal backends;
 instance namespaces, Deployments, volumes and worker Pods come from PostgreSQL,
-not from Helm. See the [instances guide](../../docs/personal-hermes/instances.md)
-and the [terminal backend guide](../../docs/personal-hermes/terminal-backends.md).
-
-An optional, standalone Multica board backend remains in the chart. It is not
-integrated with the manager or personal Hermes instances.
+not from Helm. See the [instances guide](../../doc/personal-hermes/instances.md)
+and the [terminal backend guide](../../doc/personal-hermes/terminal-backends.md).
 
 ## Installation inputs
 
@@ -16,8 +13,8 @@ Install one release per namespace, with Kubernetes 1.30+ (for
 ValidatingAdmissionPolicy) and a CNI that enforces NetworkPolicy.
 `hermesManager.enabled` is off by default.
 
-- `images`: release-pinned `hermes-manager`, `hermes`, `agent-runtime` and
-  `multica-backend` references. Packaged releases inject exact manifest digests.
+- `images`: release-pinned `hermes-manager`, `hermes` and `agent-runtime`
+  references. Packaged releases inject exact manifest digests.
   The chart deploys `hermes-manager`; administrators use the `hermes` and
   `agent-runtime` digests in templates and terminal backends.
 - `hermesManager`: installation identity and issuer, `dataIdentity`,
@@ -90,15 +87,6 @@ uv run python -m agent_platform.manager_build
 helm lint charts/agent-platform
 uv run pytest -q tests/test_manager_chart.py
 ```
-
-## Optional Multica board
-
-`workloads` keeps the Multica backend, web frontend, same-origin gateway and an
-optional shared PostgreSQL StatefulSet, all disabled by default. `multica`
-supplies the public URL, allowed owner, database URL/CA Secret and mail Secret
-keys; `multicaGithub` optionally wires a GitHub App and webhook Ingress.
-`persistence` creates retained claims only when enabled without `existingClaim`.
-Personal Hermes instances have no board integration yet.
 
 ## Release and upgrade
 

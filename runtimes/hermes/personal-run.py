@@ -62,18 +62,19 @@ def environment():
             "HERMES_HOME": "/opt/data",
             "PYTHONDONTWRITEBYTECODE": "1",
             "HERMES_PERSONAL_INSTANCE_ID": context["instanceId"],
-            "HERMES_DASHBOARD_EXPECTED_ISSUER": owner["issuer"],
-            "HERMES_DASHBOARD_EXPECTED_SUBJECT": owner["subject"],
             "HERMES_DASHBOARD_SESSION_TOKEN": token,
             "API_SERVER_ENABLED": "false",
         }
     )
-    if "HERMES_MANAGED_DIR" in env:
-        if env["HERMES_MANAGED_DIR"] != "/run/hermes/execution-ca":
-            raise ValueError("personal_runtime_managed_config_conflict")
-        managed = json.loads(read("/run/hermes/execution-ca/config.yaml", 16384))
-        if not isinstance(managed, dict):
-            raise ValueError("personal_runtime_managed_config_invalid")
+    if (
+        env.get("HERMES_MANAGED_DIR", "/run/hermes/execution-ca")
+        != "/run/hermes/execution-ca"
+    ):
+        raise ValueError("personal_runtime_managed_config_conflict")
+    env["HERMES_MANAGED_DIR"] = "/run/hermes/execution-ca"
+    managed = json.loads(read("/run/hermes/execution-ca/config.yaml", 16384))
+    if not isinstance(managed, dict):
+        raise ValueError("personal_runtime_managed_config_invalid")
     for key in list(env):
         if key.startswith("HERMES_DASHBOARD_BASIC_AUTH_") or key.startswith(
             "HERMES_DASHBOARD_OAUTH_"

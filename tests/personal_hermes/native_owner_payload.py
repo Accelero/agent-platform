@@ -86,8 +86,27 @@ def main():
             instance._get_jwks_client = lambda: Keys()
             return instance
 
-        os.environ["HERMES_DASHBOARD_EXPECTED_ISSUER"] = ISSUER
-        os.environ["HERMES_DASHBOARD_EXPECTED_SUBJECT"] = "owner-a"
+        helper = sys.modules["plugins.dashboard_auth.self_hosted._platform_owner"]
+        policy = Path(temporary) / "context.json"
+        helper.POLICY_FILE = policy
+        # Neither an absent marker nor forged environment pins can replace the
+        # required mounted owner policy.
+        for marker in [None, "", "fixture-instance"]:
+            os.environ.pop("HERMES_PERSONAL_INSTANCE_ID", None)
+            if marker is not None:
+                os.environ["HERMES_PERSONAL_INSTANCE_ID"] = marker
+            for issuer, subject in [("", ""), (ISSUER, "owner-a")]:
+                os.environ["HERMES_DASHBOARD_EXPECTED_ISSUER"] = issuer
+                os.environ["HERMES_DASHBOARD_EXPECTED_SUBJECT"] = subject
+                expect_error(ValueError, provider)
+        os.environ.pop("HERMES_PERSONAL_INSTANCE_ID", None)
+        os.environ.pop("HERMES_DASHBOARD_EXPECTED_ISSUER")
+        os.environ.pop("HERMES_DASHBOARD_EXPECTED_SUBJECT")
+        policy.write_text(
+            json.dumps(
+                {"schemaVersion": 1, "owner": {"issuer": ISSUER, "subject": "owner-a"}}
+            )
+        )
         instance = provider()
         own = token("owner-a")
         foreign = token("owner-b")
@@ -149,25 +168,25 @@ def main():
                 )
 
         # Missing half of the pin and issuer normalization cannot silently enable
-        # an unpinned provider. The legacy singleton remains explicitly unpinned.
+        # an unpinned provider.
         for issuer, subject in [
             (ISSUER, ""),
             ("", "owner-a"),
             (ISSUER + "/", "owner-a"),
             (ISSUER, "bad\nsubject"),
         ]:
-            os.environ["HERMES_DASHBOARD_EXPECTED_ISSUER"] = issuer
-            os.environ["HERMES_DASHBOARD_EXPECTED_SUBJECT"] = subject
+            policy.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "owner": {"issuer": issuer, "subject": subject},
+                    }
+                )
+            )
             expect_error(ValueError, provider)
-        os.environ.pop("HERMES_DASHBOARD_EXPECTED_ISSUER")
-        os.environ.pop("HERMES_DASHBOARD_EXPECTED_SUBJECT")
-        assert provider().verify_session(access_token=foreign).user_id == "owner-b"
 
         # A mutable native .env cannot replace mounted personal ownership policy.
-        policy = Path(temporary) / "context.json"
-        helper = sys.modules["plugins.dashboard_auth.self_hosted._platform_owner"]
-        helper.POLICY_FILE = policy
-        os.environ["HERMES_PERSONAL_INSTANCE_ID"] = "fixture-instance"
+        policy.unlink()
         expect_error(ValueError, provider)
         policy.write_text(
             json.dumps(
@@ -187,12 +206,13 @@ def main():
         ]:
             policy.write_text(json.dumps({"schemaVersion": 1, "owner": owner}))
             expect_error(ValueError, provider)
-        policy.write_text("broken policy")
-        expect_error(ValueError, provider)
+        for content in ["broken policy", "[]", "{}", "x" * 16385]:
+            policy.write_text(content)
+            expect_error(ValueError, provider)
         print(
             "PASS: pinned native owner on login, every session check and refresh; "
             "issuer/signature checks; immutable mounted policy; "
-            "no email linking; singleton compatibility"
+            "no email linking; missing owner policy refused"
         )
 
 

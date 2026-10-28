@@ -2,15 +2,7 @@
   "chart_files": [
     "Chart.yaml",
     "README.md",
-    "files/multica-gateway.nginx.conf",
-    "templates/_application.tpl",
     "templates/_helpers.tpl",
-    "templates/configmaps.yaml",
-    "templates/multica-github.yaml",
-    "templates/networkpolicy.yaml",
-    "templates/services.yaml",
-    "templates/storage.yaml",
-    "templates/workloads.yaml",
     "values.schema.json",
     "values.yaml",
     "templates/hermes-manager.yaml",
@@ -44,19 +36,6 @@
         "ssh/environment-base.conf",
         "entrypoint.sh"
       ]
-    },
-    "multica-backend": {
-      "root": "services/multica",
-      "files": [
-        "Dockerfile",
-        "auth-boundary.patch",
-        "auth-boundary_test.go",
-        "maintenance_linux_test.go"
-      ]
-    },
-    "multica-source": {
-      "root": "vendor/multica",
-      "provenance": true
     },
     "hermes-manager": {
       "root": ".",

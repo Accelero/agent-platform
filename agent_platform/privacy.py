@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import sys
@@ -139,26 +138,13 @@ def chart_files(root: Path) -> list[str]:
 
 
 def context_files(root: Path, definition: dict) -> dict[str, bytes]:
-    """Read explicit owned payloads or unchanged, provenance-pinned upstream files."""
+    """Read the explicitly listed, reviewed payloads of one build context."""
     base = _path(root, definition["root"])
-    provenance = definition.get("provenance", False)
-    if provenance:
-        imported = json.loads(_data(root, "provenance/import.json"))["imported_files"]
-        prefix = definition["root"].rstrip("/") + "/"
-        names = {
-            name.removeprefix(prefix): digest
-            for name, digest in imported.items()
-            if name.startswith(prefix)
-        }
-        if not names:
-            raise PrivacyError("Upstream build context has no pinned provenance.")
-    else:
-        names = dict.fromkeys(definition["files"])
     result = {}
     total = 0
-    for name, expected in names.items():
+    for name in definition["files"]:
         source = Path(definition["root"]) / name
-        if not provenance and (
+        if (
             Path(name).name.lower() in _PRIVATE_NAMES
             or Path(name).name.startswith(".env")
             or _PRIVATE_DIRECTORIES.intersection(source.parts)
@@ -171,13 +157,7 @@ def context_files(root: Path, definition: dict) -> dict[str, bytes]:
         total += len(payload)
         if total > _TOTAL_LIMIT:
             raise PrivacyError("Reviewed build context exceeds its size limit.")
-        if provenance:
-            if hashlib.sha256(payload).hexdigest() != expected:
-                raise PrivacyError(
-                    "Vendored upstream content differs from pinned provenance."
-                )
-        else:
-            check_content(payload)
+        check_content(payload)
         result[name] = payload
     return result
 

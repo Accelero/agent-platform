@@ -1,4 +1,4 @@
-//! Crate dependency rules from `docs/personal-hermes/architecture.md`.
+//! Crate dependency rules from `doc/ARCH.md`.
 //!
 //! Dependencies mirror runtime privilege: the core performs no I/O, adapters do
 //! not depend on each other, and the gateway cannot reach the registry store or

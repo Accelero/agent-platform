@@ -1,30 +1,18 @@
 """Personal-instance terminal policy, loaded from read-only image/mounts.
 
-Legacy runtimes keep upstream behavior. Personal instances require the manager's
-policy and the image-owned provider regardless of mutable profile settings.
+Every instance requires the manager's policy and the image-owned provider
+regardless of mutable profile settings or environment markers.
 """
 
 import json
-import os
 from pathlib import Path
 
-OWNER_CONTEXT = Path("/run/hermes/owner/context.json")
 MANAGED_DIR = Path("/run/hermes/execution-ca")
 PLUGIN_DIR = Path("/opt/hermes/plugins/managed_execution")
 PLUGIN = "managed_execution"
 
 
-def personal_mode():
-    # The read-only owner mount remains authoritative if a profile .env changes
-    # the ambient marker. Numeric user/profile names are never authentication.
-    return OWNER_CONTEXT.is_file() or bool(
-        os.environ.get("HERMES_PERSONAL_INSTANCE_ID")
-    )
-
-
 def load_policy():
-    if not personal_mode():
-        return None
     try:
         with (MANAGED_DIR / "config.yaml").open("rb") as source:
             content = source.read(16385)
@@ -48,13 +36,12 @@ def load_policy():
 
 
 def managed_directory():
-    return MANAGED_DIR if load_policy() is not None else None
+    load_policy()
+    return MANAGED_DIR
 
 
 def terminal_override(name):
     policy = load_policy()
-    if policy is None:
-        return None
     from hermes_cli.config import TERMINAL_CONFIG_ENV_MAP, _terminal_env_value
 
     for key, value in policy["terminal"].items():
@@ -64,7 +51,8 @@ def terminal_override(name):
 
 
 def enforce_backend(name):
-    if load_policy() is not None and name != PLUGIN:
+    load_policy()
+    if name != PLUGIN:
         raise ValueError(
             "Personal instances require the managed_execution terminal provider"
         )
@@ -83,8 +71,7 @@ def _trusted(manifest):
 
 
 def trusted_manifests(manifests):
-    if load_policy() is None:
-        return manifests
+    load_policy()
     pinned = [manifest for manifest in manifests if _trusted(manifest)]
     if len(pinned) != 1:
         raise RuntimeError("Required image-owned terminal plugin is unavailable")
@@ -92,7 +79,8 @@ def trusted_manifests(manifests):
 
 
 def required_manifest(manifest):
-    if load_policy() is None or not _reserved(manifest):
+    load_policy()
+    if not _reserved(manifest):
         return False
     if not _trusted(manifest):
         raise RuntimeError("Personal terminal plugin must come from the image")

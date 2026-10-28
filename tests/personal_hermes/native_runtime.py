@@ -20,6 +20,59 @@ IMAGE = "personal-hermes-native-test:local"
 ISSUER = "https://sso.example.org/realms/agents"
 
 
+def missing_instance_policies_are_refused():
+    """The built image cannot fall back to unowned authentication or execution."""
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--user",
+            "1000:1000",
+            "--tmpfs",
+            "/tmp:mode=1777",
+            "--env",
+            "PYTHONDONTWRITEBYTECODE=1",
+            "--env",
+            "HERMES_HOME=/tmp/home",
+            "--entrypoint",
+            "/opt/hermes/.venv/bin/python",
+            IMAGE,
+            "-c",
+            """
+import os
+from hermes_cli._platform_terminal_policy import enforce_backend, managed_directory
+from plugins.dashboard_auth.self_hosted import SelfHostedOIDCProvider
+for marker in ['', 'fixture-instance']:
+    os.environ['HERMES_PERSONAL_INSTANCE_ID'] = marker
+    os.environ['HERMES_DASHBOARD_EXPECTED_ISSUER'] = 'https://sso.example.org/realms/agents'
+    os.environ['HERMES_DASHBOARD_EXPECTED_SUBJECT'] = 'owner-a'
+    for operation in [
+        lambda: enforce_backend('local'),
+        lambda: enforce_backend('managed_execution'),
+        managed_directory,
+        lambda: SelfHostedOIDCProvider(
+            issuer='https://sso.example.org/realms/agents', client_id='native-hermes'),
+    ]:
+        try:
+            operation()
+        except (RuntimeError, ValueError):
+            pass
+        else:
+            raise AssertionError('Missing instance policy was accepted')
+""",
+        ],
+        timeout=30,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", action="store_true")
@@ -39,6 +92,7 @@ def main():
                 ],
                 timeout=1200,
             )
+    missing_instance_policies_are_refused()
     name = "personal-hermes-runtime-" + uuid.uuid4().hex[:12]
     with tempfile.TemporaryDirectory(prefix="personal-hermes-native-") as directory:
         fixture = Path(directory)
@@ -83,7 +137,7 @@ def main():
                 ],
                 timeout=30,
             )
-        # No model key/login, shared service credentials, prompts or Multica seed.
+        # No model key or login, shared service credentials or prompts.
         settings = {
             "manager_url": "https://manager.example.org/execution",
             "token_file": "/run/hermes/credentials/execution-client-token",

@@ -2,19 +2,10 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "required": [
-    "existingSecret",
     "imagePullPolicy",
-    "workloads",
-    "persistence",
-    "configMaps",
-    "images",
-    "multica"
+    "images"
   ],
   "properties": {
-    "existingSecret": {
-      "type": "string",
-      "minLength": 1
-    },
     "imagePullPolicy": {
       "enum": [
         "IfNotPresent",
@@ -40,178 +31,17 @@
         }
       }
     },
-    "configMaps": {
-      "type": "object",
-      "additionalProperties": {
-        "type": "object",
-        "additionalProperties": {
-          "type": "string"
-        }
-      },
-      "propertyNames": {
-        "not": {
-          "enum": [
-            "runtime-manager-config",
-            "multica-gateway-config",
-            "hermes-gateway-config",
-            "hermes-defaults"
-          ]
-        }
-      }
-    },
-    "persistence": {
-      "type": "object",
-      "additionalProperties": {
-        "type": "object",
-        "required": [
-          "enabled",
-          "size",
-          "accessModes"
-        ],
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "existingClaim": {
-            "type": "string"
-          },
-          "size": {
-            "type": "string",
-            "minLength": 1
-          },
-          "accessModes": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "enum": [
-                "ReadWriteOnce",
-                "ReadWriteMany",
-                "ReadOnlyMany",
-                "ReadWriteOncePod"
-              ]
-            }
-          },
-          "storageClassName": {
-            "type": "string"
-          },
-          "volumeName": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "workloads": {
-      "type": "object",
-      "additionalProperties": {
-        "type": "object",
-        "required": [
-          "enabled",
-          "image"
-        ],
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "image": {
-            "type": "string",
-            "minLength": 0
-          },
-          "kind": {
-            "enum": [
-              "Deployment",
-              "StatefulSet"
-            ]
-          },
-          "existingSecret": {
-            "type": "string",
-            "minLength": 1
-          },
-          "env": {
-            "type": "array"
-          },
-          "secretEnv": {
-            "type": "array"
-          },
-          "ports": {
-            "type": "array"
-          },
-          "persistence": {
-            "type": "array"
-          },
-          "resources": {
-            "type": "object"
-          },
-          "volumes": {
-            "type": "array"
-          },
-          "sharedMemory": {
-            "type": "string"
-          },
-          "imageKey": {
-            "enum": [
-              "hermes",
-              "runtime-manager",
-              "multica-backend"
-            ]
-          }
-        }
-      }
-    },
-    "networkPolicy": {
-      "type": "object",
-      "required": [
-        "enabled",
-        "ingress"
-      ],
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "ingress": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
     "images": {
       "type": "object",
       "required": [
         "hermes",
         "agent-runtime",
-        "multica-backend",
         "hermes-manager"
       ],
       "additionalProperties": {
         "type": "string",
         "minLength": 1
       }
-    },
-    "multica": {
-      "type": "object",
-      "required": [
-        "publicUrl",
-        "ownerEmail",
-        "databaseUrl",
-        "databaseCASecret",
-        "maintenanceFile",
-        "mailSecret",
-        "mailKeys"
-      ],
-      "properties": {
-        "mailKeys": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      },
-      "additionalProperties": true
     },
     "hermesManager": {
       "type": "object",

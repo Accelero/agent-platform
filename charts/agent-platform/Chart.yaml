@@ -1,6 +1,6 @@
 apiVersion: v2
 name: agent-platform
-description: Personal Hermes manager, gateway and an optional Multica board.
+description: Personal Hermes manager, controller and gateway.
 type: application
 version: 0.0.0
 appVersion: "0.0.0"

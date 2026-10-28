@@ -8,7 +8,8 @@ mutable application state or deployment-specific backup scripts.
 
 - `agent_platform/`: shared BuildKit/cache configuration, release builder,
   privacy preflight and bounded command execution.
-- `containers/docker-bake.hcl`: the four supported release image targets.
+- `containers/docker-bake.hcl`: the three release image targets (`hermes`,
+  `agent-runtime`, `hermes-manager`).
 - `services/hermes-manager/`: Rust manager (`api` and `controller` roles),
   `hermes-gateway` and the React dashboard.
 - `contracts/hermes-manager/`: OpenAPI contracts (administration, execution,
@@ -17,16 +18,18 @@ mutable application state or deployment-specific backup scripts.
 - `runtimes/agent-runtime/`: default SSH terminal worker image.
 - `charts/agent-platform/`: self-contained application chart.
 - `examples/manager/`: nonsecret manager render fixture.
-- `services/multica/`, `vendor/multica/`: optional standalone board backend,
-  pinned upstream server source and upstream license notices.
-- `provenance/`: origin revisions, original source hashes and extraction notes.
-- `tests/`: release invariants, chart and contract tests and acceptance fixtures.
+- `tests/`: release invariants, chart and contract tests and acceptance fixtures
+  (`tests/personal_hermes/`: the k3s suite runner, the native end-to-end run,
+  its fake model and registry proxy).
+- `doc/`: `SPEC.md` (specification) and `ARCH.md` (architecture); the guides
+  and the implementation status are under `doc/personal-hermes/`.
 
 ## Manager design
 
-`docs/personal-hermes/specification.md` (what) and `architecture.md` (how)
-define the manager and gateway. `manager-rewrite.md` records how the previous
-design was replaced. Manager code follows these rules:
+`doc/SPEC.md` (what) and `doc/ARCH.md` (how) define the manager and gateway;
+keep the guides in `doc/personal-hermes/` and the implementation status there in step
+with the code. Documentation describes what is built: no plans, phases or
+migration history. Manager code follows these rules:
 
 - Every desired-state write is a `Command` run through the command envelope.
 - Reconciliation is level-triggered: a pure planner, then idempotent
@@ -37,7 +40,10 @@ design was replaced. Manager code follows these rules:
 - Lifecycle states are typed enums, never string literals.
 - No `serde_json::Value` crosses a port, except opaque `adminConfig`.
 - Every requirement and acceptance row maps to tests in
-  `services/hermes-manager/TESTS.md`.
+  `services/hermes-manager/TESTS.md`; the `hermes-architecture` tests read the
+  tables in `doc/SPEC.md` and fail on a missing row or test name.
+- Contract cases in `hermes-core::app::testing::contracts` run on both the
+  in-memory and the PostgreSQL store; add a port behaviour there first.
 
 ## Checks
 
@@ -51,36 +57,41 @@ helm lint charts/agent-platform
 ```
 
 Run the Rust checks in `services/hermes-manager/README.md` after manager edits.
+After changes to the controller, the chart, the runtime image or the gateway,
+also run the k3s suite and the native end-to-end run from the verification
+commands in `doc/personal-hermes/implementation.md`, on disposable fixtures
+only.
 The OpenAPI contracts are the authority for every interface. Keep the plugin's
 requests conformant to `execution.openapi.yaml`; change the contract, the Rust
 handler and the plugin together.
 
 Keep imported runtime/vendor code changes focused and review their Docker build
 compatibility. Generic code must not import a deployment repository. Preserve
-non-root workers, scoped mounts and the Multica human-token authorization boundary.
+non-root workers and scoped mounts.
 Keep external commands bounded and credentials out of output and build contexts.
 Review the staged diff and `git diff --check` before committing.
 
 ## Releases
 
-GHCR already holds stable versions 0.1.0–0.6.9 of the previous design. Source chart
-and project versions stay at the `0.0.0` placeholder. Do not add release numbers to
-documentation. A release requires an explicit `vMAJOR.MINOR.PATCH` tag; builds of
-unmerged work use `vMAJOR.MINOR.PATCH-dev.N` prereleases above the latest stable
-version, which deployments never resolve as the latest release. The GitHub-hosted release
-workflow validates, builds and publishes matching images and their self-contained chart.
-Do not overwrite an existing release version. Keep source/version OCI labels and
-upstream license notices. Publish the chart only after matching images pass validation.
-The chart owns configuration generation and exact image defaults; do not reintroduce
-a required metadata container, configuration ZIP or downloaded Python adapter.
-Public image layers and chart/receipt data must contain no secrets or personal data.
-Treat personal prompts, identities, profiles, skills and memory as sensitive too.
-Keep them in the private deployment repository or live mounted storage. Upstream
-public prompt templates remain part of pinned software, separate from personal seeds.
-`release-policy.json` enumerates chart and owned build inputs. Both release and
-cache builds stage only these reviewed files; vendored inputs must match their
-recorded upstream hashes. Never widen a context to include a deployment checkout.
-Run `uv run python -m agent_platform.privacy` before publication. It reports rule
+Source chart and project versions stay at the `0.0.0` placeholder; do not add
+release numbers to documentation. A release requires an explicit
+`vMAJOR.MINOR.PATCH` tag, or `vMAJOR.MINOR.PATCH-dev.N` for a prerelease of
+unmerged work. GHCR already holds versions up to 0.6.9 under these package
+names: never overwrite or reuse an existing version. The GitHub-hosted release
+workflow validates, builds and publishes matching images and their
+self-contained chart, and publishes the chart only after the images pass
+validation. Keep the source and version OCI labels and the upstream license
+notices in images. The chart owns configuration generation and exact image
+defaults.
+
+Public image layers and chart or receipt data must contain no secrets or
+personal data. Treat personal prompts, identities, profiles, skills and memory
+as sensitive too; keep them in the private deployment repository or live
+mounted storage. Upstream public prompt templates remain part of pinned
+software, separate from personal seeds. `release-policy.json` enumerates the
+chart and every build input; release and cache builds stage only these reviewed
+files. Never widen a context to include a deployment checkout. Run
+`uv run python -m agent_platform.privacy` before publication; it reports rule
 names without matched content. Keep ordinary Git attribution only with the
 maintainer's approval; the existing attribution has been explicitly approved.
 Publication and repository visibility changes require user authorization.

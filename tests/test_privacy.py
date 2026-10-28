@@ -1,6 +1,5 @@
 """Reject private inputs before publication and keep build contexts finite."""
 
-import hashlib
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -127,33 +126,6 @@ def test_release_inputs_cannot_link_to_private_neighbor_files(inputs):
         privacy.stage_contexts(root, target)
 
 
-def test_upstream_context_requires_matching_provenance(inputs):
-    root, _target = inputs
-    upstream = root / "vendor/server"
-    upstream.mkdir(parents=True)
-    (upstream / "main.go").write_bytes(b"public upstream source")
-    provenance = root / "provenance/import.json"
-    provenance.parent.mkdir()
-    provenance.write_text(
-        json.dumps(
-            {
-                "imported_files": {
-                    "vendor/server/main.go": hashlib.sha256(
-                        b"public upstream source"
-                    ).hexdigest()
-                }
-            }
-        )
-    )
-    definition = {"root": "vendor/server", "provenance": True}
-    assert privacy.context_files(root, definition) == {
-        "main.go": b"public upstream source"
-    }
-    (upstream / "main.go").write_bytes(b"private local content")
-    with pytest.raises(privacy.PrivacyError, match="differs"):
-        privacy.context_files(root, definition)
-
-
 def test_stale_context_cannot_be_reused(inputs):
     root, target = inputs
     target.mkdir()
@@ -162,17 +134,15 @@ def test_stale_context_cannot_be_reused(inputs):
         privacy.stage_contexts(root, target)
 
 
-def test_bake_overrides_every_context_including_linked_upstream():
+def test_bake_overrides_every_staged_context():
     args = build.bake_arguments(
         contexts={
             "hermes": Path("/reviewed/hermes"),
-            "platform-tools": Path("/reviewed/platform-tools"),
-            "multica-source": Path("/reviewed/multica-source"),
+            "hermes-manager": Path("/reviewed/hermes-manager"),
         }
     )
     assert "hermes.context=/reviewed/hermes" in args
-    assert "platform-tools.context=/reviewed/platform-tools" in args
-    assert "multica-backend.contexts.multica-source=/reviewed/multica-source" in args
+    assert "hermes-manager.context=/reviewed/hermes-manager" in args
 
 
 def test_privacy_failure_prevents_all_build_and_publication_commands(tmp_path):

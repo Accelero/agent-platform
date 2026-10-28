@@ -11,10 +11,7 @@ PATCHES = [
         "692289b37fa3ce547b37d8fc20baf12f0e1a8358689ebdc48e51d06250e91037",
         '    override = os.environ.get("HERMES_MANAGED_DIR", "").strip()',
         "    from hermes_cli._platform_terminal_policy import managed_directory\n"
-        "    personal = managed_directory()\n"
-        "    if personal is not None:\n"
-        "        return personal\n"
-        '    override = os.environ.get("HERMES_MANAGED_DIR", "").strip()',
+        "    return managed_directory()",
     ),
     (
         "tools/terminal_scope.py",
@@ -65,9 +62,7 @@ def patch(root=ROOT):
             text = text.replace(
                 before_scope,
                 "    from hermes_cli._platform_terminal_policy import load_policy\n"
-                "    policy = load_policy()\n"
-                "    if policy is not None:\n"
-                '        _apply(policy["terminal"])\n'
+                '    _apply(load_policy()["terminal"])\n'
                 "    _resolve_scope_cwd_placeholder(scope)\n    return scope",
             )
         if relative == "hermes_cli/plugins_discovery.py":

@@ -21,6 +21,29 @@ ACQUIRE_FIELDS = {
 
 
 def main() -> None:
+    from hermes_cli import _platform_terminal_policy as policy
+
+    # All plugin/configuration paths require the instance's managed policy,
+    # including the release smoke test before any plugin is loaded.
+    with tempfile.TemporaryDirectory() as directory:
+        managed = Path(directory)
+        (managed / "config.yaml").write_text(
+            json.dumps(
+                {
+                    "terminal": {"backend": "managed_execution"},
+                    "plugins": {"enabled": ["managed_execution"], "disabled": []},
+                }
+            )
+        )
+        with patch.object(policy, "MANAGED_DIR", managed):
+            verify_plugin_and_initializer()
+            managed_policy_binds_new_profiles()
+    print(
+        "Native Hermes plugin runtime selection, connection and initialization passed."
+    )
+
+
+def verify_plugin_and_initializer() -> None:
     from hermes_cli.plugins import PluginContext, PluginManifest
     from hermes_constants import (
         reset_hermes_home_override,
@@ -143,35 +166,17 @@ def main() -> None:
             assert (home / "plugins/hindsight").is_dir()
             # The bundled plugin serves every home; no per-home copy may shadow it.
             assert not (home / "plugins/managed_execution").exists()
-    managed_policy_binds_new_profiles()
-    print(
-        "Native Hermes plugin runtime selection, connection and initialization passed."
-    )
 
 
 def managed_policy_binds_new_profiles() -> None:
     """A profile created after startup, without terminal settings or a plugin copy,
     must still resolve to managed SSH execution and never to local commands."""
-    from hermes_cli import _platform_terminal_policy as policy
     from hermes_cli.plugins import discover_plugins, get_plugin_manager
     from hermes_constants import reset_hermes_home_override, set_hermes_home_override
     from tools.terminal_scope import build_profile_terminal_scope
     from tools.terminal_tool_backends import _get_plugin_env_provider
 
     with tempfile.TemporaryDirectory() as directory:
-        # The manager mounts this personal policy read-only in every instance.
-        managed = Path(directory) / "managed"
-        managed.mkdir()
-        (managed / "config.yaml").write_text(
-            json.dumps(
-                {
-                    "terminal": {"backend": "managed_execution"},
-                    "plugins": {"enabled": ["managed_execution"], "disabled": []},
-                }
-            )
-        )
-        policy.MANAGED_DIR = managed
-        os.environ["HERMES_PERSONAL_INSTANCE_ID"] = "smoke-instance"
         home = Path(directory) / "profiles" / "created-later"
         home.mkdir(parents=True)
         (home / "config.yaml").write_text("model:\n  default: chosen\n")
