@@ -1,12 +1,13 @@
 # Personal Hermes implementation status
 
-What is built and currently tested. The source implements the personal Hermes
-manager, gateway and runtimes described in the [specification](../SPEC.md), the
+The source implements the personal Hermes manager, gateway and runtimes
+described in the [specification](../SPEC.md), the
 [architecture](../ARCH.md) and the guides for [instances](instances.md),
 [terminal backends](terminal-backends.md) and the [dashboard](dashboard.md).
 [`TESTS.md`](../../services/hermes-manager/TESTS.md) maps every requirement,
 acceptance scenario and contract operation to named tests and their levels;
-every row currently records `pass` for its cited examples. The
+the statuses describe cited examples, not a passing execution receipt for this
+checkout. Native alternate-identity verification is tracked in G23. The
 [coverage assessment](../testing/coverage.md) identifies the additional
 clause, boundary and security evidence needed beyond those examples.
 
@@ -15,12 +16,12 @@ clause, boundary and security evidence needed beyond those examples.
 | Area | Source |
 | --- | --- |
 | Hermes image and plugin | Pinned upstream Hermes with reviewed patches and the bundled `managed_execution` plugin; owner-pinned native OIDC; signed home-initialization receipt; protected terminal policy |
-| Terminal worker image | `agent-runtime`, `managed-ssh-v2`, UID/GID 1000 |
+| Terminal worker image | `agent-runtime`, `managed-ssh-v2`, default UID/GID 1000; custom builds use `HOST_UID`/`HOST_GID` matching their backend record |
 | Manager | `services/hermes-manager`: the `api` role (administration API and dashboard, execution API, route resolver), the leader-elected `controller` role and the operator commands (`migrate`, `check`, `initialize`, `grant-administrator`, `rebind-cluster`, `generate-sealing-key`), all with state only in PostgreSQL |
 | Dashboard | React and TypeScript, served by the `api` role under a strict CSP: users and the Keycloak directory, assignments with instance status and terminal environments, the template and backend catalogs with form, JSON and YAML editing, storage with orphans, secrets, administrators and the audit log |
 | Desired state | Administrator commands through the command envelope: assignments, template and terminal backend versions (Draft, Published, Withdrawn), volumes from installation storage sources, admin settings and write-only admin secrets sealed to the controller |
 | Reconciliation | Pure planners and server-side apply; create-once material; epoch-guarded status; preconditioned deletes; static admission policies and RBAC from the chart; orphaned namespaces and volumes reported, never adopted |
-| Terminal backends | Environments and leases with database-time expiry; worker Pods with the instance's keys, the assignment's mounts and private registry credentials; in-process SSH readiness; pull, start and contract failures reported without replacement |
+| Terminal backends | Environments and leases with database-time expiry; worker Pods with the instance's keys, the assignment's mounts and private registry credentials; backend-declared UID/GID and `fsGroup`; in-process SSH readiness against the declared UID; pull, start and contract failures reported without replacement |
 | Routing | `hermes-gateway`: OIDC platform sessions, route resolution over mTLS, forwarding to the owner's instance only, header and cookie hygiene, revocation of open WebSockets and streams |
 | Chart | `charts/agent-platform` deploys `api`, `controller` and `hermes-gateway` with generated configuration, RBAC, admission policies, NetworkPolicies and one-shot operator Jobs |
 
@@ -35,7 +36,7 @@ nothing rolls back automatically.
 
 ## Evidence
 
-| Suite | What it proves | What it does not prove |
+| Suite | Assertions exercised by the suite | Coverage limits |
 | --- | --- | --- |
 | Rust workspace (`cargo test --workspace`, with disposable PostgreSQL) | Domain planners and validators; port contract cases on the in-memory and PostgreSQL stores; contract-checked administration, execution, resolver and gateway responses over real TLS; OIDC sessions against a fake realm; gateway hygiene and revocation timing; binary roles, configuration gates and abrupt kills; with `fault-injection`, the API aborted right before and right after a commit | Behaviour on a real cluster or with real Hermes |
 | `tests.personal_hermes.kubernetes` | Server-side apply, admission and RBAC as the controller's real ServiceAccount on k3s; preconditioned deletes; leader election; the controller process aborted at every controller fault point, including right after a delete; a real `agent-runtime` worker with the instance's keys; an unpullable worker image reported as `image_unavailable`; the owned objects the orphan scan lists | Real Hermes instances, Keycloak, the gateway on a cluster |
@@ -59,22 +60,27 @@ against every requirement, acceptance row and operational bound. The
 changes. These documents distinguish required test-system behaviour from
 features that are already implemented.
 
-Today, `uv run pytest -q` collects the Python test modules, not the standalone
-native/system scripts. CI's cluster driver defaults to direct k3s;
-`kubernetes.py --k3d` is optional and the restore code still creates direct k3s.
-The existing system script is one sequential run. It proves selected examples,
-not complete per-clause/security-bound coverage. In particular, live NFS,
-multi-node policy enforcement and full private-home restore are not established by the evidence table.
+`uv run pytest -q` selects infrastructure-free Python tests. Independently
+collected cases under `tests/e2e/` run through the `python-cluster` and
+`python-destructive` profiles. Their fixtures use k3d: the network matrix has
+one server and two agents; the installed platform runs on a separate single
+node. The manually dispatched `Cluster scenarios` workflow runs these profiles.
+The PR/main `Checks` workflow also runs the sequential native script through
+the direct-k3s driver. Its restore helper creates a second direct-k3s cluster,
+including when invoked from pytest.
 
-The commands below describe the current implementation. They are not the
-proposed pytest/k3d invocation surface, which does not exist yet.
+These suites cover selected examples rather than every clause and security
+boundary. Live NFS, multi-node placement of the installed platform and full
+private-home restore are not established. The alternate-identity native case
+exists but its execution evidence is tracked in G23. The tables describe suite
+assertions; the verifier's reports identify actual outcomes for a candidate.
 
 The [collected-case verifier](../../tests/verification/README.md) provides
 working Python/Rust inventory and execution commands with exact profile gates
 and sanitized JSON/JUnit reports. It accounts for compiled shared-store cases,
 fault-enabled process cases and explicitly ignored browser/cluster cases.
-Standalone system helpers remain marked uncollected; TypeScript retains its
-separate gates. This is baseline execution evidence, with clause and scenario
+The ledger identifies any standalone helpers without collected wrappers;
+TypeScript retains its separate gates. This is baseline execution evidence, with clause and scenario
 coverage limitations still recorded in G01/G03.
 
 ## Verification commands

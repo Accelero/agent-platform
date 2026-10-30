@@ -97,8 +97,9 @@ own image defaults. The controller runs one active replica by leader election;
 `api` and `gateway` can run several. Source charts carry the `0.0.0`
 development placeholder until a release sets the version.
 
-`hermesManager.dataIdentity` is the identity of every Hermes container and the
-default for workers unless a backend declares another non-zero UID/GID. Backend
+`hermesManager.dataIdentity` is the identity of every Hermes container. Each
+backend record requires explicit `uid` and `gid` values; workers do not inherit
+them from Helm. The default `agent-runtime` image uses `1000:1000`. Backend
 identities have no installation allow-list. Shared-volume access with different
 identities follows Unix permissions; backend-only volumes support another
 identity. The private Hermes home stays at the data identity.

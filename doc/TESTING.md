@@ -1,324 +1,172 @@
 # Testing
 
-This specifies the required test system for personal Hermes: language-native
-unit tests, dependency-focused integration tests, and independently collected
-Python/pytest end-to-end tests on disposable k3d clusters. Python is the default
-for new system-test orchestration and external-interface integration tests.
+The repository runs Rust, Python and TypeScript tests, plus disposable Kubernetes
+and browser fixtures. [SPEC.md](SPEC.md), [ARCH.md](ARCH.md) and the
+[OpenAPI contracts](../contracts/hermes-manager/) define product behaviour.
+The [coverage assessment](testing/coverage.md) records the evidence and its
+limits; the [gap register](testing/gaps.md) holds test work still to do.
 
-The decisions here are requirements for the test system, not a claim that its
-implementation already exists. [Coverage](testing/coverage.md) records the
-current evidence; [gaps and required changes](testing/gaps.md) specify the work.
-The existing runnable commands remain in the
-[implementation guide](personal-hermes/implementation.md#verification-commands).
-Product behaviour remains defined by [SPEC.md](SPEC.md), [ARCH.md](ARCH.md) and
-the [OpenAPI contracts](../contracts/hermes-manager/).
-
-Test only the platform the specification defines: per-user instances, one
-manager and gateway installation, and the storage sources and terminal backends
-it lists. Its out-of-scope items (team instances, SMB, automatic backups,
-coordinated checkpoints and the others) get no test infrastructure. The core
-profile below is the merge gate; extended profiles add evidence without
-blocking ordinary changes.
+The runnable commands are in the
+[implementation guide](personal-hermes/implementation.md#verification-commands),
+the [dashboard guide](personal-hermes/dashboard.md#frontend-development-and-checks) and the
+[case verifier guide](../tests/verification/README.md). These commands use
+fixtures, never deployment data or a deployment kubecontext.
 
 ## Evidence records
 
-There are exactly two maintained records; extend them rather than adding a third.
-
-| Record | Holds | Enforced by |
+| Record | Contents | Enforcement |
 | --- | --- | --- |
-| [`TESTS.md`](../services/hermes-manager/TESTS.md) | Requirement, acceptance, bound and contract-operation rows, each naming its proving tests, levels and status | `hermes-architecture` traceability tests: every row exists and every named test exists in source |
-| [`tests/verification/cases.json`](../tests/verification/README.md) | Every collected Python and compiled Rust test identity, its level and its CI profile; native helpers not yet collected | `tests.support.verification`: collection and per-case passing outcomes per profile |
+| [`TESTS.md`](../services/hermes-manager/TESTS.md) | Requirement, acceptance, bound and composite contract-operation rows; named tests, levels and status | Architecture tests compare row sets with the specification and contracts and check that named functions exist |
+| [`cases.json`](../tests/verification/cases.json) | Exact Python and compiled Rust test identities, proving levels and execution profiles; explicitly uncollected helpers | `tests.support.verification` compares actual collection and execution against the reviewed inventory |
 
-Clause-level obligations (the case IDs below) extend `TESTS.md`. A new or
-renamed test changes `cases.json` in the same change; a test that proves an
-obligation also appears in its `TESTS.md` row. The
-[coverage assessment](testing/coverage.md) and the
-[gap register](testing/gaps.md) are reviews of these records, not further
-records: when a gap's completion criteria hold, delete its entry and correct
-the assessment.
+A `pass` traceability row identifies cited examples. It is neither exhaustive
+clause coverage nor an execution receipt for a candidate. JSON and JUnit reports
+from the verifier record the outcomes of a particular profile run. The coverage
+assessment and gap register review these records rather than duplicating the
+case inventory.
 
 ## Levels and ownership
 
-Classify a test by the boundary it exercises, not its filename or runner.
-A Rust test making real TLS requests or using PostgreSQL is an integration
-test, even when Cargo runs it alongside pure tests.
+Tests are classified by the boundary they exercise. Real PostgreSQL, TLS, SSH,
+process, browser and Kubernetes tests are integrations even when they live in a
+Rust library test target.
 
-| Level | Runner and language | Dependencies | Responsibility |
-| --- | --- | --- | --- |
-| Unit | Rust/Cargo for Rust; Python/pytest for Python; TypeScript/Vitest for UI logic | No external service or cluster; explicit fakes and controllable clocks | Validators, state transitions, pure planners, command decisions, retry rules, configuration overlays, serializers and UI state |
-| Integration | Native Rust where generic traits, SQLx, adapter internals or process fault hooks are material; pytest/Python otherwise | A real PostgreSQL database, TLS/OIDC/SSH service, runtime image, browser, or Kubernetes API, as the case requires | Persistence and port contracts, actual request/response conformance, filesystem and image behaviour, admission/RBAC, browser/CSP integration and binary startup/crash behaviour |
-| E2E | Python/pytest; Playwright's Python API for browser journeys | Helm-installed system on k3d, real manager/gateway/dashboard/Hermes/workers/PostgreSQL/Keycloak; deterministic fake model and private registry | Every acceptance scenario, public administration workflows, per-owner isolation, security boundaries, failure/recovery and restoration of retained state |
+| Level | Implementation | Boundary |
+| --- | --- | --- |
+| Unit | Cargo, pytest and Vitest | Pure validators, planners, state transitions, command decisions with fakes, configuration and UI logic |
+| Integration | Cargo and pytest; TypeScript Playwright for presentation workflows | Store contracts, real protocol listeners, process failures, runtime images, chart/render comparisons, admission/RBAC and production dashboard/CSP |
+| E2E | Independently collected pytest cases and the standalone native script | Helm-installed manager, gateway, Hermes, workers, PostgreSQL and Keycloak, with a fake model and fixture registry |
 
-Preserve the shared Rust store contract cases and their in-memory/PostgreSQL
-implementations. Do not duplicate domain algorithms in Python to move their
-unit tests. Prefer Python for new black-box scenarios; do not rewrite effective
-Rust integration tests just to change language. Existing TypeScript browser
-tests with mocked API responses remain presentation integration tests. Real
-cluster browser journeys belong to pytest and use the served production build.
-Playwright's [Python API](https://playwright.dev/python/docs/library) provides the
-isolated browser contexts; `tests/support/browser.py` launches Chromium with the
-fixture CA in its own certificate database and resolver rules for the fixture
-hostnames, so the browser validates hostnames and chains instead of ignoring
-HTTPS errors.
+One shared Rust contract suite runs against both the in-memory and PostgreSQL
+stores. Adapter-specific suites exercise other ports. There is no generic
+conformance suite for every port. Finite planner state-grid and deterministic
+command-sequence tests exist; no `proptest`, fuzzing or measured branch-coverage
+pipeline is configured.
 
-## Coverage obligations
+## Execution profiles
 
-The unit of coverage is an observable obligation, not a test count or a green
-requirement row. Break each R1–R19 requirement and each acceptance row into
-behaviours, forbidden effects, boundaries and recovery outcomes. Operational
-bounds and the prose sections of the specification are obligations too.
+The verifier supports these profiles from the repository root:
 
-Each obligation records:
-
-- its requirement/acceptance reference and a stable case ID;
-- setup, action and the independently stated expected result;
-- allowed actors and denied actors, including a second owner and an outsider;
-- normal, invalid, boundary, unavailable and recovery variants where relevant;
-- the lowest proving level, plus any necessary cluster/browser evidence;
-- exact collected test identities, parameter IDs, required CI profile and result;
-- current evidence, uncovered variants and a linked gap; a helper's existence
-  alone is not execution evidence.
-
-For HTTP, identify operations by **contract file and operation ID**, with method
-and path as additional fields. The administration and gateway contracts both
-define `POST /auth/logout`; their security cases must remain distinct. For each
-operation account for declared success/error responses, authentication and
-authorization, request/response schemas, required headers, body limits and
-content types. A justified unreachable response is an explicit reviewed
-exception, not a silently missing case.
-
-Require full obligation mapping for the specification and all four contracts.
-Use risk-based combinations rather than an enormous arbitrary Cartesian
-product. Never reduce owner isolation, authentication, durable acknowledgement,
-secret delivery, no-fallback behaviour or destructive-action guards to pairwise
-sampling. Every relevant actor and boundary needs a direct case.
-
-Examples of independent oracles:
-
-- A rejected write leaves desired state, audit, receipt and Kubernetes resources
-  unchanged; do not assert just the HTTP status.
-- A replay produces the original result and no second audit/effect; record IDs
-  before and after crashes and concurrent requests.
-- An unassigned or foreign identity produces no namespace, material or worker.
-- A restart preserves selected settings, profiles, sessions, file hashes,
-  instance IDs and credential digests; readiness alone does not prove retention.
-- A denied network connection is compared with a working allowed connection
-  to the same live listener; a dead server is not an isolation oracle.
-
-## Systematic cases by behaviour
-
-| Behaviour | Required dimensions and invariants |
+| Profile | Selection and prerequisites |
 | --- | --- |
-| Identity and authorization | Exact issuer/subject and case; same email with another subject; no assignment; every access state; missing/expired/forged/ambiguous credentials; current grants; browser CSRF/origin; credential used on another interface |
-| Commands and concurrency | New/replayed/conflicting idempotency key; different actors; stale/missing/malformed precondition; concurrent enrollment, last-admin removal, publication, secret rotation and acquisition; rollback and lost acknowledgement |
-| Planning and observation | Desired × observed states, including absent/stale/foreign/terminating objects, lost storage, bad receipts, transient probes and superseded generations; no unobserved or wrong-UID deletion; eventual convergence after recovery |
-| Terminal execution | All three lifetime modes; default/allowed/withdrawn/removed/unknown selections; profile/session separation; pending/failed workers; host-key verification; replay/renew/release/expiry/parent leases; policy changes and forced drains; never replay interrupted commands |
-| Storage and initialization | All supported sources; static sharing and traversal; permissions/read-only; shared path and UID/GID; missing/lost volumes; interrupted/concurrent initialization; no reseeding or private-home mount in workers |
-| Settings and secrets | Every precedence layer; removing an override; new profiles; required owner/terminal policies; image-plugin shadowing; env/file/registry delivery; reference changes, rotation, deletion, redaction and wrong sealing keys |
-| Proxy and browser | Real login/logout/refresh; history, settings, upload, HTTP mutation and WebSocket; owner-only pending/error pages; forged routing/cookies/tickets; limits, streaming, cancellation and CSP |
-| Stability | API/controller/gateway/PostgreSQL/Keycloak/worker failures independently and in selected combinations; leader turnover; lost notifications; bounded retries/concurrency; reconnect storms; cleanup after cancellation; recovery without identity or credential changes |
-| Operations and artifacts | Fresh install, operator Jobs, supported upgrade, uninstall retention, same/new-cluster restore, missing/wrong backup inputs, sealed material, exact tested image/chart digests and no fault-injection feature in release images |
+| `python` | Tests without infrastructure capability markers; Helm is needed by chart tests |
+| `python-native` | `native` cases against `HERMES_TEST_NATIVE_IMAGE` |
+| `python-cluster` | `cluster and not destructive`; `HERMES_TEST_K3D` names the pinned k3d binary; browser cases also need Chromium and NSS `certutil` |
+| `python-destructive` | `destructive` cases on a separate platform pool; requires `HERMES_TEST_K3D` |
+| `rust` | Non-ignored workspace tests, including PostgreSQL integrations; requires disposable `DATABASE_URL` |
+| `rust-faults` | Feature-enabled API process abort cases; requires disposable PostgreSQL |
+| `rust-browser` | Ignored production dashboard/CSP case; requires PostgreSQL, `MANAGER_UI_DIST`, UI dependencies and Chromium |
+| `rust-cluster` | Ignored Kubernetes adapter/admission cases; the cluster driver supplies `HERMES_TEST_KUBECONFIG` and worker-image inputs |
+| `rust-controller` | Ignored feature-enabled controller process cases; the driver supplies PostgreSQL and Kubernetes fixture inputs |
 
-Each fixed defect adds the smallest deterministic regression case. Add a higher
-level test when the defect depends on that boundary. Generate invalid and
-boundary inputs, state sequences and concurrency schedules in native unit or
-integration tests; use reproducible seeds and preserve minimized failures.
-Mutation testing of selected authorization, owner, lease-finality and deletion
-guards checks that the assertions detect a broken guard. It complements
-coverage measurement; neither line coverage nor mutation scores prove security.
+`inventory` checks collection only. `run` also requires every reviewed case to
+pass and the underlying runner to exit successfully. Empty collection,
+missing/unexpected cases, wrong levels, skips, xfail/xpass and fixture failures
+fail the profile. Rust inventory compiles and lists test binaries without
+starting their external fixtures. Required execution inputs are checked before
+running a profile.
 
-## Standard k3d environment
+A plain `uv run pytest -q` uses the same infrastructure-free selection as
+`python`. Every Python test has exactly one level marker; collection rejects
+missing or ambiguous levels. `pyproject.toml` registers capability markers and
+enables strict marker/configuration checks. Requirement/case markers are not
+comprehensively mapped. Browser, database and multi-node capabilities have no
+separate verifier profiles.
 
-Use one shared fixture implementation for Kubernetes integration, E2E and
-second-cluster restore. It creates a fresh, uniquely named k3d cluster and a
-private kubeconfig. It must neither read a deployment context nor modify the
-user's default kubeconfig. k3d exposes configuration for kubeconfig behaviour,
-node topology, registry setup and port mappings; specify these explicitly in
-the reviewed test configuration rather than relying on defaults.
-[k3d configuration reference](https://k3d.io/stable/usage/configfile/).
+## Cluster fixtures
 
-| Profile | Topology and purpose |
-| --- | --- |
-| Core | One server; complete functional/security acceptance on every PR and main commit |
-| Multi-node | One server and at least two agents; explicit placements for local-path volumes, cross-node NetworkPolicy and worker loss/rescheduling |
-| Restore | A separate empty k3d cluster, private database and restored storage inputs; no access to the source cluster's live filesystem as a substitute for a backup |
-| Extended storage | Multi-node plus an isolated real NFS service/export; validates mounts, permissions, failure and recovery |
-| Soak/failure | Dedicated cluster, explicit resource budgets and longer test deadlines; no sharing with the core profile |
+There are two cluster execution paths:
 
-Pin k3d, the k3s node image, PostgreSQL, Keycloak, registry and test-probe images.
-Import the exact locally built manager, Hermes and worker artifacts into every
-node that may schedule them. Record digests and tool versions in the run
-receipt; do not silently reuse whatever a mutable local tag currently names.
-Build reviewed release contexts once and install the actual chart using those
-digests. Fault-injection builds are separate, explicitly identified test
-artifacts and cannot be published as release images.
+- `tests.personal_hermes.kubernetes` starts direct single-server k3s by default,
+  with a private temporary kubeconfig. It runs the Rust adapter/admission and
+  controller process profiles. Its optional `--k3d` path creates a k3d cluster.
+  `--native` then installs the chart and runs the sequential native scenario.
+- `tests/support/cluster.py` creates run-owned k3d clusters for pytest. The
+  session `cluster` fixture has one server and two agents and proves
+  NetworkPolicy enforcement with a working allowed connection and a denied
+  connection before handing the cluster to a case. The installed `platform`
+  fixture has a separate single-node cluster because its local static volumes
+  and dynamic storage must be mountable together on one node.
 
-Preserve admission and network enforcement. K3s includes a network-policy
-controller; its presence must still be verified by a functional allow/deny
-probe in the test environment.
-[K3s network-policy controller](https://docs.k3s.io/networking/networking-services#network-policy-controller).
-A profile unable to enforce the policy fails setup. Do not count manifest
-comparison or a port-forwarded connection as a live policy test.
+Both paths pin the k3s image and keep kubeconfigs private. The pytest path
+requires k3d v5.9.0 explicitly through `HERMES_TEST_K3D` and disables changes to
+the default kubeconfig. Fixture images are built/imported locally or pulled
+from pinned references. Fixture hostnames use a generated CA. The real-browser
+helper trusts that CA in a private NSS database and uses explicit resolver
+rules; it disables Chromium's Local Network Access checks for the private
+fixture address.
 
-Give PostgreSQL and registry fixtures a private run-owned network and explicit
-addresses usable by Pods and the driver. Use loopback-only host port mappings
-and real test hostnames with an explicit fixture CA. Browser and API drivers
-must use the same routing arrangement; a process-global Python DNS patch is
-not a browser solution. Specify registry trust/authentication and mirror
-configuration for every node, including the restore cluster.
-
-The test administrator provisions infrastructure and only performs observation
-or fault injection that an ordinary caller cannot perform. Product workflows
-use public APIs, CLI operator commands and real role credentials. Never use
-cluster-admin requests as proof that the controller's restricted ServiceAccount
-can perform an action. Kubernetes assertions may inspect state but must not
-repair a failing workflow behind the product's back.
+The restore helper creates a second direct-k3s cluster, including when called
+from a pytest case whose source platform uses k3d. It restores a PostgreSQL dump
+and an archive of static fixture storage, runs `rebind-cluster`, and checks
+identity/material retention and orphan reporting. It does not establish
+recovery of dynamic private-home data across provisioners. No live NFS fixture
+or multi-node acceptance run of the installed platform exists.
 
 ## Fixture lifecycle and isolation
 
-| Scope | Owns | Isolation rule |
-| --- | --- | --- |
-| Run/session | Reviewed artifact manifest, k3d cluster/network, fresh PostgreSQL fixture, realm, CA and optional registry | Unique run ID; explicit private kubeconfig and credential directory; no external deployment credentials |
-| Scenario/function | Installation/release/database or equivalent isolated assignment namespace set, users, clients, browser contexts and canary secrets | No dependence on another test's mutations or test ordering |
-| Destructive scenario | Cluster-wide outages, leader failure, rebind, restore, uninstall, node loss and durability-setting changes | One cluster/database of its own, shared by the destructive cases in turn and never by other tests; after each case the pool checks that the database, provider, workloads and commissioned owners are back, and replaces the platform when they are not or the case failed |
+`tests/support/ownership.py` checks resource kind and run labels before reset,
+injection or cleanup. Database cleanup checks run ownership comments. The
+`Cleanup` helper registers finalizers as resources are allocated and attempts
+all registered cleanup actions even after a failure. Docker inspection failures
+are errors, never evidence that a resource is safe to remove.
 
-Register teardown immediately after each successful allocation, then compose
-fixtures. A later setup failure must still clean earlier resources. pytest's
-[fixture guidance](https://docs.pytest.org/en/stable/how-to/fixtures.html#safe-fixture-structure)
-supports pairing individual state changes with their cleanup. Verify run
-ownership and exact recorded resource IDs before cleanup, reuse, reset or
-injection. No deletion of all volumes, all similarly named databases or all
-namespaces by a broad prefix. No global Docker pruning.
+The non-destructive pytest cases share a commissioned platform and create
+additional assignments as needed. Teardown suspends extra assignments to free
+Pods while retaining data. They do not have separate installation/database state
+per case. `HERMES_TEST_ORDER=reverse` reverses collection order for diagnosis.
 
-Capture diagnostics before teardown and continue all finalizers if one fails.
-Report cleanup failures separately without replacing the original test failure;
-leaked resources fail the job. A local keep-on-failure option preserves only
-verified run-owned resources and a protected inspection manifest. Successful
-runs clean everything. Reused clusters are for local diagnosis and do not count
-as a clean CI acceptance run.
+Destructive cases take turns on their own session platform pool. After each
+case the pool checks health and replaces a failed or unusable platform before
+another case takes it. This pool is separate from the non-destructive platform.
+The standalone native script has a sequential scenario order and shares its
+run's mutable state. It pauses its PostgreSQL fixture for an outage case, so
+only one such run may use that fixture at a time. `--keep` and `--reuse` support
+local diagnosis with verified fixture resources.
 
-Parallelism is allowed only after independence is demonstrated. Shared
-read-only artifacts and an immutable control plane may be reused; mutable
-realm/database/installation state is isolated. Do not enable parallel execution
-of a legacy sequential scenario by adding a marker. Cluster-wide fault tests
-use a separate worker/profile. No resource creation during test collection.
+## Tests and proving boundaries
 
-## Pytest structure and selection contract
-
-The required organization is below. `unit/`, `integration/`, `e2e/`, `support/`
-and `conftest.py` exist; `e2e/` holds `test_network_isolation.py`,
-`test_acceptance.py`, `test_failures.py`, `test_execution.py` and
-`test_restore.py` so far, and the remaining modules named there are not written.
-No Python test module sits outside a level directory:
-
-```text
-tests/
-  unit/                    Python runtime/plugin/release/privacy units
-  integration/             runtime images, HTTP, chart and dependency boundaries
-  e2e/                     independently collected system scenarios
-    test_enrollment.py
-    test_owner_isolation.py
-    test_native_workflows.py
-    test_execution.py
-    test_failures.py
-    test_storage.py
-    test_restore.py
-  support/                 cluster, clients, identity, waits, safe diagnostics and the case verifier
-  verification/            the reviewed case ledger (cases.json)
-  personal_hermes/         current standalone cluster/native drivers, retired by G01/G02
-  conftest.py              level enforcement, fixture wiring and profile selection
-```
-
-Keep Python assertions in pytest test functions; shared support owns mechanics,
-not a second hidden test runner. One assertion helper is fine; one pytest test
-that invokes the entire old script does not provide scenario-level collection,
-isolation or reporting. Keep intentional multi-step lifecycle journeys together
-when those steps are the behaviour being tested.
-
-Every test has exactly one level (`unit`, `integration`, `e2e`) and its
-applicable capabilities (`cluster`, `database`, `native`, `browser`,
-`security`, `destructive`, `multi_node`, `slow`, `soak`); a test proving an
-obligation also carries its requirement/case ID. Register markers and
-reject unknown markers and configuration mistakes. `tests/conftest.py`
-already enforces the level and `pyproject.toml` the strict markers.
-[pytest marker reference](https://docs.pytest.org/en/stable/example/markers.html).
-Parameter IDs describe behaviour, never credentials or personal labels.
-
-Required invocation semantics (the default selection and `python-native` are
-implemented; the other capability profiles are not):
-
-- Collection needs no Docker service and lists individual scenario/parameter IDs.
-- Selecting a single scenario provisions its prerequisites without first running
-  enrollment or settings tests.
-- An explicitly requested cluster/database/browser profile fails setup when its
-  dependencies are absent. It never succeeds by skipping the entire profile.
-- Lightweight Python checks remain usable without a cluster; CI explicitly
-  selects each required profile and validates its expected collected cases.
-- Rust SQLx/ignored tests and existing browser integration tests remain explicit
-  required jobs until their replacements have equivalent assertions and reports.
-
-Declare direct Python imports as locked test dependencies; do not rely on
-`requests`, WebSocket or crypto libraries being transitive dependencies of a
-Kubernetes client. Prefer synchronous Python clients and fixtures unless the
-case needs concurrency. Use explicit concurrent clients/barriers for races,
-not accidental timing from sleeps.
-
-## Timing, reliability and diagnosis
-
-Separate provisioning budgets from product guarantees. A slow image import may
-have a long setup deadline; it cannot justify widening the 5 s authorization,
-10 s connection-close, 130 s provider-revocation or 5 min drain guarantees.
-
-Use controllable time for native state-machine/cache/lease-boundary tests, and
-real unaccelerated defaults for selected k3d timing cases. Start measurement at
-the defined event: committed access change, injected dependency failure or
-provider acknowledgement. Prime a valid session immediately before that event
-and exercise the worst cache phase. Record request start, decision/response and
-connection-close timestamps separately. An observation request needs its own
-short deadline and cannot extend the product bound indefinitely.
-
-For boundaries test just below, at and above the threshold. For real-time tests,
-schedule probes early enough that sampling uncertainty does not hide a breach;
-record that uncertainty and fail an inconclusive measurement. A later recovery
-poll may have slack; a security deadline may not silently gain it.
-
-Every external operation, polling loop, worker process and entire scenario has
-an explicit deadline. Poll observable conditions and show bounded progress
-events with scenario IDs and phase names. Retry only specified transient
-conditions. Mutation retries retain the same idempotency key and body. Do not
-retry assertions or whole scenarios to turn a failed security check green.
-
-Each run records source revision, artifact digests, topology/tool configuration,
-selected cases, parameters/seeds, start/end times and pass/fail/skip results.
-Produce per-case JUnit and readable progress. Required case omissions,
-unexpected skips and expired quarantines fail the gate. Any temporary
-quarantine has an owner, reason, issue and expiry; it is not passing coverage.
-
-Keep bounded, allowlisted diagnostics: lifecycle/condition codes, resource
-UIDs and generations, selected events and sanitized process output. Do not
-upload kubeconfigs, Secrets, raw Pod environments, database dumps, homes,
-browser storage, tokens or unreviewed network traces. Screenshots and traces
-can contain secret form inputs and cookies; default to disabled until a safe
-capture/redaction policy is tested. Scan report files and diagnostics for
-generated canary secrets, not only application logs.
-
-## CI and completion criteria
-
-| Lane | Required gate |
+| Area | Existing cases and limits |
 | --- | --- |
-| Every PR and main commit | Native units; shared store contracts against memory and PostgreSQL; HTTP/TLS/binary integrations; chart/privacy/build invariants; runtime image checks; k3d adapter/admission/network checks; all core acceptance cases including restore and a real browser journey |
-| Scheduled extended run | Multi-node/NFS, supported Kubernetes compatibility profiles, key rotations, repeated faults, generated schedules and bounded resource/load/soak cases |
-| Release | Successful required results for the exact source revision and exact image/chart digests being promoted; the supported extended profiles for that candidate, plus packaged artifact smoke and privacy checks |
+| Commands and stores | Replay/conflict, stale revisions, concurrency, rollback, access changes, secret references, leases and controller state; memory and PostgreSQL share the contract cases |
+| Protocols | Administration, execution, resolver and gateway fixtures check declared responses and selected malformed headers/bodies, body bounds, authentication, CSRF and wrong-owner/wrong-interface refusals; complete operation/status/header coverage remains in G21 |
+| Storage and initialization | Approved roots, traversal, static sharing, read-only mounts, mount-path compatibility, dynamic claims, private-home isolation, retained state and interrupted initialization; live NFS, more permission variants and private-home restore remain gaps |
+| Worker identity | Domain range validation, backend UID/GID/fsGroup rendering, real SSH against the declared UID, and worker/Hermes admission cases; native alternate-identity file ownership and image mismatch execution remain in G23 |
+| Browser | TypeScript workflows use mocked APIs; the Rust production browser case uses real assets/CSP with fixture sessions; pytest browser cases use the installed chart and Keycloak |
+| Failures and bounds | API/controller fault injection, leader turnover, worker loss, provider/database outages and selected timing boundaries; no full interleaving, capacity or sustained soak claim |
 
-The core E2E suite remains a PR gate; the existing workflow already runs the
-native system scenario on PRs. Do not move essential security or acceptance
-tests to an optional nightly job during the refactor. A release tag alone is
-not evidence that the required source/artifact checks ran. No production model
-key, cloud account or deployment repository is required by these lanes.
+The standalone native script and pytest acceptance wrappers share scenario
+helpers. Pytest provides individual node IDs and reports for those wrappers;
+the standalone script reports aggregate progress and stops at its first failure.
+The [coverage assessment](testing/coverage.md) identifies the uncovered
+variants without treating helper existence as a passing result.
 
-Measure native branch coverage and uncovered boundary modules before choosing
-numeric ratchets. Prioritize untested decisions, not trivial lines or total
-test count. Completion means that required obligations have collected tests,
-assertions at the proving level, passing evidence for the candidate, safe
-fixture lifecycle and no unaccounted high-priority gaps. It does not mean that
-every hypothetical interleaving or external deployment configuration is proven.
+## Reports and diagnostics
+
+Verifier reports contain source revision, dirty-tree status, catalogue digest,
+profile, start/end times and per-case outcomes. Python records each case's aggregate setup/call/teardown duration; Rust per-case
+durations are not measured. A sibling JUnit XML report
+is written for execution. Captured output, environments and failure bodies are
+omitted; unreviewed identities are hashed before reporting. CI uploads these
+reports with seven-day retention.
+
+These reports do not contain a complete tested artifact-digest manifest or
+exhaustive clause/actor/header/timing coverage. The standalone native run and
+TypeScript suites retain their own output; TypeScript identities are outside
+the reviewed case ledger. Timing cases have explicit waits and observation
+budgets, with incomplete production-boundary coverage recorded in G06.
+
+## CI and releases
+
+| Workflow | Trigger and execution |
+| --- | --- |
+| `Checks` (`checks.yml`) | Pull requests and pushes to main: Python/chart/privacy, Rust and shared-store profiles, dashboard unit/browser/build checks, manager image checks, runtime checks, direct-k3s adapter/controller profiles and the full standalone native scenario |
+| `Cluster scenarios` (`cluster.yml`) | Manual dispatch: builds fixture images, then runs `python-cluster` and `python-destructive`, including the network matrix and installed browser journeys |
+| `Release agent platform` (`release.yml`) | Explicit version tag: first requires successful latest `Checks` and `Cluster scenarios` runs for that exact commit, then validates, builds and publishes images and their matching chart |
+
+The manually dispatched cluster profiles are not automatic PR gates. There is
+no scheduled extended/NFS/soak workflow. The release gate compares workflow runs
+by source commit; it does not compare the digests tested in those runs with the
+digests built for publication. The release builder performs its own image and
+packaged-chart validation. G20 records the remaining artifact evidence; G22
+records the remaining profile and reporting work.

@@ -1,42 +1,38 @@
 # Test coverage assessment
 
-Initial review baseline: source commit `5a05a59`, updated as gaps close. This
-is an assessment of test code,
-fixture mechanics, contracts and CI configuration, not a line/branch coverage
-measurement. The preceding local validation passed 106 collected Python cases,
-the native owner/runtime checks, release smoke, Rust architecture/traceability,
-the Kubernetes adapter/controller-process suite and the full native system run
-including restore. That system run used direct k3s, not k3d or pytest E2E.
-Those results are useful evidence for that run, not proof of every variant below.
+This assessment compares test code, fixture mechanics, contracts and CI
+configuration. It is not a line/branch coverage measurement or a passing receipt
+for this checkout. Actual outcomes belong to the verifier's per-run JSON/JUnit
+reports; a cited helper or collected case does not establish that it ran.
 
-The current [execution ledger](../../tests/verification/README.md) additionally
-checks exact Python/Rust collection, levels and per-case passing outcomes in
-separate workspace, fault, browser and cluster profiles. Its reports resolve
-the cited examples to exact IDs and explicitly retain uncollected native
-helpers. Composite operation IDs and all nine bounds are statically checked.
-This closes baseline reporting omissions; complete clause/status/actor coverage,
-TypeScript inventories and independent pytest E2E remain gaps.
+The [execution ledger](../../tests/verification/README.md) checks exact
+Python/Rust collection, proving levels and per-case outcomes in dedicated
+profiles. It includes compiled shared-store cases, ignored/feature-gated Rust
+cases, and the independent pytest cluster/destructive scenarios. Helpers without
+collected wrappers remain explicitly uncollected. Composite operation IDs and
+all nine operational bounds are statically checked. Full clause/status/actor
+coverage and TypeScript execution inventories remain incomplete.
 
-The [strategy](../TESTING.md) defines the required system. Gap IDs refer to
-the actionable [gap register](gaps.md). Existing `pass` labels in
-[`TESTS.md`](../../services/hermes-manager/TESTS.md) mean that cited tests exist and
-exercise examples; they do not establish exhaustive clause/status/boundary
-coverage or that every cited function was executed in a particular CI profile.
+[TESTING.md](../TESTING.md) describes the implemented runners, fixtures and CI
+selection. Gap IDs refer to the actionable [gap register](gaps.md). Existing
+`pass` labels in [`TESTS.md`](../../services/hermes-manager/TESTS.md) identify
+cited examples; they do not establish exhaustive coverage or execution in a
+particular candidate's profile.
 
 ## Existing suites and what their evidence means
 
 | Source | Current evidence | Limitation |
 | --- | --- | --- |
-| [Python tests](../../tests/) and [pytest configuration](../../pyproject.toml) | Release/privacy/build invariants including the tag/version rule, contracts/chart rendering, runtime initialization (with a 68-case malformed-input matrix), terminal policy and plugin selection, direct-dependency and ownership/cleanup checks for the harness, the installed Hermes image as 13 collected `python-native` cases, plus collection/reporting regressions; explicit levels, registered capability markers, a plain run that needs no infrastructure and strict configuration | The end-to-end scenarios are standalone scripts outside pytest collection. No common cluster fixtures or complete requirement/capability metadata |
+| [Python tests](../../tests/) and [pytest configuration](../../pyproject.toml) | Release/privacy/build invariants including the tag/version rule, contracts/chart rendering, runtime initialization (with a 68-case malformed-input matrix), terminal policy and plugin selection, direct-dependency and ownership/cleanup checks for the harness, the installed Hermes image as 13 collected `python-native` cases, plus collection/reporting regressions; explicit levels, registered capability markers, a plain run that needs no infrastructure and strict configuration | Independent pytest E2E cases share k3d/platform fixtures alongside the standalone native script; complete requirement/case metadata and exhaustive variant coverage are absent |
 | [Core domain](../../services/hermes-manager/crates/hermes-core/src/domain/) | Typed state/validation tests and a broad finite desired/observed planner enumeration | No `proptest`, fuzz or mutation setup is present; no measured branch-coverage report. The finite planner test is valuable, but is not a generated event-sequence test |
-| [Shared store cases](../../services/hermes-manager/crates/hermes-core/src/app/testing/mod.rs) | 53 cases instantiated by the contract macro for memory and [PostgreSQL](../../services/hermes-manager/crates/hermes-store/src/testing.rs): replay, races, retention, leases, controller and route rules | This is strong store/application coverage. It is not a reusable conformance suite for every external port, nor proof of process/cluster behaviour for every case |
+| [Shared store cases](../../services/hermes-manager/crates/hermes-core/src/app/testing/mod.rs) | Shared cases instantiated by the contract macro for memory and [PostgreSQL](../../services/hermes-manager/crates/hermes-store/src/testing.rs): replay, races, retention, leases, controller and route rules | This is strong store/application coverage. It is not a reusable conformance suite for every external port, nor proof of process/cluster behaviour for every case |
 | [HTTP integrations](../../services/hermes-manager/crates/hermes-http/tests/), [raw wire client](../../services/hermes-manager/crates/hermes-testkit/src/raw.rs) and [contract checker](../../services/hermes-manager/crates/hermes-testkit/src/contract.rs) | Real TLS listeners, PostgreSQL, endpoint success/refusal cases, JSON response-schema checks and byte-level request cases (exact body bounds, chunked and cancelled bodies, repeated and malformed headers, hostile JSON) | No complete operation × status × actor/header/body-case execution ledger. The checker validates status/body, not every header rule or runtime request schema |
 | [Identity](../../services/hermes-manager/crates/hermes-identity/tests/), [proxy](../../services/hermes-manager/crates/hermes-proxy/tests/gateway.rs), [gateway binary](../../services/hermes-manager/crates/hermes-gateway/tests/gateway.rs) | Signed JWTs, callback/session/refresh denial, wrong claims and keys, route/cookie/header hygiene, streaming, accelerated revocation and compiled gateway flows | Many use fake OIDC/native/resolver services. They are integrations, not pure units or substitutes for the full real-Keycloak/browser matrix |
-| [Kubernetes driver](../../tests/personal_hermes/kubernetes.py) and [adapter tests](../../services/hermes-manager/crates/hermes-kube/tests/cluster.rs) | Thirteen real API tests plus controller-process abort/recovery; scoped ServiceAccount, idempotent apply, stale deletion, leader election, actual SSH worker and image-pull failure, and the admission/RBAC matrix (positive control and one-field negatives for Pods, namespaces, volumes, Services, RoleBindings and controller rights) | Direct single-server k3s is the CI default. An optional k3d path exists, but is not the standard CI path or the restore implementation. No systematic live cross-owner traffic matrix |
+| [Kubernetes driver](../../tests/personal_hermes/kubernetes.py) and [adapter tests](../../services/hermes-manager/crates/hermes-kube/tests/cluster.rs) | Real adapter/admission tests plus controller-process abort/recovery; scoped ServiceAccount, idempotent apply, stale deletion, leader election, actual SSH worker and image-pull failure, and the admission/RBAC matrix (positive control and one-field negatives for Pods, namespaces, volumes, Services, RoleBindings and controller rights) | Direct single-server k3s is the CI default. An optional k3d path exists, but is not the standard CI path or the restore implementation. The separate pytest network matrix uses live positive controls across one and three nodes; the installed platform remains single-node |
 | [Native owner](../../tests/personal_hermes/native_owner_payload.py), [runtime](../../tests/personal_hermes/native_runtime.py), [initializer tests](../../tests/integration/test_personal_init.py) | Exact owner login/session/refresh, missing-policy refusal, non-root startup, forced restart, retained settings, concurrent/interrupted initialization and symlink/special-file refusal | Docker/in-image checks are partly standalone scripts with aggregate pass output. Not all malformed-policy/startup combinations are tested in the installed system |
-| [System scenario](../../tests/personal_hermes/native_e2e.py) | Real chart/operator Jobs, real native chat/cron/uploads, two owners, private registry, suspension, outages and second-cluster restore | One sequential script of more than 3,000 lines. Early failure prevents later scenarios; shared mutations and global DNS patching; no individual pytest node IDs or per-scenario JUnit |
+| [System scenario](../../tests/personal_hermes/native_e2e.py) | Real chart/operator Jobs, real native chat/cron/uploads, two owners, private registry, suspension, outages and second-cluster restore | One sequential script of more than 3,000 lines. The standalone invocation stops at its first failure and shares mutable state and a process-wide DNS patch. Collected pytest wrappers provide scenario IDs/JUnit with common helpers, but do not give the script itself per-scenario reporting |
 | [UI browser fixtures](../../services/hermes-manager/ui/e2e/fixtures.ts) and [production browser case](../../services/hermes-manager/ui/e2e/production/assets.spec.ts) | Presentation workflows with mocked APIs; separate real-server CSP, write-only secret and template publication case | The production case injects cookies created by a Rust fixture and ignores browser HTTPS errors. It does not perform a real browser Keycloak login or commission an instance through the cluster dashboard |
-| [CI checks](../../.github/workflows/checks.yml) and [release](../../.github/workflows/release.yml) | PR/main jobs run native language suites, image/runtime checks, direct-k3s integrations and native system script; Python/Rust profiles enforce exact collection and passing outcomes and retain sanitized reports; release runs Python/preflight/build smoke | No scheduled extended topology/soak lane or aggregate obligation-coverage gate. Tag publication does not explicitly require the full Rust/cluster result for the same candidate |
+| [CI checks](../../.github/workflows/checks.yml) and [release](../../.github/workflows/release.yml) | PR/main jobs run native language suites, image/runtime checks, direct-k3s integrations and native system script; Python/Rust profiles enforce exact collection and passing outcomes and retain sanitized reports; manual Cluster scenarios runs pytest cluster/destructive profiles; release requires both workflows for the exact commit and runs Python/preflight/build smoke | No scheduled extended topology/soak lane or aggregate obligation-coverage gate. The source-commit gate does not compare tested and published artifact digests |
 
 ## Requirement-by-requirement assessment
 
@@ -62,7 +58,7 @@ names are representative proving cases, not a second copy of `TESTS.md`.
 | R14 — shared paths and backend worker identities | Equal mount-path checks; backend non-root bounds, alternate-identity rendering and declared-UID SSH checks; worker/Hermes admission matrix; `bob_gets_a_shared_workspace_and_his_network_home`, real shared `/workspace` files and a backend-only fixture home | “Network home” in the system fixture uses local static storage, not a live NFS export; multi-node mount/scheduling and group/permission variants; alternate-identity native execution | G02, G16, G23 |
 | R15 — scoped controller authority | Chart token/RBAC comparisons, the real admission/RBAC matrix with positive controls and mutation-checked guards, impersonation and escalation refusals, client and kubeconfig refusal rules; the admission/RBAC matrix with positive controls (`admission.rs`) and the live NetworkPolicy matrix | PersistentVolume updates, remaining workload verbs and subresources, each non-controller role's credentials | G07, G08 |
 | R16 — one continuous replica per owner and independent workers | Pure rollout/readiness tests, real no-browser terminal/cron, worker idle retirement; a standby takes over a killed leader and Hermes runs untouched without a controller (`test_leadership.py`) | Recreate overlap under concurrent changes, node/worker loss while Hermes stays healthy, all lifetime modes and prolonged gateway/cron liveness | G11, G18, G19 |
-| R17 — durable crash recovery | 53 shared cases, SQL guard tests, API commit-boundary aborts, five real controller fault locations, planner totality; four lease-race cases on both stores and the cluster leadership cases | Worker/lease process failures, process pause and API partition, database crash/commit ambiguity, dropped notifications, bounded Kubernetes failures and stale observations | G09–G11, G18 |
+| R17 — durable crash recovery | Shared store cases, SQL guard tests, API commit-boundary aborts, five real controller fault locations, planner totality; four lease-race cases on both stores and the cluster leadership cases | Worker/lease process failures, process pause and API partition, database crash/commit ambiguity, dropped notifications, bounded Kubernetes failures and stale observations | G09–G11, G18 |
 | R18 — no unintended secret exposure | Privacy allowlists and rejection tests; sealed values, write-only API/audit cases, generated secret scan of app logs | All secret delivery/rotation/error paths; built artifacts and public layer contents; reports/screenshots/traces/driver exceptions; access using restricted DB roles | G10, G14, G20, G21 |
 | R19 — restore without adoption | New-cluster rebind restores SQL and a static workspace, reuses the sealing key and permits login; restored older DB reports new namespaces/PVs as orphans without adoption | Restored private-home profiles/memory/sessions/native state and explicit before/after credential digests; successful same-cluster known-instance recovery; missing/wrong keys and partial backups; provisioner-specific dynamic-data evidence | G16, G17 |
 
@@ -71,7 +67,8 @@ names are representative proving cases, not a second copy of `TESTS.md`.
 All 23 acceptance rows have entries in `TESTS.md`. This table identifies their
 main present proving boundary and the additional assertion or variant needed.
 U = native unit/shared fake; I = real dependency/process integration;
-E = current sequential system script, not pytest E2E or k3d evidence.
+E = installed-system assertions in the native script or collected pytest wrappers.
+The cited runner determines whether the fixture is direct k3s or k3d.
 
 | Specification scenario | Present evidence | Additional case or test-system work |
 | --- | --- | --- |
@@ -97,7 +94,7 @@ E = current sequential system script, not pytest E2E or k3d evidence.
 | Kill the manager at every injected fault point | U/I API/controller aborts | Explicit fault-location-to-collected-case inventory; worker/lease boundaries (G03, G10, G18) |
 | Execution credential used against another interface or instance | I/E denial and exact-instance authentication | Table-driven wrong-interface/owner/expired/suspended cases and zero effects (G11, G21) |
 | Restore PostgreSQL and data on a new cluster | E static workspace, IDs/material and orphans | Private home recovery, negative backups/key inputs and standard k3d restore fixture (G02, G17) |
-| UI build and dependency boundary | U/I architecture, assets, CSP and privacy; E strict policy and hostile stored text in the deployed dashboard | Artifact-content verification and candidate gating (G20) |
+| UI build and dependency boundary | U/I architecture, assets, CSP and privacy; E strict policy and hostile stored text in the deployed dashboard | Artifact-content verification and matching tested/published digests (G20) |
 
 ## Operational bounds
 
@@ -120,9 +117,9 @@ production boundary. G06 owns their measurement contract.
 ## What cannot be concluded from the current green results
 
 - No measured line/branch percentage or comprehensive mutation/fuzz result exists.
-- The k3d scenarios (network matrix on one and three nodes, acceptance cases,
-  destructive cases) pass when dispatched by hand, but no CI command gates a PR
-  with them. No live NFS test and no multi-node acceptance run of the platform
+- The manually dispatched `Cluster scenarios` workflow runs the k3d network,
+  acceptance, browser and destructive profiles. They are not automatic PR gates;
+  a workflow definition or a source-level assertion is not a candidate result. No live NFS test and no multi-node acceptance run of the platform
   exist; the platform runs on a single node.
 - Generated manifests matching each other do not demonstrate live isolation.
 - A traced function name does not prove collection, feature selection, execution,

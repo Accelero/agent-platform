@@ -27,8 +27,9 @@ a test that needs a cluster, database, native image, browser or exclusive
 infrastructure carries that capability marker and belongs to the profile that
 provides it. `python-native` needs `HERMES_TEST_NATIVE_IMAGE` to name the image
 under test; `python-cluster` needs `HERMES_TEST_K3D` to name a k3d binary at the
-pinned version, builds one run-owned cluster of one server and two agents, and
-proves NetworkPolicy enforcement before any case runs; its browser journeys also
+pinned version, uses a three-node fixture for the network matrix and a separate single-node
+installed platform for acceptance/browser cases. The network fixture proves
+policy enforcement before its cases run; browser journeys also
 need Playwright's Chromium for the locked version (`uv run playwright install
 chromium`) and the NSS `certutil` tool. `python-destructive` runs the cases that break their platform on one of their own. All fail rather than skip
 when their input is absent. Rust inventory needs
@@ -44,8 +45,9 @@ and Playwright Chromium, as described in the
 The existing `tests.personal_hermes.kubernetes` driver supplies disposable
 cluster prerequisites and runs `rust-cluster` and `rust-controller`. Invoking
 either profile directly requires its fixture environment; absent prerequisites
-fail. These profiles still use the existing direct-k3s driver. They do not
-implement the canonical k3d lifecycle or independently collected E2E scenarios.
+fail. These Rust profiles use direct k3s by default; the driver also accepts `--k3d`.
+The independently collected E2E scenarios use the separate Python cluster and
+destructive profiles.
 
 `inventory` verifies collection only. `run` verifies collection and execution:
 all expected cases must be present, have their reviewed level, and pass.
@@ -57,8 +59,8 @@ profiles. Removing the shared contract macro entry or the fault feature cannot
 be satisfied by a helper function with the same name.
 
 Reports record source revision, dirty-tree status, catalogue digest, profile,
-start/end times and individual outcomes. Python records phase durations; Rust
-case durations are not measured. Execution also writes a sibling JUnit XML.
+start/end times and individual outcomes. Python records each case's aggregate setup/call/teardown duration; Rust case
+durations are not measured. Execution also writes a sibling JUnit XML.
 Only reviewed identities appear verbatim: unreviewed IDs are hashed so an
 accidental parameter value does not enter reports. Failure bodies, captured
 output, environments and credentials are omitted. CI uploads only these JSON

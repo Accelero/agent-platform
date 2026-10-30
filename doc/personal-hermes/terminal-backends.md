@@ -64,9 +64,14 @@ the instance's environments in the dashboard:
 | --- | --- |
 | `image_unavailable` | The image cannot be pulled: wrong reference or digest, or missing registry credentials |
 | `start_failed` | The container exits or keeps crashing |
-| `contract_failed` | The worker breaks the SSH contract: wrong host key, the instance's key refused, or the shell not running as the declared UID, or the image lacking the matching `worker` user |
+| `contract_failed` | Admission/rendering refuses the worker, or SSH answers with a wrong host key, refused client key or shell UID different from the backend record |
 
-Hermes receives `422 backend_failed` for that environment. Correct the
+A missing or mismatched image user can prevent startup (`start_failed`) or
+break SSH authentication (`contract_failed`), depending on the image. The
+readiness probe verifies `id -u`; it does not query the shell's GID. Connection
+failures and SSH timeouts remain pending and are checked again.
+
+Hermes receives `422 backend_failed` for a failed environment. Correct the
 registry secret, or publish a corrected version and select it in the
 assignment; the next acquisition after the failed environment has retired
 starts a new worker.
@@ -113,15 +118,18 @@ See [instances](instances.md#volumes-and-mounts) for the volume rules.
 | `per_profile_on_demand` | One environment per profile, retired after `idleSeconds` without leases |
 | `per_profile_always_running` | One environment per profile, kept without idle retirement once created |
 
-Commands run in the directory the conversation declares under `/workspace`.
-Without one, as in a scheduled job, they start in `/workspace`: Hermes's
-generic default for plugin backends is root's home, which the worker's data
-identity cannot enter. A backend that runs commands without a declared
-directory should therefore mount the `workspace` slot.
+Commands use the declared working directory. The plugin recovers a session's
+explicit directory under `/workspace` after Hermes's container guard; it also
+accepts an explicitly supplied worker directory such as `/drive`. An omitted
+directory or Hermes's generic `/root` default becomes `/workspace`, including
+for scheduled jobs. A backend used without an explicit directory therefore
+needs a usable `/workspace`. A directory other than `/workspace` selects
+`per_session` mode for that environment, even with a profile lifetime setting.
 
 Mode is written into the instance's managed configuration, so changing it
-restarts Hermes. Changing allowed backends, their versions or their volumes
-does not restart Hermes; it applies to newly acquired environments.
+restarts Hermes. Changing the backend default, allowed versions or backend-only
+volume bindings applies to newly acquired environments without restarting
+Hermes. Changing a volume mounted by the Hermes template also restarts Hermes.
 
 ## Select a backend in Hermes (user)
 

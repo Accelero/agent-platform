@@ -28,11 +28,12 @@ backends chosen by an administrator.
   by the bundled `managed_execution` plugin. The manager starts them only for
   backends the assignment allows, mounts only the assigned volumes, supports
   private registries, reports pull, start and contract failures instead of
-  falling back, and retires idle workers.
+  falling back, and retires idle workers. Each backend declares its workers'
+  non-root UID/GID; Hermes keeps the installation data identity.
 - **Storage from approved sources.** Storage classes, local paths on a node and
-  NFS exports, declared by the operator. Administrators can share static folders between people. A
-  shared workspace has the same path in Hermes and in the workers; the private
-  home is never mounted in a worker.
+  NFS exports, declared by the operator. Administrators can share static folders
+  within or across assignments. A shared workspace has the same path in Hermes
+  and in the workers; the private home is never mounted in a worker.
 - **Safe lifecycle.** Suspending or revoking someone denies new access within
   5 s and closes open connections within 10 s; re-enabling keeps the same data
   and credentials. Outages of the manager, the database or Keycloak fail
@@ -44,9 +45,9 @@ backends chosen by an administrator.
 
 ## Documentation
 
-1. [`doc/SPEC.md`](doc/SPEC.md): what the platform must do — requirements R1–R19 and
-   the acceptance matrix.
-2. [`doc/ARCH.md`](doc/ARCH.md): how it is built — components, mechanisms, security
+1. [`doc/SPEC.md`](doc/SPEC.md): platform requirements R1 through R19 and the
+   acceptance matrix.
+2. [`doc/ARCH.md`](doc/ARCH.md): how it is built: components, mechanisms, security
    model, code layout and design decisions.
 3. Guides: [instances, storage and admin settings](doc/personal-hermes/instances.md),
    [terminal backends](doc/personal-hermes/terminal-backends.md), the
@@ -116,11 +117,13 @@ uv run python -m agent_platform.privacy
 Chart tests call `helm`; it must be on `PATH`. The Rust, dashboard, k3s and
 end-to-end checks are listed in the
 [verification commands](doc/personal-hermes/implementation.md#verification-commands).
-CI (`.github/workflows/checks.yml`) runs all of them on pull requests and on
-pushes to `main`. For an explicit local build without publishing:
+`Checks` runs the direct-k3s and native suites on pull requests and pushes to
+`main`. The separate, manually dispatched `Cluster scenarios` workflow runs
+the collected k3d and browser scenarios. For an explicit local build without
+publishing, set `RELEASE_VERSION` to an unused SemVer release or prerelease:
 
 ```bash
-uv run python -m agent_platform.release --version 0.7.0-dev.1 --revision "$(git rev-parse HEAD)"
+uv run python -m agent_platform.release --version "$RELEASE_VERSION" --revision "$(git rev-parse HEAD)"
 ```
 
 Outputs are under ignored `.local/releases/`. Source defaults retain local `dev`
@@ -131,8 +134,10 @@ See [AGENTS.md](AGENTS.md) for repository guidance.
 
 1. Review passing checks and set the chart (`version`, `appVersion`) and
    `pyproject.toml` versions to the release version together; the workflow
-   rejects a tag that does not match them. Let the trusted main cache workflow
-   finish before tagging to reuse its build layers.
+   rejects a tag that does not match them. The exact versioned commit must have
+   successful latest `Checks` and manually dispatched `Cluster scenarios` runs
+   before the tag release gate permits a build. Let the trusted main cache
+   workflow finish before tagging to reuse its build layers.
 2. Push an explicit immutable tag: `vMAJOR.MINOR.PATCH`, or `vMAJOR.MINOR.PATCH-dev.N`
    for a prerelease of unmerged work.
 3. GitHub Actions builds, tests and publishes the versioned images, renders and

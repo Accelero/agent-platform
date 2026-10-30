@@ -864,19 +864,19 @@ presence and a few JSON schema samples are insufficient completion criteria.
 
 ## G22 — Accurate testing documentation and CI profiles
 
-**P1 · Documentation corrected in this review; enforcement still required.**
+**P1 · Complete profile and candidate evidence.**
 
-Replace claims of implemented property tests, nightly execution or exhaustive
-coverage with the actual evidence. The current PR/main workflow already runs
-the full native script; no scheduled workflow currently implements the extended
-profiles. Keep current executable commands available until the new pytest/k3d
-commands really exist. Do not label the old script as pytest or a direct k3s
-run as k3d.
+Current: TESTING.md describes the implemented profile selection, direct-k3s
+and pytest/k3d fixtures, shared destructive platform pool and report contents.
+Checks runs the standalone native script on PRs/main; Cluster scenarios runs
+collected pytest/k3d cases on manual dispatch. Release publication requires
+both workflows for the exact commit. No scheduled extended/soak workflow or
+measured branch-coverage pipeline exists.
 
-Implement the strategy's explicit native/integration/core/extended/release
-profiles and required-case reporting, then update command documentation and
-`TESTS.md` together. A missing dependency, zero collection or unexpected skip
-in a requested profile must fail. Any remaining scope limitation or accepted
+Complete the extended/soak and exact-artifact release profiles and the remaining
+case/obligation reporting, keeping command documentation and `TESTS.md` in step.
+A missing dependency, zero collection or unexpected skip in a requested profile
+must fail. Any remaining scope limitation or accepted
 gap needs a reason, responsible owner and review point rather than a `pass`.
 
 The Python/Rust baseline profiles and strict level/marker checks are

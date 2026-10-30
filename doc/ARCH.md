@@ -298,8 +298,10 @@ pass as its instance:
 2. record its UID once it is observed;
 3. when it is ready, verify SSH in-process with `russh`: authenticate with the
    instance's client key, pin the provisioned host key and check that the
-   shell runs as the backend version's declared UID. A missing `worker` user
-   or a different shell UID gives `contract_failed`, without fallback.
+   shell runs as the backend version's declared UID. A different shell UID,
+   host-key mismatch or explicit authentication refusal gives `contract_failed`.
+   This probe checks UID, not GID; the Pod's group and `fsGroup` come from the
+   backend record.
 
 A worker that cannot start is never retried with another image. A pull error
 (`image_unavailable`), a failed or crash-looping container (`start_failed`), a
@@ -620,9 +622,9 @@ Each trigger names the domain rule it mirrors.
 
 ## Verification strategy
 
-[TESTING.md](TESTING.md) specifies the test system: language-native unit,
-dependency integration and Python/pytest E2E layers, with k3d as the standard
-cluster fixture. The [coverage assessment](testing/coverage.md) records current
+[TESTING.md](TESTING.md) describes the implemented language-native unit,
+dependency integration and Python/pytest E2E layers, and the direct-k3s and
+k3d fixture paths. The [coverage assessment](testing/coverage.md) records current
 evidence and the [gap register](testing/gaps.md) the remaining work. This
 section describes what exists.
 
@@ -632,7 +634,7 @@ Current test implementation:
 | --- | --- | --- |
 | Unit | Cargo domain/application fakes, finite planner state-grid and targeted transition tests; pytest Python runtime/plugin/release/privacy units; Vitest UI logic | PRs and main commits; Cargo also runs external-dependency tests in the same workspace invocation |
 | Integration | Shared store cases on memory and PostgreSQL; actual HTTP/TLS/OIDC/SSH fixtures; binary abort tests; runtime-image checks; chart/render/golden comparisons; mocked UI browser workflows and the separate production-server CSP case | PR/main jobs; PostgreSQL and selected explicitly ignored/feature-gated tests need their dedicated commands |
-| E2E | The standalone Python native scenario installs the chart and reaches real Hermes through the gateway with Keycloak, a fake model and a private registry; restores onto a second cluster | The native CI job runs the script through the direct single-server k3s fixture on PRs/main. It is not collected by pytest; k3d is only an optional adapter-runner path |
+| E2E | The standalone native scenario and collected pytest cases install the chart and reach real Hermes through Keycloak and the gateway, with a fake model and private registry; restore uses a second direct-k3s cluster | PR/main Checks runs the sequential script on direct k3s. Manual Cluster scenarios runs the pytest k3d profiles, including real-browser journeys and a separate destructive platform pool |
 
 Existing mechanisms and their limits:
 
@@ -650,11 +652,12 @@ Existing mechanisms and their limits:
   [execution ledger](../tests/verification/README.md) separately requires exact
   Python/Rust collection, reviewed proving levels and passing per-case outcomes
   in dedicated profiles, including shared macros, faults and ignored cases.
-  Standalone helpers are explicitly uncollected gaps. Full clause/status/header
-  coverage and TypeScript execution inventories are not implemented.
-- **Planner coverage.** A finite desired/observed state-grid test and targeted
-  cases exist. Property-generation, fuzz and mutation infrastructure is not
-  currently implemented.
+  Helpers without collected wrappers are explicitly uncollected gaps. Full
+  clause/status/header coverage and TypeScript execution inventories are not
+  implemented.
+- **Planner coverage.** Finite desired/observed state-grid, targeted transition
+  and deterministic command-sequence tests exist. No `proptest`, fuzzing,
+  mutation or measured branch-coverage pipeline is configured.
 - **Golden files.** Rendered manifests, admission and chart/config fixtures are
   reviewed outputs; supported tests update them only with `UPDATE_GOLDEN=1`.
   Golden agreement complements real authorization and packet-level tests.
@@ -663,8 +666,11 @@ Existing mechanisms and their limits:
   and controller-process checks, and the full native system script on PRs and
   pushes to `main`. Python/Rust profiles retain sanitized JSON/JUnit reports.
   No scheduled extended/soak profile exists there.
-  Tag publication has separate Python/build smoke checks and does not yet
-  require full cluster evidence for the exact candidate; this is tracked in G20.
+  The manually dispatched `Cluster scenarios` workflow runs collected k3d
+  network, acceptance, browser and destructive cases. Tag publication first
+  requires successful latest `Checks` and `Cluster scenarios` runs for the exact
+  commit, then performs separate Python/build smoke checks. Matching the tested
+  and published artifact digests remains in G20.
 
 The [verification commands](personal-hermes/implementation.md#verification-commands)
 are the working commands.

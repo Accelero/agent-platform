@@ -43,12 +43,13 @@ hermesManager:
 
 - **Storage sources** cannot be added from the dashboard; changing them is a
   chart upgrade. The dashboard lists them read-only.
-- **`dataIdentity`** is the UID/GID of every Hermes container and the default
-  for workers unless a backend declares otherwise. The repository's Hermes and `agent-runtime` images use
-  `1000:1000`.
+- **`dataIdentity`** is the UID/GID of every Hermes container. Backend versions
+  require explicit `uid` and `gid`; they do not inherit these values. The
+  default Hermes and `agent-runtime` images use `1000:1000`.
 - **Existing folders.** For `localPath` and `nfs` sources, the deployment
-  creates each folder an administrator will assign, owned for the identities that consume them. Backend-only folders may be
-  owned by the backend identity. The manager never creates, changes ownership of or deletes host
+  creates each folder an administrator will assign with permissions for its
+  consuming identities. Backend-only folders may be owned by the backend
+  identity. The manager never creates, changes ownership of or deletes host
   directories.
 - **Node NVMe as dynamic storage.** Install a local-path provisioner whose
   storage class points at the NVMe root. Give it a deterministic path pattern
