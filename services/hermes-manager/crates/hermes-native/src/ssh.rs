@@ -1,7 +1,8 @@
 //! Worker readiness over SSH, in process: log in as `worker` with the
 //! instance's client key, accept only the host key the controller
 //! provisioned, and check that the shell runs as the backend-declared UID. One
-//! deadline bounds the whole check; nothing is retried here.
+//! deadline bounds the whole check. Only a login that authenticates but then
+//! gets no session is repeated, a few times, within that deadline.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,6 +17,9 @@ use russh::keys::{
 
 const DEADLINE: Duration = Duration::from_secs(8);
 const MAX_OUTPUT: usize = 64;
+/// Fresh logins that all authenticate but get no session before the worker is
+/// judged unable to serve its declared account.
+const SESSION_ATTEMPTS: usize = 3;
 
 /// Accepts exactly one server key, and remembers when another was offered.
 struct Pinned {
@@ -48,8 +52,8 @@ fn host_key(line: &str) -> Option<russh::keys::PublicKey> {
 
 /// Whether the worker at `address` accepts the client key, presents
 /// `expected_host_key` and runs the shell as `uid`. A worker that answers but
-/// does none of that breaks the contract; one that does not answer yet is
-/// checked again later.
+/// does none of that, or accepts the key and then never opens a session,
+/// breaks the contract; one that does not answer yet is checked again later.
 pub async fn ready(
     address: &str,
     client_key: &[u8],
@@ -74,12 +78,37 @@ async fn ready_at(
     .unwrap_or(SshCheck::NotYet)
 }
 
+/// Logs in up to `SESSION_ATTEMPTS` times. An image whose `worker` user has
+/// another UID than the Pod runs as makes sshd accept the client key and then
+/// reset the connection when the session opens. A worker that does that on
+/// every fresh login cannot give the declared account a shell; a single reset
+/// is a network blip and is checked again later.
 async fn check(
     address: &str,
     port: u16,
     client_key: &[u8],
     expected_host_key: &str,
     uid: u32,
+) -> SshCheck {
+    for _ in 0..SESSION_ATTEMPTS {
+        let refused = AtomicBool::new(false);
+        let verdict = login(address, port, client_key, expected_host_key, uid, &refused).await;
+        if !(verdict == SshCheck::NotYet && refused.load(Ordering::SeqCst)) {
+            return verdict;
+        }
+    }
+    SshCheck::ContractFailed
+}
+
+/// One login; `refused` is set when the key was accepted but no session
+/// could be opened or started.
+async fn login(
+    address: &str,
+    port: u16,
+    client_key: &[u8],
+    expected_host_key: &str,
+    uid: u32,
+    refused: &AtomicBool,
 ) -> SshCheck {
     // Inputs the controller provisioned itself; unusable ones are not the
     // worker's fault, so they are never reported as its failure.
@@ -120,9 +149,11 @@ async fn check(
         return SshCheck::ContractFailed;
     }
     let Ok(mut channel) = session.channel_open_session().await else {
+        refused.store(true, Ordering::SeqCst);
         return SshCheck::NotYet;
     };
     if channel.exec(true, "id -u").await.is_err() {
+        refused.store(true, Ordering::SeqCst);
         return SshCheck::NotYet;
     }
     let (mut output, mut status) = (Vec::new(), None);
@@ -154,12 +185,16 @@ mod tests {
     use russh::keys::PublicKey;
     use russh::server::{self, Auth, ChannelOpenHandle, Msg, Session};
     use russh::{Channel, ChannelId};
+    use std::sync::atomic::AtomicUsize;
     use tokio::net::TcpListener;
 
-    /// A worker that accepts one client key and answers `id -u`.
+    /// A worker that accepts one client key and answers `id -u`. It drops the
+    /// connection on the first `refusals` session opens, as sshd does when its
+    /// `worker` user is not the UID the Pod runs as.
     struct Worker {
         authorized: PublicKey,
         uid: &'static str,
+        refusals: Arc<AtomicUsize>,
     }
 
     impl server::Handler for Worker {
@@ -185,6 +220,14 @@ mod tests {
             reply: ChannelOpenHandle,
             _session: &mut Session,
         ) -> Result<(), Self::Error> {
+            let refuse = self
+                .refusals
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                    left.checked_sub(1)
+                });
+            if refuse.is_ok() {
+                return Err(russh::Error::Disconnect);
+            }
             reply.accept().await;
             Ok(())
         }
@@ -208,8 +251,10 @@ mod tests {
         }
     }
 
-    /// A worker on a loopback port; returns the port and its host key line.
-    async fn worker(client_public: &str, uid: &'static str) -> (u16, String) {
+    /// A worker on a loopback port that refuses the first `refusals` session
+    /// opens over all connections; returns the port and its host key line.
+    async fn worker(client_public: &str, uid: &'static str, refusals: usize) -> (u16, String) {
+        let refusals = Arc::new(AtomicUsize::new(refusals));
         let (host_private, host_public) = crate::materials::ed25519_pair().unwrap();
         let config = Arc::new(server::Config {
             keys: vec![decode_secret_key(&host_private, None).unwrap()],
@@ -223,6 +268,7 @@ mod tests {
                 let handler = Worker {
                     authorized: authorized.clone(),
                     uid,
+                    refusals: refusals.clone(),
                 };
                 if let Ok(session) = server::run_stream(config.clone(), socket, handler).await {
                     let _ = session.await;
@@ -242,7 +288,7 @@ mod tests {
     #[tokio::test]
     async fn a_worker_is_ready_only_with_its_pinned_host_key_and_the_declared_identity() {
         let (client_private, client_public) = crate::materials::ed25519_pair().unwrap();
-        let (port, host_public) = worker(&client_public, "2000").await;
+        let (port, host_public) = worker(&client_public, "2000", 0).await;
         let key = client_private.as_bytes();
         assert_eq!(
             ready_at("127.0.0.1", port, key, &host_public, 2000).await,
@@ -264,6 +310,42 @@ mod tests {
             ready_at("127.0.0.1", port, stranger.as_bytes(), &host_public, 2000).await,
             SshCheck::ContractFailed,
             "only the instance's client key"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_worker_that_accepts_the_key_but_never_opens_a_session_breaks_the_contract() {
+        let (client_private, client_public) = crate::materials::ed25519_pair().unwrap();
+        let (port, host_public) = worker(&client_public, "2000", SESSION_ATTEMPTS).await;
+        assert_eq!(
+            ready_at(
+                "127.0.0.1",
+                port,
+                client_private.as_bytes(),
+                &host_public,
+                2000
+            )
+            .await,
+            SshCheck::ContractFailed,
+            "an image whose worker user is not the declared UID can never give a shell"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_session_refused_less_often_than_the_attempts_is_a_blip() {
+        let (client_private, client_public) = crate::materials::ed25519_pair().unwrap();
+        let (port, host_public) = worker(&client_public, "2000", SESSION_ATTEMPTS - 1).await;
+        assert_eq!(
+            ready_at(
+                "127.0.0.1",
+                port,
+                client_private.as_bytes(),
+                &host_public,
+                2000
+            )
+            .await,
+            SshCheck::Ready,
+            "the last fresh login gets its shell, so the worker is not failed"
         );
     }
 

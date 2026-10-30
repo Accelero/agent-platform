@@ -223,6 +223,10 @@ def rust_level(target, name):
         or name.endswith(
             "a_worker_is_ready_only_with_its_pinned_host_key_and_the_declared_identity"
         )
+        or name.endswith(
+            "a_worker_that_accepts_the_key_but_never_opens_a_session_breaks_the_contract"
+        )
+        or name.endswith("a_session_refused_less_often_than_the_attempts_is_a_blip")
         or name.endswith("unusable_inputs_and_unreachable_workers_are_not_ready_yet")
     ):
         return "integration"

@@ -299,7 +299,10 @@ pass as its instance:
 3. when it is ready, verify SSH in-process with `russh`: authenticate with the
    instance's client key, pin the provisioned host key and check that the
    shell runs as the backend version's declared UID. A different shell UID,
-   host-key mismatch or explicit authentication refusal gives `contract_failed`.
+   host-key mismatch or explicit authentication refusal gives `contract_failed`,
+   as does a key that is accepted while three fresh logins in a row open no
+   session: sshd does that when the image's `worker` user is not the UID the Pod
+   runs as.
    This probe checks UID, not GID; the Pod's group and `fsGroup` come from the
    backend record.
 

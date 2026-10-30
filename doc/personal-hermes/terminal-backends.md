@@ -64,12 +64,15 @@ the instance's environments in the dashboard:
 | --- | --- |
 | `image_unavailable` | The image cannot be pulled: wrong reference or digest, or missing registry credentials |
 | `start_failed` | The container exits or keeps crashing |
-| `contract_failed` | Admission/rendering refuses the worker, or SSH answers with a wrong host key, refused client key or shell UID different from the backend record |
+| `contract_failed` | Admission/rendering refuses the worker, or SSH answers with a wrong host key, refused client key or shell UID different from the backend record, or accepts the client key but opens no session on three fresh logins in a row |
 
 A missing or mismatched image user can prevent startup (`start_failed`) or
-break SSH authentication (`contract_failed`), depending on the image. The
-readiness probe verifies `id -u`; it does not query the shell's GID. Connection
-failures and SSH timeouts remain pending and are checked again.
+leave SSH unable to open a session as the declared UID (`contract_failed`),
+depending on the image. An image whose `worker` user has another UID than the
+backend declares starts and listens, then sshd accepts the key and resets the
+connection when the session opens. The readiness probe verifies `id -u`; it
+does not query the shell's GID. Other connection failures and SSH timeouts
+remain pending and are checked again, and so does a single refused session.
 
 Hermes receives `422 backend_failed` for a failed environment. Correct the
 registry secret, or publish a corrected version and select it in the
@@ -244,3 +247,41 @@ Not supported:
 
 - **Prewarming.** A worker is created on the first acquisition, not before.
 - **Service egress.** Terminal backends get no egress to cluster Services.
+
+## Planned: one worker image for any UID
+
+Not built, and no route is chosen. Today an image is built for exactly one
+UID/GID (the `HOST_UID` and `HOST_GID` build arguments), so a backend that
+declares another UID needs its own image, and a mismatch ends as
+`contract_failed`. The goal is that the default `agent-runtime` image runs as
+whatever UID and GID the backend declares, so an administrator sets only the
+two numbers. Isolation does not change: users are separated by their own
+Pods, Secrets, network policy and volumes, not by UID, and the image holds no
+per-user data.
+
+Two routes are possible:
+
+- **Manager-rendered account files.** The manager renders `passwd` and `group`
+  entries for `worker` from the backend's UID and GID and mounts them into the
+  worker Pod, as it mounts the authorized key and host key today, with
+  `/home/worker` as a writable scratch volume. This replaces the image's whole
+  account list.
+- **Entrypoint-built account files.** The entrypoint writes a copy of the
+  account files with the running UID into `/tmp` and points the user lookup at
+  it (`nss_wrapper`). This keeps the accounts the image defines but adds a
+  helper library to the image.
+
+Decide or do first:
+
+- Try both routes: whether OpenSSH runs as a non-root UID with a synthetic
+  account on a read-only root filesystem, and what the session then needs
+  (home directory, shell, `git`).
+- Choose the route, and decide which paths the image now owns by its build UID
+  (`/home/worker`, `/workspace`, the host-key folder) become volumes or are made
+  readable by any UID.
+- Decide whether `managed-ssh-v2` changes, and what happens to custom images
+  that still bake a UID.
+- Drop the Dockerfile's `chpasswd` call, which sets a real password string on
+  `worker` (password login is off); a generated account needs none.
+- Replace the alternate-identity image of the native scenario with one image
+  run as two different UIDs.
