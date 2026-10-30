@@ -13,7 +13,7 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture
 def policy(tmp_path, monkeypatch):
-    source = Path(__file__).resolve().parents[1] / "runtimes/hermes/terminal-policy.py"
+    source = Path(__file__).resolve().parents[2] / "runtimes/hermes/terminal-policy.py"
     spec = importlib.util.spec_from_file_location("terminal_policy", source)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -166,6 +166,19 @@ pub struct ObservedDeployment {
     pub rolled_out: bool,
 }
 
+/// Why the home initializer of a Hermes Pod refused to start Hermes: the
+/// codes it writes to its termination message. Each means the home does not
+/// carry a proof that it is this owner's, and an administrator must look; the
+/// initializer never changes such a home. Other failures (a busy lock, a bad
+/// input) are retried and are not on this list.
+pub const HOME_REFUSALS: &[&str] = &[
+    "invalid_initialization_receipt",
+    "unexplained_native_home",
+    "native_home_owner_conflict",
+    "incomplete_initialization_conflict",
+    "initialization_input_changed",
+];
+
 /// The native checks, made only once the Deployment is rolled out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeCheck {
@@ -196,6 +209,9 @@ pub struct Observed {
     /// A Hermes Pod that is not running reports a failed volume mount, such
     /// as a static directory that does not exist.
     pub mount_failed: bool,
+    /// A Hermes Pod that is not running has had its home initializer refuse
+    /// the home with one of [`HOME_REFUSALS`].
+    pub home_refused: bool,
 }
 
 impl Observed {
@@ -210,6 +226,7 @@ impl Observed {
             claims: BTreeMap::new(),
             native: NativeCheck::NotChecked,
             mount_failed: false,
+            home_refused: false,
         }
     }
 }
@@ -372,6 +389,25 @@ fn enabled(wanted: &Wanted<'_>, observed: &Observed, storage: Condition, lost: b
     if lost {
         let mut plan = blocked(BlockedReason::StorageUnavailable, vec![storage]);
         // The rest stays applied so a restored volume recovers by itself.
+        plan.apply = Apply::Everything(Workload::Run);
+        return plan;
+    }
+    // The initializer refused a home that carries no proof of being this
+    // owner's. Everything stays applied, so the instance starts by itself once
+    // the proof is back; nothing reseeds or adopts the home meanwhile.
+    if observed.home_refused && !observed.current_pod_ready {
+        let mut plan = blocked(
+            BlockedReason::InvalidInitializationReceipt,
+            [
+                vec![storage],
+                native_conditions(
+                    (ConditionStatus::False, "home_unproven"),
+                    (ConditionStatus::Unknown, "waiting"),
+                )
+                .to_vec(),
+            ]
+            .concat(),
+        );
         plan.apply = Apply::Everything(Workload::Run);
         return plan;
     }
@@ -564,6 +600,7 @@ mod tests {
             ]),
             native,
             mount_failed: false,
+            home_refused: false,
         }
     }
 
@@ -619,6 +656,38 @@ mod tests {
         // directory exists.
         assert_eq!(blocked.apply, Apply::Everything(Workload::Run));
         starting.mount_failed = false;
+        assert_eq!(
+            plan(&wanted(Access::Enabled), &starting).status.phase,
+            Phase::Provisioning
+        );
+    }
+
+    #[test]
+    fn a_home_the_initializer_refuses_blocks_with_the_typed_reason_and_keeps_applying() {
+        let mut starting = running(NativeCheck::NotChecked);
+        starting.current_pod_ready = false;
+        starting.deployment = Some(deployment(1, 3, false));
+        starting.home_refused = true;
+        let blocked = plan(&wanted(Access::Enabled), &starting);
+        assert_eq!(blocked.status.phase, Phase::Blocked);
+        assert_eq!(
+            blocked.status.blocked,
+            Some(BlockedReason::InvalidInitializationReceipt)
+        );
+        assert_eq!(
+            condition(&blocked, ConditionType::NativeInit),
+            (ConditionStatus::False, "home_unproven")
+        );
+        assert_eq!(blocked.apply, Apply::Everything(Workload::Run));
+        // A running Hermes is never blocked by an old refusal, and a stopped
+        // instance reports nothing of it.
+        starting.current_pod_ready = true;
+        assert_ne!(
+            plan(&wanted(Access::Enabled), &starting).status.phase,
+            Phase::Blocked
+        );
+        starting.current_pod_ready = false;
+        starting.home_refused = false;
         assert_eq!(
             plan(&wanted(Access::Enabled), &starting).status.phase,
             Phase::Provisioning
@@ -898,6 +967,7 @@ mod tests {
                                                 )]),
                                                 native,
                                                 mount_failed: !ready && pods == 1,
+                                                home_refused: false,
                                             };
                                             let result = plan(&wanted, &observed);
                                             let owned = ns.as_ref().is_none_or(|n| {

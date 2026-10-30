@@ -18,7 +18,14 @@ candidate. File/function existence is not completion.
 1. Read the gap, the [strategy](../TESTING.md) rules it touches and the cited
    SPEC.md requirements. Write the obligations it covers (behaviour, actors,
    variants, expected effects) before the tests.
-2. Add or change tests at the lowest proving level. Every Python test carries
+2. Test against the specification. When a test would pin behaviour that
+   SPEC.md, ARCH.md, a contract or a guide does not state, decide first whether
+   the document is ambiguous (several readings; say which is meant) or
+   incomplete (silent; state the behaviour or the rule), and fix the document in
+   the same change. Pin an implementation detail that no document should
+   promise (an object's name, say) only by what a document does state. A
+   behaviour that looks wrong goes to the maintainer, not into a test.
+   Add or change tests at the lowest proving level. Every Python test carries
    exactly one level marker plus its capability markers; parameter IDs describe
    behaviour.
 3. In the same change, update [`cases.json`](../../tests/verification/README.md)
@@ -39,10 +46,35 @@ ARCH.md rules like any other change.
 
 **P0 · Refactor system tests · Prerequisite for reliable per-case reporting.**
 
-Current: `tests/personal_hermes/native_e2e.py` is a sequential program, not a
-pytest suite. Helpers named after scenarios are called in a fixed order against
-shared assignments, credentials and catalog state. An early failure suppresses
-later evidence; wrapping `main()` in one pytest test would retain that problem.
+Current: `tests/personal_hermes/native_e2e.py` is still the sequential program, and
+CI still runs it. Its bring-up and its scenarios are now also reachable as
+independent pytest cases (`tests/e2e/`): `tests/support/platform.py` installs
+Keycloak, the fake model, PostgreSQL and the chart on the run-owned k3d cluster
+and commissions Bob and Carol through the factory `commission()` extracted from
+the program, and each scenario helper is its own collected case that keeps the
+helper's assertions. Twelve run against one shared platform and can run alone or
+back to front (`HERMES_TEST_ORDER=reverse`). The `destructive` marker names the
+twelve cases that break or take over their platform: outages, controller absence and
+failover, a wrong sealing key, key rotations, suspension, a backend change, a
+read-only volume and the restore onto a second cluster. They share one platform of their
+own in turn (`tests/support/pool.py`): after each case the pool checks that the
+database, the provider, the workloads and the commissioned owners are back, and it
+replaces the platform when they are not or when the case failed. Run that way the
+twelve take about 25 minutes, against 57 with a platform each. A reverse-order run
+found a real order dependency (a gateway login within the 5 s key-refetch cooldown of
+the gateway's last fetch is refused once; the case now retries, and the specification
+states the bound); the standby and wrong-key cases were also made to leave the platform
+as they found it. The shared platform runs on a single-node cluster of its own: with
+three nodes, node-local dynamic storage and a static local-path source pinned
+to the server leave a worker that mounts both unschedulable, which the first
+full run showed as a persistent `409` (the specified single-server setup;
+multi-node storage placement belongs to G16). The private-registry scenario is not collected: it edits
+one node's hosts file, so it needs per-node registry configuration first.
+
+The installed-image checks of `native_runtime.py` are collected as 13
+`python-native` cases (`tests/integration/test_native_runtime.py`, mechanics in
+`tests/support/native.py`); the script stays until the scenarios below have
+collected equivalents; one end-to-end helper remains uncollected.
 
 Extract clients and mechanics into shared Python support; express each of the
 23 acceptance rows as one or more independent collected cases. Factories create
@@ -60,11 +92,18 @@ all existing assertions have an explicit retained/replaced disposition.
 
 **P0 · Rewrite cluster lifecycle support · R13–R19.**
 
-Current: `kubernetes.py` defaults to `docker run` k3s. `--k3d` is optional and CI
-does not select it. The standalone native runner and restore create direct k3s
-containers. Image import, node-IP discovery, registry configuration and native
-`docker exec` calls assume a single node. The Python DNS override does not
-configure Chromium's resolver.
+Current: `tests/support/cluster.py` creates one run-owned k3d cluster (one server
+and two agents) from an explicit configuration: the pinned k3s node image, a
+loopback-only API port, k3d's helper image pinned by digest, run labels on every
+node, a private kubeconfig and no change to the default context. Its teardown is
+registered the moment the cluster exists and removes exactly the labelled nodes.
+It imports the pinned probe and platform images into every node by digest, waits
+for CoreDNS, and proves NetworkPolicy enforcement with a functional allow/deny
+probe before a case runs. The `python-cluster` and `python-destructive` profiles
+require `HERMES_TEST_K3D` (k3d v5.9.0). The Rust adapter fixtures, the standalone
+runner and the restore's second cluster still use direct k3s containers, per-node
+registry mirror and authentication are not configured, and the Python DNS
+override for the host name routing is still process-global.
 
 Specify and implement one run-owned k3d fixture with explicit node image/tool
 pins, topology, CA/host routing, registry mirror/auth configuration, all-node
@@ -88,7 +127,7 @@ Current: the [execution ledger](../../tests/verification/README.md) records exac
 collected Python and compiled Rust IDs and reviewed levels. CI gates collection
 and passing execution separately for the workspace, fault-enabled process,
 production browser, Kubernetes adapter and controller-process profiles. Both
-44-case store instantiations are included. Skips, missing cases, additions,
+53-case store instantiations are included. Skips, missing cases, additions,
 level changes and absent execution results fail. Reports contain sanitized
 JSON/JUnit outcomes, source/profile/catalogue metadata and unresolved helper
 names; standalone native helpers explicitly remain uncollected G01 gaps.
@@ -105,7 +144,7 @@ individual specification clauses, all 23 acceptance rows, nine operational
 bounds and composite contract operation identities to exact Cargo/pytest/UI
 test identities. Include parameter and CI profile requirements. Compare it to
 collection and execution reports, including Rust tests generated by the shared
-44-case macro and ignored/feature-gated cases. Record missing variants separately
+53-case macro and ignored/feature-gated cases. Record missing variants separately
 from existing passing examples. Mark body/schema evidence separately from
 header, authorization, side-effect and timing evidence.
 
@@ -117,14 +156,22 @@ both logout contracts remain independently accounted for.
 
 **P0 · Refactor harness and test its lifecycle · Infrastructure safety.**
 
-Current: the standalone driver expects an existing PostgreSQL container;
-`reset()` can delete all PVs, all `hi-` namespaces and all `hermes_e2e_*`
-databases in the supplied fixtures. It does not first verify ownership of every
-resource against a run receipt. `--keep` suppresses database cleanup even after
-success, while the cluster is only kept after failure. Shared globals and
-fixed names impede parallel/reordered runs. Pass messages are aggregate and
-can be buffered until a long run finishes; some failures suppress all useful
-command diagnostics.
+Current: `tests/support/ownership.py` proves a container is a fixture by its
+`agent-platform.io/fixture` label (and, for run-scoped steps, its
+`agent-platform.io/run` label) before the standalone driver resets it, injects
+into it or removes it; a failed inspection is an error and never permission.
+A database belongs to a run by the comment the run stored, so `reset()` drops
+only those and never a name pattern. Finalizers are registered immediately
+after each allocation (k3s containers, the registry pair, the restore cluster
+and its database), all of them run, and cleanup failures are attached to the
+original error instead of replacing it. `--keep` retains the cluster and the
+database after a failure only. Unit tests with a fake daemon and integration
+tests with real, never-started containers cover foreign, similar-named,
+other-run and other-kind resources and the finalizer stack. The shared
+PostgreSQL container is still used by concurrent runs (a pause can affect
+another run), the k3d path's node containers carry no run label, the driver as
+a whole has no failure-injection tests for each allocation point, timeout or
+interrupt, and per-case sanitized phase output waits for G01.
 
 Allocate exact run-owned resources and register finalizers immediately.
 Implement ownership checks before reset/injection/removal; cleanup only
@@ -143,13 +190,15 @@ workers cannot reset or pause each other's database/cluster.
 
 **P1 · Test setup and artifact receipts · All cluster/native cases.**
 
-Current: the lock contains dependencies indirectly needed by standalone scripts,
-but `pyproject.toml` does not declare direct system-test imports such as
-`requests`, `websocket-client` and `cryptography`. Local mutable image tags are
-imported into fixtures; there is no shared candidate/test configuration receipt.
+Current: `pyproject.toml` declares every direct host-side import (`requests`,
+`urllib3`, `websocket-client`, `cryptography`, `jsonschema`) at its locked
+version, and `tests/unit/test_dependencies.py` fails when a test or tooling
+module imports an undeclared third-party package. Local mutable image tags are
+imported into fixtures; there is no shared candidate/test configuration receipt,
+and browser tooling is not yet declared.
 
-Declare direct Python test dependencies and browser tooling in the locked test
-environment; pin cluster and dependency tools/images in reviewed configuration.
+Declare browser tooling in the locked test environment; pin cluster and
+dependency tools/images in reviewed configuration.
 Build once from finite contexts, record source plus all resulting digests, and
 import those exact artifacts on every node. Distinguish source-unit tests,
 fault-enabled integration builds and release-candidate acceptance. Test wrong,
@@ -164,10 +213,18 @@ same selected cases; the result identifies exactly what was tested.
 **P0 · Replace permissive timing oracles · R5, R9, R12, R17.**
 
 Current: the proxy tests use shortened timings, which is useful for mechanism
-tests. In native E2E, suspension sleeps 6 s before checking HTTP denial and
-accepts a WebSocket close below 12 s; the outage helper uses 8 s/12 s. Some
-outage measurements start only after shutdown/rollout helpers complete. These
-tests do not establish the specification's 5 s/10 s guarantees.
+tests, and `default_timing_meets_the_specified_bounds` only asserts constants.
+Real-default behaviour tests now exist in the gateway: an open WebSocket closes
+within 10 s of a denial and of a dependency failure (the injection lands just
+after a passing check, the worst phase), and a denial reaches new requests within
+5 s of a warmed cache (sampled every 100 ms, so the allowed overrun is two
+samples). The resolver client gives up at its 2 s deadline for a resolver that
+never answers or stalls in the body, and refuses an oversized reply at once.
+Slowing the recheck interval or the cache fails these tests. In native E2E,
+suspension still sleeps 6 s before checking HTTP denial and accepts a WebSocket
+close below 12 s, and its outage helper uses 8 s/12 s; the 60/120 s identity
+evidence ages, the 130 s provider revocation, the 1 h WebSocket idle and the
+5 min forced drain have no real-default measurement.
 
 Retain fast mechanism tests. Add real-default cases with timestamped committed
 access change or acknowledged injection, warmed caches and concurrent HTTP,
@@ -186,9 +243,20 @@ configuration assertions and late post-event polls cannot stand in for it.
 
 **P0 · Add pytest/k3d security integration and E2E · R4, R5, R13, R15, R18.**
 
-Current: chart tests verify NetworkPolicy contents and own-worker SSH succeeds.
-There is no complete live allow/deny matrix between roles and owners. Kubernetes
-`can-i`, authenticated HTTP denial and manifest equality test different boundaries.
+Current: `tests/e2e/test_network_isolation.py` applies the platform's own
+policies on the live cluster: the chart's control-plane NetworkPolicies, and the
+renderer's instance policies configured as the chart configures the controller
+(peer selectors, execution port and control namespace taken from the chart's
+generated configuration, pod labels from its rendered Deployments). It probes
+real Pod addresses over TCP from the gateway, controller, manager API, ingress,
+two owners' Hermes and worker Pods, an unrelated namespace and lookalikes that
+carry a role's labels from another namespace: 11 documented paths and 28 denied
+paths, plus DNS, each with all roles on one node and spread over three. Every
+denied path is compared with the same path before any policy existed and with a
+live listener on the destination, and a separate case shows that widening a
+selector or removing a policy changes the outcome. Not yet covered: the approved
+external 443 egress, token absence per role at packet level, Service (not Pod)
+endpoints, and enforcement under node loss.
 
 Probe real Pod and Service endpoints from gateway, controller, API, owner A's
 Hermes/worker, owner B's Hermes/worker and an unrelated namespace. Require the
@@ -208,9 +276,23 @@ a packet-level test fail; endpoint unavailability cannot produce a false pass.
 
 **P0 · Expand integration matrices · R13, R15, R18.**
 
-Current: real tests reject selected hostPath, root, token, tag, namespace and PV
-violations. Their `refused()` helper accepts several generic API error statuses.
-An unrelated invalid fixture can therefore look like the intended denial.
+Current: `hermes-kube/tests/admission.rs` runs on the disposable API server as
+the controller's real ServiceAccount. Each rule has an admitted positive control
+(a compliant Pod, a namespace with the installation's name and labels, a Service,
+a RoleBinding, a local-path and an NFS volume) and negative cases that differ
+from it by one field. Each refusal must carry the intended policy's message, or
+Pod Security Admission's where the policy leaves a rule to that layer; both
+layers answer some cases, API validation or the RBAC escalation check others.
+The cases are 36 Pod rows (34 refused, two admitted by design), 13 namespace
+refusals, 21 volume refusals, 4 Service and 7 RoleBinding refusals and 12 RBAC
+and impersonation refusals, plus Pod updates and the ephemeral-container
+subresource. Mutation checks (an unpinned image, a volume that is not retained,
+a controller right to delete volumes) each fail exactly one test. The cases found
+that a container could override the Pod's UID/GID with another non-root identity;
+the Pod policy now has a rule for it (renderer, chart and golden file). Not yet
+covered: PersistentVolume updates, the remaining Deployment-level and
+subresource verbs, initContainer and ephemeral-container variants beyond those
+above, and a negative case for each non-controller role's own credentials.
 
 Start from a successfully admitted valid fixture and mutate one policy-relevant
 field. Cover create/update/patch and relevant subresources, init/regular/
@@ -230,8 +312,16 @@ evidence, not the sole security oracle.
 **P1 · Extend native units and dependency integrations · R3, R8–R18.**
 
 Current: `the_planner_is_total_and_never_contradicts_itself` enumerates a broad
-finite grid. There is no property-testing/fuzz/mutation infrastructure despite
-the former architecture wording mentioning `proptest`.
+finite grid. The shared contract suite has one seeded generated case,
+`generated_command_walks_follow_the_model_and_record_only_accepted_commands`,
+which runs three seeds of 50 random administration commands (enable, access and
+terminal changes, stale versions, replays and key conflicts) against both stores.
+A model of what the specification requires is compared after every step: only
+accepted commands appear in the audit log and receipts, each instance has
+exactly the predicted generations, instances stay unique, replays return the
+recorded receipt, and a failure names its seed and step. Every kind of step
+must occur or the case fails. There is no property-testing, fuzz or mutation
+infrastructure otherwise, and no generated observation or lease sequences.
 
 Keep that grid. Add reproducible generated sequences for access/generation/
 observation changes, lease lifecycle and stale/foreign object observations.
@@ -252,7 +342,20 @@ overall percentage. Rust domain properties remain Rust tests.
 
 Current: shared same-key/enrollment/last-admin/overlap races, SQL guards and API
 before/after-commit aborts already exist. Do not replace them with weaker HTTP
-smokes. Database pause is not a database crash-and-durable-restart test.
+smokes. Database pause is not a database crash-and-durable-restart test. Four
+shared lease-race cases now run on both stores: revocation racing concurrent
+acquisitions (each acquisition succeeds or is refused, and after the revocation
+returns nothing is granted or renewed), heartbeat racing release and racing the
+expiry sweep (the lease is finally dead whichever wins), and concurrent
+acquisitions with one request ID (one lease). Disabling the PostgreSQL access
+check fails the revocation case. A fifth case races deleting
+a secret against publishing a template version that names it, 150 rounds on both
+stores: exactly one wins whole (publish and a refused delete, or delete and a
+refused publish with `unknown_secret`), never both; disabling the delete's
+reference check fails it. The harness polls both commands on one task, so it does
+not force the lock-level interleaving: removing the `FOR UPDATE` on the secret
+row still passes, and a deterministic version needs a pausing fault point
+inside a transaction.
 
 Add scheduled races for stale `If-Match`, different actor/key/body combinations,
 secret reference/rotation/delete, revoke-versus-acquire/heartbeat/parent join
@@ -274,7 +377,40 @@ database/process failure; do not label SIGKILL as proof against all storage loss
 
 Current: lower-level lease/mode/key cases are strong; native E2E principally
 uses `per_session`, changes a backend under an active lease and suspends during
-pending acquisition. This is not the entire lifetime-mode or revoke matrix.
+pending acquisition. `tests/e2e/test_access_states.py` walks all six ordered
+transitions between `enabled`, `suspended` and `revoked` on one instance: the
+owner is denied within the cache bound and never let through while not enabled,
+an open WebSocket closes within 12 s, nothing runs, and enabling again restarts
+the same instance on the same volumes, marker data and credential digests. This
+is not the entire revoke matrix. `tests/e2e/test_terminal_modes.py` runs the
+three lifetime modes on real workers (a 60 s idle backend): `per_session` keys an
+environment by session and retires it when the session ends; the two profile
+modes share one environment across sessions; on demand retires it after the
+idle timeout and always running keeps it and still serves; an acquire naming
+another mode is rejected and creates nothing. `tests/e2e/test_worker_loss.py` stops a worker's
+container mid-command: the call fails, the command is never replayed or
+finished, no other worker replaces the lost one, its environment retires and its
+Pod goes, the shared volume keeps its data, Hermes is not restarted, and the next
+session gets a fresh worker of the same backend on the same data.
+`tests/e2e/test_environment_limits.py` limits a per-session backend to two
+environments: a third session is refused `503` at once with no record and no
+worker Pod, the two live sessions are untouched, and the room returns when one
+retires. `tests/e2e/test_lease_lifecycle.py` drives the plugin's own client inside a
+running Hermes: a delegate joins its parent's environment with a second lease while a
+lease of another session, a stranger's and a released parent's are refused `403` and
+create nothing, and releasing the parent leaves the child live; one instance serves two
+backends (the default, an explicit pick, a shared profile environment per backend, a
+runtime outside the policy refused), and changing the default sends new requests to an
+environment of the new generation while live leases keep theirs; and a lease is granted
+for and renewed up to `maxLeaseSeconds` and no longer. The last case found that a lease
+was granted for the standard 120 s whatever the backend's limit, so a backend limited to
+60..119 s was exceeded; the grant is now capped (shared store case
+`a_lease_never_outlives_its_backends_lease_limit`, which fails without the cap). The
+specification says that a backend change reaches a running session when its lease ends,
+at most `maxLeaseSeconds` (pinned by the existing backend-change scenario and this cap),
+and that an access change drains at once. Still open: fairness among instances, a
+forced drain of a non-cooperating active worker at the five-minute cutoff, and the
+revoke matrix beyond suspension.
 
 Run real `per_session`, `per_profile_on_demand` and
 `per_profile_always_running` cases with multiple profiles/sessions and both
@@ -298,7 +434,20 @@ Current: every instance requires the mounted owner and terminal policies; there
 is no non-personal mode and no environment marker that selects one. Unit and
 in-image checks refuse missing policies, environment pins and shadow plugins;
 `runtime-init.py` refuses to start without the managed policy. Initializer
-tests cover interrupted/concurrent writes, symlinks and tampered receipts.
+tests cover interrupted/concurrent writes, symlinks and tampered receipts, and
+`tests/integration/test_personal_init_inputs.py` drives the initializer entry
+point with 68 malformed mounted inputs (context, configuration, key, input
+file kind and home root): each is refused with one fixed message that echoes
+nothing and leaves the home untouched, and the same inputs with one field
+corrected initialize. `tests/integration/test_native_runtime.py` (profile
+`python-native`) starts the built image as a Pod does and collects: refusal of
+unowned authentication and execution without the mounted policies, managed
+precedence and the unredirectable policy directory, the terminal lock for every
+scope and backend, shadow-plugin refusal, profile overrides, native dashboard
+authentication, the receipt through the kubelet result file, and retention of
+owner state across an update and an abrupt kill. Init-Pod death at each receipt
+boundary in the installed image, malformed owner/instance policy inputs to the
+running image and layer-precedence for removed overrides remain.
 
 Exercise actual installed init/run entry points with missing, malformed,
 oversized, foreign-owner and wrong-instance/material policy/receipt inputs,
@@ -315,33 +464,85 @@ its exact retained owner state through the supported lifecycle.
 
 ## G13 — Real browser and native workflow coverage
 
-**P1 · Add pytest/Playwright E2E; preserve presentation tests · R4, R6, R7.**
+**P1 · Extend the pytest/Playwright journeys · R4, R6, R7.**
 
-Current: mocked TypeScript browser tests cover presentation workflows. The
-separate production test covers real API/CSP secret/template actions but starts
-with injected fixture cookies. The native system `Browser` is an HTTP client,
-not a rendered browser.
+Current: `tests/e2e/test_browser.py` drives Chromium (Python Playwright,
+`tests/support/browser.py`) on the installed chart through Keycloak's real login
+form. The browser trusts the fixture CA through its own certificate database
+(hostname and chain validation stay on), resolves only the three fixture
+hostnames and runs from a private home; every case takes a context of its own.
+The 15 collected cases cover: session cookies (Secure, HttpOnly, `SameSite=Lax`,
+host-only, unreadable by page script, no code or state left in the URL);
+an unassigned account's inert denial page; two owners reaching only their own
+instance and files; foreign pages on another site and on a sibling host
+(`attacker.example`, `attacker.e2e.test`) unable to use the owner's or the
+administrator's cookies for what the specification protects; logout and the
+replay of the ended session's whole cookie jar (a control proves the jar works
+first); hostile text in a callback and in stored catalog content shown as text,
+with no dialog, script error or CSP violation; the dashboard's strict policy and
+host-only cookies; a person without a grant refused; stale-revision refusal in
+two administrators' dialogs; an administrator revoked while a page is open; and
+a dashboard action that commissions an instance whose new owner then uses it in
+a browser while another owner cannot see its files. The mocked presentation
+cases remain integration tests with their limited claim. The browser starts with
+Local Network Access checks off: the fixture's node address is private, and the
+browser would otherwise refuse every request a foreign page makes to it before
+the platform saw it.
 
-Add isolated Python browser contexts for two owners and an administrator using
-real Keycloak login on the installed chart. Cover administrator enrollment,
-preview/update/rollout and grant/revoke, then user chat/history/session/settings/
-profile/upload/HTTP mutation/WebSocket/logout. Verify validation/stale revision,
-dependency failures, revocation during navigation and readable owner-only error
-pages. Check hostile directory labels, filenames and model/chat text are not
-executed as script; test CSRF, CSP, origin/cookie scope and back-navigation after
-logout. Trust the fixture CA instead of globally ignoring browser TLS errors.
+Not covered: the native UI as a rendered application (chat, history, session and
+settings pages, a WebSocket from a page, hostile file names and model text in
+its views), dependency failures and the owner-only pending and error pages in a
+browser, an owner's revocation during navigation, template rollout in the
+dashboard and its remaining validation errors, the dashboard's 60 s permission
+re-check, and an email change in a browser.
 
-**Done:** a dashboard action commissions an actual instance and its owner can
-use it in a real browser; the other owner cannot access its state. Retain fast
-mock UI cases as integration tests, with their limited claims explicit.
+Decided and implemented (see the specification): a logout refused for its
+Origin or CSRF token expires no cookie, on the gateway and the dashboard; the
+gateway refuses requests that can change state, and WebSocket upgrades, whose
+Origin is not the public origin, so a page of a sibling host cannot act with the
+owner's cookies; logout stays platform-only and does not end the identity
+provider's session, which the specification now says. The browser cases pin all
+three, including a forged upload, logout and form post from a sibling host and
+from another site.
+
+**Done:** the not-covered journeys above are collected in the cluster profile and
+passing, each with a control that shows its oracle can fail, and nothing else
+is pending.
 
 ## G14 — Secret delivery, rotation and safe diagnostics
 
 **P0 · Add integration/E2E matrix and harness redaction cases · R10, R11, R18.**
 
 Current: write-only API/audit, sealed store versions, env-model delivery,
-registry authentication and application-log canary checks exist. Those do not
-cover every delivery/removal/error/report path.
+registry authentication and application-log canary checks exist.
+`tests/e2e/test_secrets.py` rotates the model key on a platform of its own, twice:
+only the referencing instance restarts, it receives the current value and no
+other instance does, a referenced secret cannot be deleted, and neither value
+appears in the secret list or the audit log. It also starts the controller with
+a different valid sealing key: it refuses to start (`sealing_key_mismatch`), people
+added and secrets rotated meanwhile are handled once the right key returns,
+credentials are unchanged, and no instance ends up with material the right key
+cannot open. The startup check is also a shared controller case on both stores and a process
+case (the compiled controller exits with `sealing_key_mismatch` before it reads
+or writes anything; removing the startup call fails it).
+`tests/e2e/test_secret_delivery.py` runs three cases on the shared platform with
+canary values compared only by hash: a file secret is a read-only `0440` file in
+the referencing instance alone (a scan of every Kubernetes Secret finds it
+nowhere else), follows rotation (the instance restarts, the old value is
+gone from the cluster) and leaves with its reference; a registry secret becomes
+a Docker-config pull Secret in the namespace of the instance whose backend names
+it and nowhere else, and follows rotation; and references of the wrong kind or to
+nothing, bad registry values, a wrong-kind rewrite, a dangling draft, and
+deletion without or with a stale version, or while referenced, are refused with
+their codes and store nothing. Each case scans the API bodies, the audit log and
+the logs of the control plane and the instances for its canaries, after a
+control that shows the scan reads real output. A secret an owner's agent can
+read inside its own instance is delivered on purpose and is not reported.
+
+Not covered: assignment-level secret references, a Pod-level check of workers for
+a file secret, a missing sealing key, canaries for JUnit, driver exceptions,
+screenshots and traces, and a review of candidate images for payloads (the
+privacy preflight covers the reviewed inputs).
 
 Test env/file/registry secrets of each permitted reference scope, wrong kinds,
 missing references, selective rotation/restart, removal and deletion refusal
@@ -360,6 +561,33 @@ and must not be mislabeled as a leakage failure.
 ## G15 — Real identity and trust rotation failures
 
 **P1 · Extend existing identity integrations and selected real-Keycloak E2E · R1, R5, R6, R9, R18.**
+
+Current: signed tokens, bad claims and keys, callbacks and resolver mTLS are tested
+against fake providers, and the system run covers a provider outage and a
+disabled person. `tests/e2e/test_identity.py` rotates the realm's signing key at
+the real Keycloak on a platform of its own (with the access-token lifespan
+raised so key and expiry are not confused): a token of the new key is accepted
+by the manager API without a restart after the verifier refetches on the
+unknown key ID, a gateway login still works, the old token keeps working while
+the old key is published, and after the provider stops publishing it the old
+token is rejected once the five-minute cache window has passed while the new
+one is unaffected. The same file rotates the gateway's session key across restarts (platform
+of its own): a restart with the same ring keeps a signed-in session; a ring with
+a new active key beside the old keeps old sessions readable and seals new ones
+under the new key; dropping the old key ends exactly the sessions sealed under it,
+and people sign in again. A further case on a platform of its own shortens the realm's SSO idle limit to
+90 s (with the access-token lifespan raised so that expiry is not confused with
+it): a session left alone for 150 s under the default limit is refreshed on demand
+and served, an active session survives the shortened limit because the gateway
+keeps refreshing it, and a session whose provider login lapsed is refused and
+ended (`401` on the platform and the native route). That case failed once in six runs
+(in a reverse-order run of the destructive profile, about 100 s into its 180 s loop) and
+passed three times in a row alone and in its position in the other order; five polling
+cadences from 10 to 40 s against the 90 s limit all kept a session alive, so the
+margin is not the cause and the cause is unknown. When it recurs, run the case with
+`pytest --tb=short` to read its assertion: the verifier hides failure text on purpose.
+Concurrent refresh, provider partition, certificate negatives on a cluster and two gateway
+replicas remain.
 
 Preserve current signed-token, bad-claim/key, refresh/callback and resolver mTLS
 tests. Add real Keycloak signing-key rotation, stale JWKS, refresh-token expiry,
@@ -381,6 +609,19 @@ a client configured to ignore TLS errors.
 Current: source validation/rendering, static overlap races, real local workspace
 sharing and missing-directory recovery exist. There is no live NFS fixture or
 multi-node mounted-data/read-only matrix.
+
+A first multi-node attempt showed the interaction G16 must test: with a
+node-local dynamic class (`local-path`) and a static `localPath` source pinned to
+another node, a worker that mounts both volumes is unschedulable and the
+manager answers `409` for the whole acquisition deadline. The specification
+accepts this ("the expected setup for a single-server deployment"), but the
+condition surfaces only as an unexplained pending acquisition; the e2e platform
+therefore runs on a single node and the multi-node behaviour is untested.
+
+`tests/e2e/test_storage.py` shows on a platform of its own that a volume the
+assignment marks read-only refuses writes, truncation and deletion inside the
+Hermes Pod (`Read-only file system`) while a writable sibling of the same kind
+and ownership accepts them, and that the host directory is unchanged.
 
 Mount a real NFS export through the approved source; test UID/GID/permissions,
 read-only restrictions, shared-path equality and absence of the private home in
@@ -405,6 +646,26 @@ It does not archive/assert the dynamic private-home contents or explicitly
 compare before/after credential digests. The older-backup
 orphan test is a real same-cluster safety case, but not a complete successful
 same-cluster known-instance data recovery case.
+The process case `a_restored_registry_is_rebound_only_to_a_cluster_without_its_namespaces`
+(compiled controller and `rebind-cluster` against PostgreSQL and a disposable
+Kubernetes API) covers the refusals: a registry bound to another cluster stops the
+controller (`cluster_changed`); `rebind-cluster` refuses while the cluster holds
+one of the installation's namespaces (`namespaces_exist`, nothing cleared, binding
+kept); with the namespace gone it records the new identity, clears the binding,
+and the controller recreates the namespace on the material it already had.
+Removing the namespace check fails it. A wrong sealing key at restore is
+refused by the controller's startup check (G14).
+`tests/e2e/test_home_receipt.py` damages the home's initialization record on the
+node and restarts the instance: a receipt with a flipped signature, and a
+receipt and intent both missing on a home that holds data, keep Hermes from
+starting (the initializer fails; the home's data and configuration are
+byte-identical afterwards) until the genuine files are back; a missing receipt
+with its intent intact is finished from the intent and rewritten identically. The
+instance is reported blocked with the typed reason `invalid_initialization_receipt`
+(`nativeInit` `home_unproven`) while its initializer refuses the home, from the
+code the initializer leaves as its termination message; the manager's unit,
+shared-store and adapter cases cover the classification, and the initializer's
+integration cases cover the code it leaves. Partial storage remains.
 
 Create a restore fixture that explicitly inventories and backs up every tested
 storage source and protected key input, with writers stopped for a consistent
@@ -430,6 +691,15 @@ a fresh one; bad backups fail without adoption or credential regeneration.
 Current: lease-holder API tests, stale-epoch store cases, controller aborts and
 queue backoff units exist. They do not cover every two-process/worker boundary
 or a prolonged failing Kubernetes API.
+
+`tests/e2e/test_leadership.py` adds two cluster cases on platforms of their own: with
+two controller candidates the leader is force-killed, a standby takes the Lease
+and commissions a new instance, and no existing instance's Hermes Pod,
+namespace, credentials or worker keys change (one namespace per instance); with
+no controller at all, Hermes keeps running untouched for a minute and the
+controller's return disturbs nothing. Process pause and API partition, a
+deposed controller writing after recreation, injected 409/429/5xx and slow
+applies, lost notifications and replicas of the API and gateway remain.
 
 Run competing controller processes through lease expiry, process pause/kill and
 API partition. Prove a deposed controller cannot write status or delete a newly
@@ -467,10 +737,23 @@ scale promise. Keep external model/provider benchmarks optional and separate.
 **P0 · Extend packaging/CI integration tests · R8, R17, R18.**
 
 Current: release unit tests mock build/publish commands, and image checks smoke
-specific properties. The tag workflow does not require the complete Rust/k3d/
-E2E result for the same source and artifact digests before publishing. It
+specific properties. The tag workflow's first job, `gate`, requires passing
+`Checks` and `Cluster scenarios` runs for the exact tagged commit before the
+publishing job starts (`agent_platform/release_gate.py`, with the latest run per
+workflow deciding, a run for any other commit ignored, and anything not completed
+and successful refusing); `tests/unit/test_release_gate.py` covers the decision,
+the page format of the API's answer, the workflow names, and that publication
+`needs` the gate. It does not yet compare the artifact digests those runs tested
+with the ones published, and the cluster scenarios are dispatched by hand. The
+tag workflow also
 requires the chart and project versions in the tagged commit to equal the tag,
-while ordinary commits keep the `0.0.0` placeholder; no test covers that rule.
+while ordinary commits keep the `0.0.0` placeholder. That rule is now
+`agent_platform.release.verify_release_source` and `verify_placeholder_source`,
+called by the tag workflow before any login or publication, and
+`tests/unit/test_release_versions.py` covers the version grammar including
+`-dev.N`, the trigger pattern against it, each of chart and project being stale,
+the placeholder never being a release, and this tree being a placeholder tree or
+the exact release commit.
 
 Test installing the packaged chart with all three exact built image digests,
 then supported upgrade and uninstall retention. Verify labels/licenses,
@@ -478,10 +761,9 @@ non-root workers, context completeness, static UI assets and absence of secrets
 and fault-injection features in the actual artifacts. Exercise a release
 binary with the fault environment set during a real command: it must not abort
 at the test hook. Add failure-path tests
-that validation errors prevent promotion/chart publication and that an
-unrelated passing source revision cannot satisfy the candidate gate. Resolve
-the tag/version rule (including `-dev.N`) and the placeholder on untagged
-commits. Local
+that validation errors prevent promotion/chart publication; an unrelated passing
+source revision cannot satisfy the candidate gate (done for the revision, not for
+the artifact digests). Local
 artifact tests need no public push; publication remains separately authorized.
 
 **Done:** release eligibility refers to the tested candidate, not merely a tag
@@ -491,9 +773,77 @@ or an unrelated green branch, and packaged behaviour matches source tests.
 
 **P1 · Expand native HTTP integration and Python black-box cases · R2, R5–R7, R10–R12, R18.**
 
-Current: real endpoint tests and schema checks exist, including strict JSON,
-authorization and request-size examples. No complete response/status/header
-coverage ledger exists for all 58 contract operations.
+Current: real endpoint tests and schema checks exist. `hermes-http/tests/wire_boundaries.rs`
+sends raw HTTP/1.1 through `hermes_testkit::raw` and proves, for the
+administration API, the exact 16 KiB body bound (declared at limit − 1, the
+limit and limit + 1; chunked at the limit and limit + 1), the exact 8 KiB serialized `adminConfig`
+bound (template and assignment layers; ASCII, two-byte and four-byte text;
+pretty-printed and escaped wire spellings), cancelled bodies, the `Content-Type`,
+`Idempotency-Key` and `If-Match` grammar with repeated headers, and 24 malformed
+or ambiguous JSON shapes. Each refusal has an accepted control and leaves audit
+events, catalog, assignments and the key's receipt unchanged. The execution and
+resolver listeners have the exact-bound, chunked and repeated-header cases. These
+cases found three defects, now fixed: `If-Match` accepted `"01"` and `"+1"`
+against the contract pattern, a repeated `Content-Type` was resolved by parser
+order, and `createAssignment` problems were located inside the spec instead of
+the submitted document. The gateway's upload limit is proven exactly (declared
+length at a lowered limit and at 64 MiB; a streamed body at the limit and one
+byte over), which found a streamed over-limit upload answered `502
+dependency_unavailable` instead of `413`; that is fixed. `tests/e2e/test_contract_matrix.py` generates a case per secured
+administration operation from `openapi.yaml` (43 of 45): with no credential it is
+refused `401 invalid_identity_evidence`, with a valid token of a person who holds
+no grant `403 access_denied`, both `no-store`/`nosniff`, with no cookie, no echoed
+token, and with audit, assignments, secrets, templates, backends and
+administrators exactly as before. Logout is the one exception: it checks Origin
+and CSRF first (`403` for both) and expires the caller's cookies when it refuses
+(the decision recorded under G13). A unit check pins the generated set to the
+contract. `tests/e2e/test_gateway_interface.py` is the gateway's ledger for a client
+without a session: 29 rows (login with local and refused return paths, callback
+without proof, with an unknown state and with a provider error, `me`, both
+logouts with and without the Origin, the signed-out and liveness pages, page
+loads, other methods and a WebSocket upgrade on the proxied application, an
+unknown platform path) each with its exact status, body or redirect, the
+no-store/nosniff/no-referrer headers, the cookies it sets and no reflection of
+what was sent, plus a case that every login flow is fresh and bound to the
+browser by a Secure, HttpOnly, Lax, host-only proof cookie. The execution and
+resolver listeners are checked response by response against their contracts in
+`execution_api.rs` and `resolver_api.rs`. `tests/e2e/test_gateway_session.py` is the signed-in half, with the cookies
+replayed by hand: `me` names the owner and the session's CSRF token and nothing
+else; a logout is refused for no or a foreign Origin and for a missing, wrong,
+malformed or another session's token, and no refusal ends anything on the server
+(the replayed cookies still work, and another person's session is untouched);
+duplicated, missing, tampered and cross-browser cookies get `401`; both logouts
+end the session on the server. `tests/e2e/test_unknown_resources.py` is generated from the
+contract: each of the 21 administration operations that take a path parameter,
+with a well-formed identifier that names nothing and with a malformed one, answers
+`404 not_found` (private, inert, naming nothing the client sent) and commits
+nothing; the two version listings of a catalog answer an empty page for an unknown
+name, as the contract declares, and `404` for a malformed one; a control reaches
+the same resources when they exist. `tests/e2e/test_dashboard_interface.py` is the dashboard's
+ledger on the administration host: 25 rows without a session (login with local
+and refused return paths, the callback, both logout outcomes, the signed-out and
+liveness pages, page loads and their redirects, the API, assets and unknown
+paths), each with its status, body or redirect, headers, cookies and no
+reflection; and signed-in cases with the cookies replayed by hand: the session
+names the administrator and this browser's CSRF token; a browser mutation is
+refused for no or a foreign Origin and for a missing, wrong or another session's
+token, changes nothing and sets no cookie, and the exact request is applied; both
+logout outcomes; duplicated, missing, tampered and cross-browser cookies; and a
+request that presents a bearer token and a session together, refused as
+ambiguous. `tests/e2e/test_preconditions.py` is the precondition ledger: each of the ten
+operations that declare `412` (a unit check pins the set to the contract) is refused
+`412 stale_version` for another version and `422 invalid_request` for none, privately
+and with nothing changed, and goes through with the current version; the named
+conflicts (`assignment_exists`, `administrator_grant_exists`, `last_administrator` in
+all three ways, `secret_in_use`, `version_not_draft` for every wrong-state edit,
+publish or withdraw of a template or a backend version) each leave the state
+untouched; and an idempotency key repeats its command's result, refuses another body
+with `idempotency_conflict` and is a separate change for another command. The cases
+found two gaps in the specification, both amended: a missing `If-Match` was `422` on
+every operation but declared on five of ten, and the state a version must be in to be
+withdrawn was unstated. Still open: session expiry and refresh at the gateway, and
+the unavailable variants of the administration operations (covered case by case at the
+store and HTTP levels).
 
 For each composite operation identity list allowed actors and expected
 unauthenticated/forbidden/stale/conflict/invalid/unavailable variants; validate
@@ -529,10 +879,16 @@ gap needs a reason, responsible owner and review point rather than a `pass`.
 
 The Python/Rust baseline profiles and strict level/marker checks are
 implemented and described in the [execution ledger](../../tests/verification/README.md).
-They retain the existing PR/main system job. They do not implement the required
-pytest/k3d core, extended/soak or exact-artifact release profiles. The flat
-`tests/test_*.py` modules still sit outside `tests/unit/` and
-`tests/integration/`. TypeScript cases are not in the ledger.
+A plain `uv run pytest -q` and the `python` profile select only tests that need
+no infrastructure; the capabilities `native`, `cluster` and `destructive` have
+their own `python-native`, `python-cluster` and `python-destructive` profiles,
+which fail when their input (`HERMES_TEST_NATIVE_IMAGE` or `HERMES_TEST_K3D`) is
+absent. The k3d profiles are dispatched by hand through
+`.github/workflows/cluster.yml` and are not a PR gate; the profiles retain the
+existing PR/main system job. They do not implement the extended/soak or
+exact-artifact release profiles, and the browser, database and multi-node
+capabilities have no profile of their own. TypeScript cases are not in the
+ledger.
 
 **Done:** documented commands and schedules match CI, and each reported result
 identifies the executed profile, candidate, cases and coverage limitations.

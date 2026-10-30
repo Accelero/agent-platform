@@ -371,9 +371,27 @@ async fn platform_logout_needs_origin_and_csrf_and_expires_native_cookies(pool: 
         .await
         .unwrap();
     assert_eq!(wrong_origin.status(), 403);
+    // A refusal changes nothing: no cookie is expired, so a page of another
+    // origin cannot end the session in the owner's browser.
+    assert!(
+        wrong_origin
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .next()
+            .is_none()
+    );
     contract.check("logoutPlatform", 403, &wrong_origin.json().await.unwrap());
     let wrong_token = logout(PUBLIC, "0".repeat(64)).await.unwrap();
     assert_eq!(wrong_token.status(), 403);
+    assert!(
+        wrong_token
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .next()
+            .is_none()
+    );
     assert_eq!(fixture.get(&bob, "/api/chat").await.status(), 200);
 
     let done = logout(PUBLIC, csrf).await.unwrap();
@@ -440,7 +458,7 @@ async fn configuration_is_strict(pool: PgPool) {
     assert!(hermes_gateway::sessions(&loaded).await.is_err());
 }
 
-/// The configuration the chart generates (`tests/test_manager_chart.py` keeps
+/// The configuration the chart generates (`tests/integration/test_manager_chart.py` keeps
 /// this fixture equal to the chart's output).
 #[tokio::test]
 async fn the_charts_gateway_configuration_loads() {

@@ -67,6 +67,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
+          --label agent-platform.io/fixture=personal-hermes-postgres
           --health-cmd "pg_isready -U hermes_test -d hermes_test"
           --health-interval 5s --health-timeout 3s --health-retries 10
     env:
@@ -113,7 +114,8 @@ jobs:
         working-directory: .
         run: MANAGER_UI_DIST="$PWD/services/hermes-manager/ui/dist" uv run python -m tests.support.verification run rust-browser --output .local/verification/rust-browser.json
       - name: Test the controller with a disposable Kubernetes API server
-        run: uv run python ../../tests/personal_hermes/kubernetes.py --postgres-container '${{ job.services.postgres.id }}'
+        working-directory: .
+        run: uv run python -m tests.personal_hermes.kubernetes --postgres-container '${{ job.services.postgres.id }}'
       - name: Upload sanitized case reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -159,6 +161,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
+          --label agent-platform.io/fixture=personal-hermes-postgres
           --health-cmd "pg_isready -U hermes_test -d hermes_test"
           --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
@@ -176,6 +179,8 @@ jobs:
         run: uv run python -m tests.personal_hermes.native_runtime --build
       - name: Verify native owner pin against the real Hermes provider
         run: uv run python tests/personal_hermes/native_owner.py
+      - name: Verify the installed image as collected cases
+        run: HERMES_TEST_NATIVE_IMAGE=personal-hermes-native-test:local uv run python -m tests.support.verification run python-native --output .local/verification/python-native.json
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: 'v3.22.1'

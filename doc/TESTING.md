@@ -47,7 +47,7 @@ test, even when Cargo runs it alongside pure tests.
 | --- | --- | --- | --- |
 | Unit | Rust/Cargo for Rust; Python/pytest for Python; TypeScript/Vitest for UI logic | No external service or cluster; explicit fakes and controllable clocks | Validators, state transitions, pure planners, command decisions, retry rules, configuration overlays, serializers and UI state |
 | Integration | Native Rust where generic traits, SQLx, adapter internals or process fault hooks are material; pytest/Python otherwise | A real PostgreSQL database, TLS/OIDC/SSH service, runtime image, browser, or Kubernetes API, as the case requires | Persistence and port contracts, actual request/response conformance, filesystem and image behaviour, admission/RBAC, browser/CSP integration and binary startup/crash behaviour |
-| E2E | Python/pytest; Playwright's Python pytest integration for browser journeys | Helm-installed system on k3d, real manager/gateway/dashboard/Hermes/workers/PostgreSQL/Keycloak; deterministic fake model and private registry | Every acceptance scenario, public administration workflows, per-owner isolation, security boundaries, failure/recovery and restoration of retained state |
+| E2E | Python/pytest; Playwright's Python API for browser journeys | Helm-installed system on k3d, real manager/gateway/dashboard/Hermes/workers/PostgreSQL/Keycloak; deterministic fake model and private registry | Every acceptance scenario, public administration workflows, per-owner isolation, security boundaries, failure/recovery and restoration of retained state |
 
 Preserve the shared Rust store contract cases and their in-memory/PostgreSQL
 implementations. Do not duplicate domain algorithms in Python to move their
@@ -55,8 +55,11 @@ unit tests. Prefer Python for new black-box scenarios; do not rewrite effective
 Rust integration tests just to change language. Existing TypeScript browser
 tests with mocked API responses remain presentation integration tests. Real
 cluster browser journeys belong to pytest and use the served production build.
-[Playwright provides Python pytest fixtures](https://playwright.dev/python/docs/test-runners)
-for isolated browser contexts.
+Playwright's [Python API](https://playwright.dev/python/docs/library) provides the
+isolated browser contexts; `tests/support/browser.py` launches Chromium with the
+fixture CA in its own certificate database and resolver rules for the fixture
+hostnames, so the browser validates hostnames and chains instead of ignoring
+HTTPS errors.
 
 ## Coverage obligations
 
@@ -177,7 +180,7 @@ repair a failing workflow behind the product's back.
 | --- | --- | --- |
 | Run/session | Reviewed artifact manifest, k3d cluster/network, fresh PostgreSQL fixture, realm, CA and optional registry | Unique run ID; explicit private kubeconfig and credential directory; no external deployment credentials |
 | Scenario/function | Installation/release/database or equivalent isolated assignment namespace set, users, clients, browser contexts and canary secrets | No dependence on another test's mutations or test ordering |
-| Destructive scenario | Cluster-wide outages, leader failure, rebind, restore, uninstall, node loss and durability-setting changes | Dedicated cluster/database; cannot run concurrently with tests using that dependency |
+| Destructive scenario | Cluster-wide outages, leader failure, rebind, restore, uninstall, node loss and durability-setting changes | One cluster/database of its own, shared by the destructive cases in turn and never by other tests; after each case the pool checks that the database, provider, workloads and commissioned owners are back, and replaces the platform when they are not or the case failed |
 
 Register teardown immediately after each successful allocation, then compose
 fixtures. A later setup failure must still clean earlier resources. pytest's
@@ -202,11 +205,11 @@ use a separate worker/profile. No resource creation during test collection.
 
 ## Pytest structure and selection contract
 
-The required organization is below. `unit/`, `integration/`, `support/` and
-`conftest.py` exist; `e2e/` does not yet. The older flat `tests/test_*.py`
-modules already carry their level markers and move into `unit/` or
-`integration/` when next changed, with their `cases.json` identities updated
-in the same change:
+The required organization is below. `unit/`, `integration/`, `e2e/`, `support/`
+and `conftest.py` exist; `e2e/` holds `test_network_isolation.py`,
+`test_acceptance.py`, `test_failures.py`, `test_execution.py` and
+`test_restore.py` so far, and the remaining modules named there are not written.
+No Python test module sits outside a level directory:
 
 ```text
 tests/
@@ -241,7 +244,8 @@ already enforces the level and `pyproject.toml` the strict markers.
 [pytest marker reference](https://docs.pytest.org/en/stable/example/markers.html).
 Parameter IDs describe behaviour, never credentials or personal labels.
 
-Required invocation semantics:
+Required invocation semantics (the default selection and `python-native` are
+implemented; the other capability profiles are not):
 
 - Collection needs no Docker service and lists individual scenario/parameter IDs.
 - Selecting a single scenario provisions its prerequisites without first running

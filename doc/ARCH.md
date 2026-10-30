@@ -114,7 +114,7 @@ Drain triggers:
 - `execution_generation` superseded while no live leases remain;
 - access not `enabled`;
 - Pod observed lost, replaced or terminating;
-- the drain deadline (5 min).
+- the drain deadline (5 min), which starts when an environment enters `Draining`.
 
 Lease:
 
@@ -227,6 +227,16 @@ events. One blocks the instance with `storage_unavailable` and the storage
 condition `mount_failed` (a missing static directory, for example). Everything
 stays applied, so the instance starts when the volume can be mounted.
 
+Likewise, when the home initializer refuses a home that carries no proof of being
+this owner's (a receipt that does not verify, a receipt for another owner, a home
+with data and no receipt or intent), it leaves one of five fixed codes
+(`HOME_REFUSALS`) as its termination message and fails. The controller reads
+that code from the Pod's init container status, and the instance is blocked with
+`invalid_initialization_receipt` and the `nativeInit` condition `home_unproven`.
+Hermes does not start, the home is not changed, and everything stays applied, so
+the instance starts by itself once the proof is back. Any other initializer
+failure is retried and shown as provisioning.
+
 The Pod template carries a digest of every input that needs a restart (the
 definition, the volumes and the contents of the Secrets and ConfigMaps it
 uses). A change that only affects terminal backends, or a restarted manager,
@@ -268,8 +278,9 @@ The plugin protocol is defined by `contracts/hermes-manager/execution.openapi.ya
    `(instance, backend version, execution_generation, key)`, where the key is
    the session for `per_session` and the profile's home otherwise. A draining
    environment is not reused; the next one is created once it has retired.
-   New environments count against the backend's `maxEnvironments` and wake
-   the controller;
+   New environments count against the backend's `maxEnvironments`, and one
+   that would exceed it is answered `503 dependency_unavailable` and not
+   created; creating one wakes the controller;
 6. if it is `Ready`, grant a 120-second lease and return the worker's address
    and the instance's worker host key; if it failed, return
    `422 backend_failed`; otherwise return `409 environment_pending` with
@@ -300,7 +311,9 @@ failure; the controller keeps checking.
 When the assignment's backends or volumes change, `execution_generation`
 increments. New acquisitions create environments under the new generation,
 and older environments drain when no leases remain. Live leases are untouched
-until they end or the drain deadline (5 minutes) passes. Draining deletes the
+until they end (at most the backend's `maxLeaseSeconds`) or, once the
+environment is draining for another reason such as an access change, the drain
+deadline (5 minutes) passes. Draining deletes the
 observed Pod by UID and resourceVersion; the environment retires once the Pod
 is absent. A not-enabled instance stops Hermes only after its workers retired.
 
@@ -373,6 +386,13 @@ Admin secret flow:
 3. The Deployment exposes them as environment variables or as read-only files
    under `/run/hermes/admin-secrets/`.
 
+Before it starts work, the controller checks that its key opens the stored
+material: when at least one row exists and none (of the first eight it tries)
+opens, it exits with `sealing_key_mismatch`. A wrong key would otherwise seal
+material for new instances that the right key could never open. Existing
+instances are left as they are; an installation without material has nothing to
+check.
+
 A new secret version, or a change in which secrets are referenced, increments
 the desired generation of every referencing instance, so they restart with the
 new value.
@@ -412,6 +432,12 @@ ends them within 10 s.
 `unavailable` a `503` page; requests that are not page loads get the same
 statuses as JSON. Native callbacks are forwarded only with a valid platform
 session that resolves to the same owner.
+
+Platform sessions are sealed in PostgreSQL under the gateway's session keyring.
+New sessions use the active key; every key still listed opens the sessions
+sealed under it, so a key added as the new active one keeps existing sessions
+alive, and removing a key ends exactly the sessions sealed under it. A restart
+with the same keyring ends nothing.
 
 Logging out ends the platform session and expires the native cookies. The
 gateway intercepts native `POST /auth/logout` (exact `Origin` required): it
@@ -454,6 +480,7 @@ network peers are untrusted.
 | Stale authorization after revoke | 5 s freshness bound; execution credential revoked in the same transaction |
 | Secret leakage | Sealed at rest; write-only API; no values in responses, audit, logs or errors. A delivered admin secret is readable by its owner's agent; give each person their own provider key, or use a model gateway that issues per-person keys, rather than sharing one |
 | Admin CSRF or cross-origin attacks | Separate admin hostname; host-only `SameSite` cookies; `Origin` check and CSRF token on mutations |
+| A page of a sibling host acting with an owner's cookies | The gateway refuses requests that can change state, and WebSocket upgrades, whose `Origin` is not the public origin; a refused logout expires no cookie |
 
 ### Static admission policies
 
@@ -469,7 +496,7 @@ integration tests install it and act as the controller's real ServiceAccount.
 | Namespaces | Only the controller may create them, only with the installation prefix and labels |
 | Owned namespaces | Only the controller may write objects. The cluster's own components are allowed: `kube-system` controller ServiceAccounts (ReplicaSets and Pods of owned Deployments, EndpointSlices, PV binding, the garbage collector, the root CA publisher), `system:kube-controller-manager`, `system:kube-scheduler` (claim binding), `system:apiserver` and nodes. Events are exempt. Cluster-scoped objects are out of scope; a `namespaceSelector` alone would match them |
 | Controller scope | The controller writes only namespaces, PersistentVolumes, objects inside instance namespaces and its leader Lease |
-| Pods | Non-root data identity; no privilege escalation; capabilities dropped; no host namespaces or hostPath; volumes limited to PVC, Secret, ConfigMap, emptyDir and projected; digest-pinned images; `automountServiceAccountToken: false` |
+| Pods | Non-root data identity at Pod level, and no container overrides it with another user, group or `runAsNonRoot: false`; no privilege escalation; capabilities dropped; no host namespaces or hostPath; volumes limited to PVC, Secret, ConfigMap, emptyDir and projected; digest-pinned images; `automountServiceAccountToken: false` |
 | PersistentVolumes | Created only by the controller; type `local` (under an approved root, with node affinity to the approved node) or `nfs` (approved server and root); `Retain`; `claimRef` into an owned namespace |
 | RoleBindings | Only the fixed instance role, bound to the controller ServiceAccount |
 | Services | ClusterIP only, without external IPs |

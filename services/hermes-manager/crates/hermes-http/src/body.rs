@@ -16,11 +16,15 @@ impl<S: Send + Sync, T: DeserializeOwned> FromRequest<S> for Body<T> {
     type Rejection = ApiError;
 
     async fn from_request(request: Request, state: &S) -> Result<Self, ApiError> {
-        let json = request
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.split(';').next() == Some("application/json"));
+        // Exactly one Content-Type: with several, parser order must not decide
+        // how the body is read.
+        let mut types = request.headers().get_all(header::CONTENT_TYPE).iter();
+        let json = match (types.next(), types.next()) {
+            (Some(value), None) => value
+                .to_str()
+                .is_ok_and(|value| value.split(';').next() == Some("application/json")),
+            _ => false,
+        };
         if !json {
             return Err(AppError::invalid().into());
         }

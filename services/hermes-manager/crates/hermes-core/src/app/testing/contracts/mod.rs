@@ -7,6 +7,7 @@ mod assignments;
 mod catalog;
 mod controller;
 mod execution;
+mod generated;
 mod routing;
 mod secrets;
 
@@ -15,5 +16,6 @@ pub use assignments::*;
 pub use catalog::*;
 pub use controller::*;
 pub use execution::*;
+pub use generated::*;
 pub use routing::*;
 pub use secrets::*;

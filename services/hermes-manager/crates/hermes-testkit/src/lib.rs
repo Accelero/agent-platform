@@ -3,6 +3,7 @@
 
 pub mod contract;
 pub mod provider;
+pub mod raw;
 
 use std::path::Path;
 use std::sync::Arc;

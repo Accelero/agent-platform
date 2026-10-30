@@ -6,6 +6,7 @@ import argparse
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -24,6 +25,43 @@ DIGEST = re.compile(r"sha256:[a-f0-9]{64}")
 VERSION = re.compile(
     r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-dev\.(?:0|[1-9][0-9]*))?"
 )
+
+
+# Untagged commits carry this in the chart and the project; only a tagged
+# release commit carries the tag's version.
+PLACEHOLDER = "0.0.0"
+VERSION_RULE = "Release tag must be vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-dev.N"
+
+
+def source_versions(root: Path = ROOT) -> dict[str, str]:
+    """The versions the source tree declares."""
+    chart = yaml.safe_load((root / "charts/agent-platform/Chart.yaml").read_text())
+    project = tomllib.loads((root / "pyproject.toml").read_text())
+    return {
+        "chart": str(chart["version"]),
+        "chart appVersion": str(chart["appVersion"]),
+        "project": str(project["project"]["version"]),
+    }
+
+
+def verify_release_source(version: str, root: Path = ROOT) -> None:
+    """A release commit declares exactly the tag's version in chart and project.
+
+    The placeholder is never a release: it names unreleased source.
+    """
+    if not VERSION.fullmatch(version) or version == PLACEHOLDER:
+        raise ValueError(VERSION_RULE)
+    declared = source_versions(root)
+    for name in ("chart", "project"):
+        if declared[name] != version:
+            raise ValueError(f"The {name} version must equal the release tag.")
+
+
+def verify_placeholder_source(root: Path = ROOT) -> None:
+    """Ordinary commits keep the placeholder everywhere."""
+    for name, found in source_versions(root).items():
+        if found != PLACEHOLDER:
+            raise ValueError(f"The {name} version must stay {PLACEHOLDER}.")
 
 
 def image_references(metadata: dict, registry: str) -> dict[str, str]:
@@ -112,7 +150,11 @@ def build(
     github_cache: bool = False,
 ) -> dict:
     """Publish images first and their self-contained versioned chart last."""
-    if not VERSION.fullmatch(version) or not re.fullmatch(r"[a-f0-9]{40}", revision):
+    if (
+        not VERSION.fullmatch(version)
+        or version == PLACEHOLDER
+        or not re.fullmatch(r"[a-f0-9]{40}", revision)
+    ):
         raise ValueError("Use a complete semantic version and source commit SHA.")
     if not re.fullmatch(r"ghcr\.io/[a-z0-9][a-z0-9/_-]*", registry) or not re.fullmatch(
         r"oci://ghcr\.io/[a-z0-9][a-z0-9/_-]*", chart_registry

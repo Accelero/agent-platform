@@ -10,6 +10,7 @@ use axum::response::{IntoResponse, Response};
 use hermes_core::app::assignments::{
     self, AssignmentChanges, CreateAssignment, RetryInstance, UpdateAssignment,
 };
+use hermes_core::app::error::AppError;
 use hermes_core::app::queries::{AssignmentFilter, AuditFilter, EnvironmentList, search};
 use hermes_core::domain::assignments::Access;
 use hermes_wire::ErrorBody;
@@ -63,6 +64,17 @@ pub async fn assignment<S: AdminStore>(
     Ok(tagged(assignment.version, &assignment))
 }
 
+/// Problems are found in the spec; the submitted document is `{identity, spec}`,
+/// so their pointers move under `/spec` (`openapi.yaml`, `Problem.pointer`).
+fn within_the_submitted_document(mut error: AppError) -> AppError {
+    for problem in &mut error.problems {
+        if !problem.pointer.starts_with("/identity") {
+            problem.pointer.insert_str(0, "/spec");
+        }
+    }
+    error
+}
+
 pub async fn create<S: AdminStore>(
     State(state): State<Arc<AdminState<S>>>,
     Extension(authenticated): Extension<Authenticated>,
@@ -81,7 +93,8 @@ pub async fn create<S: AdminStore>(
             &idempotency_key(&headers)?,
             &command,
         )
-        .await?;
+        .await
+        .map_err(within_the_submitted_document)?;
     Ok(with_status(StatusCode::ACCEPTED, &receipt))
 }
 
@@ -251,4 +264,49 @@ pub async fn audit_event<S: AdminStore>(
         .await?
         .ok_or(NOT_FOUND)?;
     Ok(Json(event).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use hermes_core::domain::ErrorKind;
+    use hermes_core::domain::Problem;
+
+    use super::*;
+
+    #[test]
+    fn create_problems_point_into_the_submitted_document() {
+        let mut error = AppError::new(ErrorKind::Invalid, "invalid_configuration");
+        error.problems = vec![
+            Problem {
+                pointer: "/adminConfig".into(),
+                code: "too_large",
+            },
+            Problem {
+                pointer: "/volumes/workspace/source".into(),
+                code: "unknown_source",
+            },
+            Problem {
+                pointer: "/identity/issuer".into(),
+                code: "foreign_issuer",
+            },
+            Problem {
+                pointer: String::new(),
+                code: "invalid_type",
+            },
+        ];
+        let pointers: Vec<_> = within_the_submitted_document(error)
+            .problems
+            .into_iter()
+            .map(|problem| problem.pointer)
+            .collect();
+        assert_eq!(
+            pointers,
+            [
+                "/spec/adminConfig",
+                "/spec/volumes/workspace/source",
+                "/identity/issuer",
+                "/spec"
+            ]
+        );
+    }
 }

@@ -136,7 +136,13 @@ async fn logout(State(auth): State<Arc<BrowserAuth>>, headers: HeaderMap) -> Res
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => error_response(error),
     };
-    clear_cookies(&mut response, &auth);
+    // A refusal of the Origin or CSRF check changes nothing, so that a page of
+    // another origin cannot end the administrator's session in their browser.
+    // Any other outcome, a session that is already gone included, clears the
+    // cookies.
+    if response.status() != StatusCode::FORBIDDEN {
+        clear_cookies(&mut response, &auth);
+    }
     response
 }
 

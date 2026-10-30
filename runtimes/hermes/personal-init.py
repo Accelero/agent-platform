@@ -21,6 +21,19 @@ from urllib.parse import urlsplit
 
 SCHEMA = 1
 META = ".agent-platform"
+# The refusals of a home that carries no proof of being this owner's. The
+# initializer never changes such a home; it leaves one of these codes, and only
+# one, as its termination message so that the controller can report the
+# instance as blocked (the list is `HOME_REFUSALS` in the manager).
+REFUSALS = frozenset(
+    {
+        "invalid_initialization_receipt",
+        "unexplained_native_home",
+        "native_home_owner_conflict",
+        "incomplete_initialization_conflict",
+        "initialization_input_changed",
+    }
+)
 INTENT = "native-init-intent.json"
 RECEIPT = "native-init-receipt.json"
 
@@ -376,7 +389,20 @@ def main():
         # owner-created result symlink or truncate an aliased home file.
         result = Path(args.result)
         write_result(result, receipt)
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+        # The result file is the container's termination message. A refusal
+        # leaves its code there; any other failure leaves it empty if it is
+        # there at all, so an earlier run's message cannot be mistaken for this
+        # one's. A failure that left no file leaves none.
+        code = str(error) if isinstance(error, ValueError) else ""
+        result = Path(args.result)
+        try:
+            if code in REFUSALS:
+                write_result(result, code.encode())
+            elif result.exists() or result.is_symlink():
+                write_result(result, b"")
+        except (OSError, ValueError):
+            pass
         raise SystemExit(
             "Native initialization unavailable; private details suppressed."
         ) from None

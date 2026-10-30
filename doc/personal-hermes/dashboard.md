@@ -123,13 +123,17 @@ fences active browser sessions and takes effect on the next request, independent
 of token expiry. Already running requests can finish. The UI rechecks its session
 every 60 seconds and clears queries and unsaved forms on permission loss.
 
-Anonymous navigation redirects to `/auth/login`. Provider tokens stay encrypted
+Anonymous navigation (a `GET` or `HEAD` of a page) redirects to `/auth/login` with
+the page's path; an anonymous request for an asset or the API is `401`, and a
+path that exists nowhere is a JSON `404` with or without a session. Provider tokens stay encrypted
 server-side; browser cookies are opaque, Secure, HttpOnly and host-only. Mutations
 require the current CSRF token and exact Origin as well as version and
 idempotency preconditions. Logout clears in-memory state and opens
 `/auth/signed-out`. UI responses use `no-store`, `nosniff`, `no-referrer` and a
 per-response style nonce; script CSP stays `script-src 'self'` with no inline
-script, CDN, dynamic code compilation or blob worker.
+script, CDN, dynamic code compilation or blob worker. Stored text (names,
+labels, template and configuration content) is rendered as text and never as
+markup.
 
 ## Inspection
 

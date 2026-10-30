@@ -20,6 +20,7 @@ use zeroize::Zeroizing;
 use super::error::{AppError, StoreError};
 use super::faults::{FaultHook, FaultPoint};
 use super::settings::Settings;
+use crate::domain::ErrorKind;
 use crate::domain::assignments::{Access, TerminalGrant};
 use crate::domain::backends::BackendDefinition;
 use crate::domain::catalog::VersionRef;
@@ -364,9 +365,49 @@ pub struct Controller<S, C, V, N> {
     pub faults: Arc<dyn FaultHook>,
 }
 
+/// How many stored rows `verify_vault` tries before it calls the key wrong.
+const KEY_CHECK_ROWS: usize = 8;
+
 impl<S: InstanceStore, C: Cluster, V: Vault, N: Native> Controller<S, C, V, N> {
     fn fault(&self, point: FaultPoint) -> Result<(), ControllerError> {
         self.faults.hit(point).map_err(|_| ControllerError::Fault)
+    }
+
+    /// Refuses a vault whose key opens none of the stored material: it is not
+    /// the key the material was sealed with. Without this a controller with a
+    /// wrong key would still seal material for a new instance that the right
+    /// key could never open. One row that does not open is tolerated (the key
+    /// is right and the row is damaged), and an installation without material
+    /// has nothing to check.
+    pub async fn verify_vault(&self) -> Result<(), ControllerError> {
+        let mut failed = 0;
+        for instance in self.store.instance_ids().await? {
+            for row in self.store.materials(instance).await? {
+                if self
+                    .vault
+                    .open_material(instance, row.purpose, &row.sealed)
+                    .is_ok()
+                {
+                    return Ok(());
+                }
+                failed += 1;
+                if failed >= KEY_CHECK_ROWS {
+                    return Err(Self::wrong_key());
+                }
+            }
+        }
+        if failed == 0 {
+            Ok(())
+        } else {
+            Err(Self::wrong_key())
+        }
+    }
+
+    fn wrong_key() -> ControllerError {
+        ControllerError::Vault(AppError::new(
+            ErrorKind::Unavailable,
+            "sealing_key_mismatch",
+        ))
     }
 
     /// Reconciles one instance once. `None` when the instance does not exist.

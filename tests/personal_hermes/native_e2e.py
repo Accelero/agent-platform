@@ -4,7 +4,8 @@ realm, driven only through the administration API and the Hermes hostname.
 
 `kubernetes.py --native` runs it after the integration tests. Run it alone
 with `python -m tests.personal_hermes.native_e2e --postgres-container <name>`;
-`--keep` leaves the cluster and the database for inspection.
+`--keep` leaves the cluster and the database for inspection after a failure;
+a successful run always removes everything it made.
 
 Every credential (TLS keys, sealing keys, session keys, passwords) is generated
 for the run and stays in its temporary directory. Nothing secret is printed.
@@ -30,6 +31,7 @@ import uuid
 from contextlib import contextmanager
 from html import unescape
 from pathlib import Path
+from types import SimpleNamespace
 
 import requests
 import websocket
@@ -53,6 +55,19 @@ from tests.personal_hermes.kubernetes import (
     remove_container,
     start_k3s,
     wait_ready,
+)
+from tests.support.ownership import (
+    FIXTURE,
+    KUBERNETES,
+    POSTGRES,
+    REGISTRY_FIXTURE,
+    RUN,
+    Cleanup,
+    database_comment,
+    new_run,
+    remove_fixture,
+    require_fixture,
+    run_databases,
 )
 
 NAMESPACE = "agents"
@@ -263,7 +278,9 @@ def realm(passwords):
                 "username": "service-account-e2e-directory",
                 "enabled": True,
                 "serviceAccountClientId": "e2e-directory",
-                "clientRoles": {"realm-management": ["manage-users", "view-users"]},
+                "clientRoles": {
+                    "realm-management": ["manage-users", "view-users", "manage-realm"]
+                },
             }
         ],
         "clients": [
@@ -1100,22 +1117,37 @@ def run_e2e(identifier, temporary, environment):
         identifier, "hermes-e2e-keycloak:pinned", temporary, reuse
     )
 
+    run = environment["HERMES_TEST_RUN"]
     database = "hermes_e2e_" + uuid.uuid4().hex[:8]
-    command(
-        [
-            "docker",
-            "exec",
-            postgres,
-            "psql",
-            "-U",
-            "hermes_test",
-            "-d",
-            "hermes_test",
-            "-c",
-            f"CREATE DATABASE {database}",
-        ]
-    )
-    try:
+
+    def psql(statement):
+        command(
+            [
+                "docker",
+                "exec",
+                postgres,
+                "psql",
+                "-U",
+                "hermes_test",
+                "-d",
+                "hermes_test",
+                "-c",
+                statement,
+            ]
+        )
+
+    with Cleanup() as cleanup:
+        # The database belongs to this run by its comment, not by its name.
+        cleanup.add(
+            "run database",
+            lambda: (
+                print(f"Kept the database {database} for inspection.")
+                if cleanup.failed and environment.get("HERMES_TEST_KEEP")
+                else psql(f"DROP DATABASE IF EXISTS {database} WITH (FORCE)")
+            ),
+        )
+        psql(f"CREATE DATABASE {database}")
+        psql(f"COMMENT ON DATABASE {database} IS '{database_comment(run)}'")
         e2e_on_database(
             identifier,
             temporary,
@@ -1126,22 +1158,6 @@ def run_e2e(identifier, temporary, environment):
             database,
             kubeconfig,
         )
-    finally:
-        if not environment.get("HERMES_TEST_KEEP"):
-            command(
-                [
-                    "docker",
-                    "exec",
-                    postgres,
-                    "psql",
-                    "-U",
-                    "hermes_test",
-                    "-d",
-                    "hermes_test",
-                    "-c",
-                    f"DROP DATABASE IF EXISTS {database} WITH (FORCE)",
-                ]
-            )
 
 
 def e2e_on_database(
@@ -1219,8 +1235,9 @@ def e2e_on_database(
             owned,
             FRESH,
         )
+        run = environment["HERMES_TEST_RUN"]
         with private_registry(
-            identifier, network, temporary, passwords["registry"]
+            identifier, network, temporary, passwords["registry"], run
         ) as image:
             images["private"] = image
             assignments = published_versions_commission_ready_instances_from_the_api(
@@ -1237,12 +1254,14 @@ def e2e_on_database(
             passwords,
             owned,
             assignments,
+            run,
         )
 
 
-def published_versions_commission_ready_instances_from_the_api(
-    identifier, images, ca, passwords, postgres
-):
+def commission(identifier, images, ca, passwords):
+    """Publishes the catalog and commissions Bob's and Carol's instances through
+    the administration API, and waits until both are ready. Everything a
+    scenario needs is on the returned state; nothing is torn down."""
     admin = Admin(ca, passwords["alice"])
     wait(
         lambda: (
@@ -1375,6 +1394,23 @@ def published_versions_commission_ready_instances_from_the_api(
             interval=5,
         )
     versions = {"template": template, "shell": backend, "tools": tools}
+    return SimpleNamespace(
+        admin=admin,
+        assignments=assignments,
+        template=template,
+        terminal=terminal,
+        versions=versions,
+        worker=worker,
+    )
+
+
+def published_versions_commission_ready_instances_from_the_api(
+    identifier, images, ca, passwords, postgres
+):
+    state = commission(identifier, images, ca, passwords)
+    admin, assignments = state.admin, state.assignments
+    template, terminal = state.template, state.terminal
+    versions, worker = state.versions, state.worker
 
     a_missing_static_directory_blocks_without_a_substitute(
         identifier, admin, template, terminal
@@ -2301,7 +2337,7 @@ def push_image(tag, base, repository, credentials):
 
 
 @contextmanager
-def private_registry(identifier, network, temporary, password):
+def private_registry(identifier, network, temporary, password, run):
     """A registry behind basic authentication on the fixture network holding
     the worker image; yields the image's digest reference there. The node
     resolves the registry's name through its hosts file: the default bridge
@@ -2309,9 +2345,14 @@ def private_registry(identifier, network, temporary, password):
     suffix = uuid.uuid4().hex[:8]
     upstream = f"personal-hermes-registry-{suffix}"
     proxy = f"personal-hermes-registry-proxy-{suffix}"
-    label = "agent-platform.io/fixture=personal-hermes-registry"
+    labels = [
+        "--label",
+        f"{FIXTURE}={REGISTRY_FIXTURE}",
+        "--label",
+        f"{RUN}={run}",
+    ]
     command(["docker", "pull", "--quiet", REGISTRY_IMAGE], timeout=600)
-    try:
+    with Cleanup() as cleanup:
         command(
             [
                 "docker",
@@ -2319,13 +2360,13 @@ def private_registry(identifier, network, temporary, password):
                 "--detach",
                 "--name",
                 upstream,
-                "--label",
-                label,
+                *labels,
                 "--network",
                 network,
                 REGISTRY_IMAGE,
             ]
         )
+        cleanup.add(upstream, lambda: remove_fixture(upstream, REGISTRY_FIXTURE, run))
         settings = Path(temporary) / "registry.env"
         settings.write_text(
             f"UPSTREAM={container_ip(upstream, network)}:5000\n"
@@ -2339,8 +2380,7 @@ def private_registry(identifier, network, temporary, password):
                 "--detach",
                 "--name",
                 proxy,
-                "--label",
-                label,
+                *labels,
                 "--network",
                 network,
                 "--env-file",
@@ -2355,6 +2395,7 @@ def private_registry(identifier, network, temporary, password):
                 "/proxy/registry_proxy.py",
             ]
         )
+        cleanup.add(proxy, lambda: remove_fixture(proxy, REGISTRY_FIXTURE, run))
         host = REGISTRY.split(":")[0]
         command(
             [
@@ -2380,9 +2421,6 @@ def private_registry(identifier, network, temporary, password):
         )
         digest = push_image(WORKER_TAG, base, "hermes-worker", ("e2e", password))
         yield f"{REGISTRY}/hermes-worker@{digest}"
-    finally:
-        for name in (proxy, upstream):
-            subprocess.run(["docker", "rm", "--force", name], capture_output=True)
 
 
 def a_private_backend_pulls_with_its_registry_secret_and_reports_failures(
@@ -2834,6 +2872,7 @@ def restore_on_a_new_cluster_rebinds_without_adoption(
     passwords,
     owned,
     assignments,
+    run,
 ):
     """PostgreSQL and the static storage root restored onto a new, empty
     cluster: `rebind-cluster` records it, and the controller recreates every
@@ -2856,33 +2895,55 @@ def restore_on_a_new_cluster_rebinds_without_adoption(
         timeout=300,
         check=True,
     ).stdout
-    restored = database + "_restored"
-    psql = ["docker", "exec", "-i", postgres]
-    command(
-        [
-            *psql,
-            "psql",
-            "-U",
-            "hermes_test",
-            "-d",
-            "hermes_test",
-            "-c",
+    with Cleanup() as cleanup:
+        restored = database + "_restored"
+        psql = ["docker", "exec", "-i", postgres]
+        cleanup.add(
+            "restored database",
+            lambda: command(
+                [
+                    *psql,
+                    "psql",
+                    "-U",
+                    "hermes_test",
+                    "-d",
+                    "hermes_test",
+                    "-c",
+                    f"DROP DATABASE IF EXISTS {restored} WITH (FORCE)",
+                ]
+            ),
+        )
+        for statement in (
             f"CREATE DATABASE {restored}",
-        ]
-    )
-    subprocess.run(
-        [*psql, "pg_restore", "-U", "hermes_test", "-d", restored, "--no-owner"],
-        input=dump,
-        capture_output=True,
-        timeout=300,
-        check=True,
-    )
-    database_url = (
-        f"postgres://hermes_test@{container_ip(postgres, network)}:5432/{restored}"
-    )
+            f"COMMENT ON DATABASE {restored} IS '{database_comment(run)}'",
+        ):
+            command(
+                [
+                    *psql,
+                    "psql",
+                    "-U",
+                    "hermes_test",
+                    "-d",
+                    "hermes_test",
+                    "-c",
+                    statement,
+                ]
+            )
+        subprocess.run(
+            [*psql, "pg_restore", "-U", "hermes_test", "-d", restored, "--no-owner"],
+            input=dump,
+            capture_output=True,
+            timeout=300,
+            check=True,
+        )
+        database_url = (
+            f"postgres://hermes_test@{container_ip(postgres, network)}:5432/{restored}"
+        )
 
-    second = start_k3s(network, "personal-hermes-restore-" + uuid.uuid4().hex[:12])
-    try:
+        second = start_k3s(
+            network, "personal-hermes-restore-" + uuid.uuid4().hex[:12], run
+        )
+        cleanup.add("second cluster", lambda: remove_container(second, run))
         config = wait_ready(second)
         kubeconfig = Path(temporary) / "kubeconfig-restore"
         kubeconfig.write_text(yaml.safe_dump(config))
@@ -2976,20 +3037,6 @@ def restore_on_a_new_cluster_rebinds_without_adoption(
             an_instance_missing_from_a_restored_backup_is_reported_not_adopted(
                 second, postgres, restored, ca, passwords, assignments
             )
-    finally:
-        remove_container(second)
-        command(
-            [
-                *psql,
-                "psql",
-                "-U",
-                "hermes_test",
-                "-d",
-                "hermes_test",
-                "-c",
-                f"DROP DATABASE IF EXISTS {restored} WITH (FORCE)",
-            ]
-        )
     print(
         "PASS: restore onto a new cluster with rebind-cluster; instances recreated "
         "with their material; static volume data back; owner signs in again; an "
@@ -2997,8 +3044,15 @@ def restore_on_a_new_cluster_rebinds_without_adoption(
     )
 
 
-def reset(identifier, kubeconfig, postgres):
-    """Removes an earlier run's installation from a reused cluster."""
+def reset(identifier, kubeconfig, postgres, run):
+    """Removes an earlier run's installation from a reused fixture cluster.
+
+    Everything removed belongs to that run: both containers are proven to be
+    fixtures first, and its databases are the ones it commented, never the ones
+    whose names merely look alike.
+    """
+    require_fixture(identifier, KUBERNETES, run)
+    require_fixture(postgres, POSTGRES)
     subprocess.run(
         [
             "helm",
@@ -3064,21 +3118,7 @@ def reset(identifier, kubeconfig, postgres):
         timeout=140,
     )
     command(["docker", "exec", identifier, "rm", "-rf", "/srv/hermes-data"])
-    stale = command(
-        [
-            "docker",
-            "exec",
-            postgres,
-            "psql",
-            "-U",
-            "hermes_test",
-            "-d",
-            "hermes_test",
-            "-Atc",
-            "SELECT datname FROM pg_database WHERE datname LIKE 'hermes_e2e_%'",
-        ]
-    ).split()
-    for database in stale:
+    for database in run_databases(postgres, run):
         command(
             [
                 "docker",
@@ -3098,18 +3138,33 @@ def reset(identifier, kubeconfig, postgres):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--postgres-container", default="personal-hermes-manager-tests")
-    parser.add_argument("--keep", action="store_true")
+    parser.add_argument(
+        "--keep",
+        action="store_true",
+        help="Keep the run's cluster and database for inspection after a failure",
+    )
     parser.add_argument(
         "--reuse", metavar="CONTAINER", help="Reset and reuse a kept fixture cluster"
     )
     args = parser.parse_args()
+    # Both containers are injected into and reset: prove they are fixtures.
+    require_fixture(args.postgres_container, POSTGRES)
     network = shared_network(args.postgres_container, args.postgres_container)
-    if args.reuse:
-        identifier = args.reuse
-    else:
-        identifier = start_k3s(network, "personal-hermes-e2e-" + uuid.uuid4().hex[:12])
-    keep = False
-    try:
+    with Cleanup() as cleanup:
+        if args.reuse:
+            identifier = args.reuse
+            run = require_fixture(identifier, KUBERNETES)
+        else:
+            run = new_run()
+            identifier = start_k3s(network, "personal-hermes-e2e-" + run, run)
+
+        def release():
+            if args.reuse or (cleanup.failed and args.keep):
+                print(f"Kept the cluster container {identifier[:12]} for inspection.")
+            else:
+                remove_container(identifier, run)
+
+        cleanup.add("k3s container", release)
         config = wait_ready(identifier)
         with tempfile.TemporaryDirectory(prefix="personal-hermes-e2e-") as temporary:
             path = Path(temporary) / "kubeconfig"
@@ -3118,21 +3173,13 @@ def main():
             environment = dict(os.environ)
             environment["HERMES_TEST_KUBECONFIG"] = str(path)
             environment["HERMES_TEST_POSTGRES_CONTAINER"] = args.postgres_container
+            environment["HERMES_TEST_RUN"] = run
             if args.keep:
                 environment["HERMES_TEST_KEEP"] = "1"
             if args.reuse:
                 environment["HERMES_TEST_REUSE"] = "1"
-                reset(identifier, path, args.postgres_container)
-            try:
-                run_e2e(identifier, temporary, environment)
-            except BaseException:
-                keep = args.keep
-                raise
-    finally:
-        if keep or args.reuse:
-            print(f"Kept the cluster container {identifier[:12]} for inspection.")
-        else:
-            remove_container(identifier)
+                reset(identifier, path, args.postgres_container, run)
+            run_e2e(identifier, temporary, environment)
 
 
 if __name__ == "__main__":

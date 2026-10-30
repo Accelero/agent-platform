@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use hermes_core::app::controller::{ClusterError, ClusterView, DesiredInstance};
 use hermes_core::domain::instances::{
-    ClaimPhase, NativeCheck, Observed, ObservedDeployment, ObservedNamespace,
+    ClaimPhase, HOME_REFUSALS, NativeCheck, Observed, ObservedDeployment, ObservedNamespace,
 };
 use hermes_render::{
     COMPONENT_LABEL, GENERATION_ANNOTATION, INSTALLATION_LABEL, INSTANCE_LABEL, MANAGED_BY,
@@ -139,6 +139,7 @@ pub(crate) async fn observe(
     } else {
         false
     };
+    let home_refused = current.is_none() && home_refused(&hermes_pods);
     let receipt = current.and_then(receipt);
     Ok(ClusterView {
         observed: Observed {
@@ -150,9 +151,34 @@ pub(crate) async fn observe(
             claims,
             native: NativeCheck::NotChecked,
             mount_failed,
+            home_refused,
         },
         receipt,
     })
+}
+
+/// Whether a Hermes Pod that is not going away has had its home initializer
+/// refuse the home. The initializer says so in its termination message, one of
+/// the fixed [`HOME_REFUSALS`] codes and nothing else, and the kubelet keeps it
+/// across restarts in `lastState`.
+fn home_refused(pods: &[Pod]) -> bool {
+    pods.iter()
+        .filter(|pod| pod.metadata.deletion_timestamp.is_none())
+        .filter_map(|pod| pod.status.as_ref()?.init_container_statuses.as_ref())
+        .flatten()
+        .filter(|status| status.name == INIT_CONTAINER)
+        .flat_map(|status| {
+            [
+                status.state.as_ref().and_then(|s| s.terminated.as_ref()),
+                status
+                    .last_state
+                    .as_ref()
+                    .and_then(|s| s.terminated.as_ref()),
+            ]
+        })
+        .flatten()
+        .filter_map(|terminated| terminated.message.as_deref())
+        .any(|message| HOME_REFUSALS.contains(&message.trim()))
 }
 
 /// Whether the kubelet reports a failed volume mount for a Hermes Pod that
@@ -302,4 +328,64 @@ fn worker_failure(pod: &Pod, phase: Option<&str>) -> Option<WorkerFailure> {
             _ => None,
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn pod(init: Value, deleting: bool) -> Pod {
+        let mut value = json!({
+            "metadata": {"name": "hermes-x"},
+            "status": {"initContainerStatuses": [init]},
+        });
+        if deleting {
+            value["metadata"]["deletionTimestamp"] = json!("2026-01-01T00:00:00Z");
+        }
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn crashed(name: &str, message: &str) -> Value {
+        json!({
+            "name": name,
+            "image": "i", "imageID": "i", "ready": false, "restartCount": 3,
+            "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+            "lastState": {"terminated": {"exitCode": 1, "message": message}},
+        })
+    }
+
+    #[test]
+    fn a_refusal_the_initializer_wrote_is_found_in_either_state() {
+        for code in HOME_REFUSALS {
+            let waiting = pod(crashed(INIT_CONTAINER, code), false);
+            assert!(home_refused(&[waiting]), "{code} after a restart");
+            let ended = json!({
+                "name": INIT_CONTAINER,
+                "image": "i", "imageID": "i", "ready": false, "restartCount": 0,
+                "state": {"terminated": {"exitCode": 1, "message": format!("{code}\n")}},
+            });
+            assert!(home_refused(&[pod(ended, false)]), "{code} just ended");
+        }
+    }
+
+    #[test]
+    fn nothing_else_reads_as_a_refusal() {
+        for message in [
+            "",
+            "initialization_busy",
+            "invalid_initialization_receipt and more",
+            r#"{"record":{"complete":true},"signature":"00"}"#,
+        ] {
+            assert!(
+                !home_refused(&[pod(crashed(INIT_CONTAINER, message), false)]),
+                "{message:?}"
+            );
+        }
+        // Another container's message, and a Pod on its way out, do not count.
+        let code = HOME_REFUSALS[0];
+        assert!(!home_refused(&[pod(crashed("hermes", code), false)]));
+        assert!(!home_refused(&[pod(crashed(INIT_CONTAINER, code), true)]));
+        assert!(!home_refused(&[]));
+    }
 }

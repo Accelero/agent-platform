@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::{Request, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use hermes_core::app::testing::{identity, installation};
@@ -260,6 +260,11 @@ fn route() -> Route {
 
 impl Fixture {
     async fn new(timing: Timing) -> Self {
+        Self::with_limit(timing, 1024 * 1024).await
+    }
+
+    /// With this upload limit instead of the reduced fixture one.
+    async fn with_limit(timing: Timing, max_upload: u64) -> Self {
         let hits = Arc::new(Mutex::new(Vec::new()));
         let mut routes = HashMap::new();
         let mut addresses = HashMap::new();
@@ -298,7 +303,7 @@ impl Fixture {
             resolver: resolver.clone(),
             timing,
         };
-        let gateway = Arc::new(Gateway::new(checks, dial, ORIGIN, 1024 * 1024).unwrap());
+        let gateway = Arc::new(Gateway::new(checks, dial, ORIGIN, max_upload).unwrap());
         let app = router(gateway.clone(), platform(gateway));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -734,6 +739,138 @@ async fn streamed_responses_end_when_access_is_revoked() {
 }
 
 #[tokio::test]
+async fn the_platform_prefix_belongs_to_the_gateway_and_never_reaches_an_instance() {
+    let fixture = Fixture::new(Timing::default()).await;
+    // With or without a session, what the gateway does not answer under its
+    // prefix is not found, for every method, and no instance sees it.
+    for subject in [Some("bob"), None] {
+        for path in [
+            "/_platform",
+            "/_platform/",
+            "/_platform/nope",
+            "/_platform/a/b?x=1",
+        ] {
+            for method in [
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::HEAD,
+            ] {
+                let mut request = fixture
+                    .client
+                    .request(method.clone(), format!("{}{path}", fixture.url))
+                    .header("origin", ORIGIN);
+                if let Some(subject) = subject {
+                    request = request.header("cookie", Fixture::cookies(subject));
+                }
+                let reply = request.send().await.unwrap();
+                assert_eq!(reply.status(), 404, "{subject:?} {method} {path}");
+                assert_eq!(reply.headers()["cache-control"], "no-store");
+                if method != Method::HEAD {
+                    assert_eq!(
+                        json(reply).await,
+                        serde_json::json!({"error": "invalid_request"})
+                    );
+                }
+            }
+        }
+    }
+    assert!(fixture.hits().is_empty(), "{:?}", fixture.hits());
+    // The routes the gateway does answer are untouched, and so is the proxy.
+    assert_eq!(
+        fixture
+            .get(Some("bob"), "/_platform/me")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        fixture
+            .get(None, "/_platform/healthz")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        fixture
+            .get(Some("bob"), "/platform")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(fixture.hits(), ["bob /platform"]);
+}
+
+#[tokio::test]
+async fn a_request_that_changes_state_must_come_from_the_public_origin() {
+    let fixture = Fixture::new(Timing::default()).await;
+    let send = |method: Method, origin: Option<&str>| {
+        let mut request = fixture
+            .client
+            .request(method, format!("{}/api/files/upload", fixture.url))
+            .header("cookie", Fixture::cookies("bob"));
+        if let Some(origin) = origin {
+            request = request.header("origin", origin);
+        }
+        async move { request.send().await.unwrap() }
+    };
+    // A page of another origin, a sibling host included, never reaches the
+    // instance with the owner's cookies, whatever the method that changes state.
+    for method in [Method::POST, Method::PUT, Method::PATCH, Method::DELETE] {
+        for origin in [
+            "https://attacker.example.org",
+            "https://sibling.example.org",
+            "http://hermes.example.org",
+            "null",
+            "",
+        ] {
+            let refused = send(method.clone(), Some(origin)).await;
+            assert_eq!(refused.status(), 403, "{method} from {origin:?}");
+            let body = json(refused).await;
+            assert_eq!(body, serde_json::json!({"error": "access_denied"}));
+        }
+    }
+    assert!(fixture.hits().is_empty(), "{:?}", fixture.hits());
+    // The public origin, and a client that names none, are served; so is a
+    // read from any origin (a read changes nothing, and a page cannot see it).
+    for method in [Method::POST, Method::PUT, Method::PATCH, Method::DELETE] {
+        assert_eq!(send(method.clone(), Some(ORIGIN)).await.status(), 200);
+        assert_eq!(send(method, None).await.status(), 200);
+    }
+    for origin in ["https://attacker.example.org", ORIGIN] {
+        assert_eq!(send(Method::GET, Some(origin)).await.status(), 200);
+    }
+    assert_eq!(fixture.hits().len(), 10);
+    // Two Origin headers are not the public origin.
+    let doubled = fixture
+        .client
+        .post(format!("{}/api/files/upload", fixture.url))
+        .header("cookie", Fixture::cookies("bob"))
+        .header("origin", ORIGIN)
+        .header("origin", ORIGIN)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(doubled.status(), 403);
+    // Without a session the answer stays the same for everyone.
+    let anonymous = fixture
+        .client
+        .post(format!("{}/api/files/upload", fixture.url))
+        .header("origin", "https://attacker.example.org")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anonymous.status(), 401);
+}
+
+#[tokio::test]
 async fn logout_ends_the_session_and_expires_every_cookie_even_when_the_instance_is_down() {
     let fixture = Fixture::new(Timing::default()).await;
     let contract = Contract::load("gateway.openapi.yaml");
@@ -759,6 +896,15 @@ async fn logout_ends_the_session_and_expires_every_cookie_even_when_the_instance
         .await
         .unwrap();
     assert_eq!(foreign.status(), 403);
+    // A refusal changes nothing, cookies included.
+    assert!(
+        foreign
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .next()
+            .is_none()
+    );
     contract.check("logoutNative", 403, &json(foreign).await);
     assert!(fixture.sessions.logouts.lock().unwrap().is_empty());
 
@@ -816,4 +962,200 @@ async fn logout_ends_the_session_and_expires_every_cookie_even_when_the_instance
             .unwrap()
             .contains("/_platform/login")
     );
+}
+
+/// An upload of `size` bytes without a declared length, in 64 KiB chunks, on
+/// its own connection. Returns the status line's code and the body.
+async fn chunked_upload(fixture: &Fixture, size: usize) -> (u16, Vec<u8>) {
+    let stream = TcpStream::connect(fixture.address).await.unwrap();
+    let (mut reader, mut writer) = stream.into_split();
+    let head = format!(
+        "POST /api/upload HTTP/1.1\r\nHost: hermes.example.org\r\nCookie: {}\r\n\
+         Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+        Fixture::cookies("bob")
+    );
+    let sending = tokio::spawn(async move {
+        // The gateway may answer and close before the body is complete.
+        if writer.write_all(head.as_bytes()).await.is_err() {
+            return writer;
+        }
+        let block = vec![7u8; 64 * 1024];
+        let mut sent = 0;
+        while sent < size {
+            let n = block.len().min(size - sent);
+            let framed = [format!("{n:x}\r\n").as_bytes(), &block[..n], b"\r\n"].concat();
+            if writer.write_all(&framed).await.is_err() {
+                return writer;
+            }
+            sent += n;
+        }
+        let _ = writer.write_all(b"0\r\n\r\n").await;
+        // Closing the write side early makes the server drop the request
+        // unanswered; the caller closes after reading the response.
+        writer
+    });
+    let mut response = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(20), reader.read_to_end(&mut response)).await;
+    drop(sending.await);
+    let text = String::from_utf8_lossy(&response).into_owned();
+    let status = text
+        .split(' ')
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    let body = text.split_once("\r\n\r\n").map_or("", |(_, body)| body);
+    (status, body.as_bytes().to_vec())
+}
+
+#[tokio::test]
+async fn a_declared_upload_is_accepted_at_exactly_the_limit_and_refused_one_byte_over() {
+    let limit = 1024 * 1024;
+    let fixture = Fixture::with_limit(Timing::default(), limit as u64).await;
+    for size in [limit - 1, limit] {
+        let response = fixture
+            .client
+            .post(format!("{}/api/upload", fixture.url))
+            .header("cookie", Fixture::cookies("bob"))
+            .body(vec![7u8; size])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200, "{size} bytes");
+        assert_eq!(json(response).await["bytes"], size);
+    }
+    let reached = fixture.hits().len();
+    let refused = fixture
+        .client
+        .post(format!("{}/api/upload", fixture.url))
+        .header("cookie", Fixture::cookies("bob"))
+        .body(vec![7u8; limit + 1])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 413);
+    assert_eq!(json(refused).await, json!({"error": "invalid_request"}));
+    assert_eq!(
+        fixture.hits().len(),
+        reached,
+        "an over-limit upload never reaches the instance"
+    );
+}
+
+#[tokio::test]
+async fn a_streamed_upload_is_accepted_at_exactly_the_limit_and_refused_with_413_over_it() {
+    let limit = 1024 * 1024;
+    let fixture = Fixture::with_limit(Timing::default(), limit as u64).await;
+    let (status, body) = chunked_upload(&fixture, limit).await;
+    assert_eq!(status, 200, "exactly the limit");
+    let body: Value = serde_json::from_slice(body.split(|b| *b == b'{').next().map_or(&[], |_| {
+        let start = body.iter().position(|b| *b == b'{').unwrap();
+        &body[start..]
+    }))
+    .unwrap();
+    assert_eq!(body["bytes"], limit);
+
+    let (status, body) = chunked_upload(&fixture, limit + 1).await;
+    // The same refusal a declared length gets, not a dependency outage.
+    assert_eq!(
+        (status, serde_json::from_slice::<Value>(&body).ok()),
+        (413, Some(json!({"error": "invalid_request"})))
+    );
+}
+
+#[tokio::test]
+async fn the_default_upload_limit_is_64_mib_to_the_byte() {
+    let fixture = Fixture::with_limit(Timing::default(), MAX_UPLOAD).await;
+    let limit = usize::try_from(MAX_UPLOAD).unwrap();
+    let accepted = fixture
+        .client
+        .post(format!("{}/api/upload", fixture.url))
+        .header("cookie", Fixture::cookies("bob"))
+        .body(vec![7u8; limit])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(accepted.status(), 200);
+    assert_eq!(json(accepted).await["bytes"], limit);
+    let refused = fixture
+        .client
+        .post(format!("{}/api/upload", fixture.url))
+        .header("cookie", Fixture::cookies("bob"))
+        .body(vec![7u8; limit + 1])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 413);
+}
+
+// The deadlines below use `Timing::default()`, the values a deployment runs
+// with, and measure from the injected event. Nothing is shortened.
+
+#[tokio::test]
+async fn with_the_real_defaults_an_open_websocket_closes_within_10_seconds_of_a_denial() {
+    let timing = Timing::default();
+    let fixture = Fixture::new(timing).await;
+    let mut stream = fixture.websocket("bob", ORIGIN).await.unwrap();
+    // The worst phase: the denial lands just after a check that passed.
+    tokio::time::sleep(timing.recheck + Duration::from_millis(400)).await;
+    stream.write_all(b"\x81\x05hello").await.unwrap();
+    let mut echoed = [0u8; 7];
+    stream.read_exact(&mut echoed).await.unwrap();
+    assert_eq!(
+        &echoed, b"\x81\x05hello",
+        "the connection was open and live"
+    );
+
+    fixture.set("bob", Verdict::Denied);
+    let elapsed = closed_within(stream, Duration::from_secs(10)).await;
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "closed {elapsed:?} after the denial"
+    );
+}
+
+#[tokio::test]
+async fn with_the_real_defaults_a_failed_dependency_closes_a_websocket_within_10_seconds() {
+    let timing = Timing::default();
+    let fixture = Fixture::new(timing).await;
+    let stream = fixture.websocket("bob", ORIGIN).await.unwrap();
+    tokio::time::sleep(timing.recheck + Duration::from_millis(400)).await;
+    // The session store becomes unavailable: two failed checks close it.
+    fixture.sessions.unavailable.store(true, Ordering::SeqCst);
+    let elapsed = closed_within(stream, Duration::from_secs(10)).await;
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "closed {elapsed:?} after the failure"
+    );
+}
+
+#[tokio::test]
+async fn with_the_real_defaults_a_denial_reaches_new_requests_within_5_seconds() {
+    let fixture = Fixture::new(Timing::default()).await;
+    // A request just before the denial warms every cache: the worst phase.
+    let warm = fixture.get(Some("bob"), "/api/chat").send().await.unwrap();
+    assert_eq!(warm.status(), 200);
+
+    fixture.set("bob", Verdict::Denied);
+    let flipped = Instant::now();
+    // Sampling every 100 ms, so a breach cannot hide for more than two
+    // samples; a measurement past the bound plus that uncertainty fails.
+    let sampling = Duration::from_millis(100);
+    let bound = Duration::from_secs(5) + sampling * 2;
+    loop {
+        let status = fixture
+            .get(Some("bob"), "/api/chat")
+            .send()
+            .await
+            .unwrap()
+            .status();
+        if status == StatusCode::FORBIDDEN {
+            break;
+        }
+        assert!(
+            flipped.elapsed() <= bound,
+            "still served {:?} after the denial",
+            flipped.elapsed()
+        );
+        tokio::time::sleep(sampling).await;
+    }
 }

@@ -10,7 +10,7 @@ from openapi_spec_validator import validate
 
 pytestmark = pytest.mark.unit
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = ROOT / "contracts/hermes-manager"
 
 
@@ -135,3 +135,21 @@ def test_the_gateway_owns_only_platform_paths_and_native_logout():
         "/auth/logout"
     }
     assert set(document["paths"]["/auth/logout"]) == {"post"}
+
+
+def test_the_access_matrix_is_generated_from_every_declared_operation():
+    from tests.support.contract import concrete, operations
+
+    declared = operations()
+    public = {operation for operation, _, _, secured in declared if not secured}
+    assert len(declared) >= 45, f"the contract declares {len(declared)} operations"
+    assert len({operation for operation, *_ in declared}) == len(declared)
+    assert public == {"beginAdministratorLogin", "completeAdministratorLogin"}
+    secured = {operation for operation, _, _, secured in declared if secured}
+    assert {
+        "getSession",
+        "writeSecret",
+        "deleteSecret",
+        "grantAdministrator",
+    } <= secured
+    assert "{" not in "".join(concrete(path) for _, _, path, _ in declared)

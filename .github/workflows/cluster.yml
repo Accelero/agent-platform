@@ -1,0 +1,56 @@
+name: Cluster scenarios
+
+# The pytest scenarios that need a k3d cluster: the live NetworkPolicy matrix,
+# the independent acceptance cases, the real-browser journeys and the
+# destructive scenarios. Dispatched by hand until the maintainers have judged
+# the runner time; it never publishes.
+'on':
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cluster:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.13.0'
+          python-version: '3.14'
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: 'v3.22.1'
+      - run: uv sync --locked
+      - name: Install Chromium and the certificate tool for the browser journeys
+        run: |
+          sudo apt-get install --yes libnss3-tools
+          uv run playwright install --with-deps chromium
+      - name: Install the pinned k3d
+        run: |
+          curl -fsSL -o /tmp/k3d https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-linux-amd64
+          echo '06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0  /tmp/k3d' | sha256sum -c -
+          sudo install -m 0755 /tmp/k3d /usr/local/bin/k3d
+      - name: Build the images under test
+        run: |
+          uv run python -m tests.personal_hermes.native_runtime --build
+          uv run python -m agent_platform.manager_build --tag hermes-manager:e2e
+      - name: Network isolation and independent acceptance cases
+        run: HERMES_TEST_K3D=/usr/local/bin/k3d uv run python -m tests.support.verification run python-cluster --output .local/verification/python-cluster.json
+      - name: Destructive scenarios, each on a platform of its own
+        run: HERMES_TEST_K3D=/usr/local/bin/k3d uv run python -m tests.support.verification run python-destructive --output .local/verification/python-destructive.json
+      - name: Upload sanitized case reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: cluster-case-reports
+          path: |
+            .local/verification/*.json
+            .local/verification/*.xml
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7

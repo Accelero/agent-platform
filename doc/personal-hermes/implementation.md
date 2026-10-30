@@ -40,10 +40,13 @@ nothing rolls back automatically.
 | Rust workspace (`cargo test --workspace`, with disposable PostgreSQL) | Domain planners and validators; port contract cases on the in-memory and PostgreSQL stores; contract-checked administration, execution, resolver and gateway responses over real TLS; OIDC sessions against a fake realm; gateway hygiene and revocation timing; binary roles, configuration gates and abrupt kills; with `fault-injection`, the API aborted right before and right after a commit | Behaviour on a real cluster or with real Hermes |
 | `tests.personal_hermes.kubernetes` | Server-side apply, admission and RBAC as the controller's real ServiceAccount on k3s; preconditioned deletes; leader election; the controller process aborted at every controller fault point, including right after a delete; a real `agent-runtime` worker with the instance's keys; an unpullable worker image reported as `image_unavailable`; the owned objects the orphan scan lists | Real Hermes instances, Keycloak, the gateway on a cluster |
 | `tests.personal_hermes.kubernetes --native` (`native_e2e`) | The chart installed with its operator Jobs; real Hermes instances commissioned from published versions through the administration API; two owners on one hostname through the gateway with Keycloak and the native owner pin; denial and no enrollment without an assignment; distinct credentials; overlapping paths refused; a missing static directory blocking the instance until it exists; chat over the native WebSocket against an in-cluster fake model, with the template's and assignment's settings enforced over the owner's and the owner's own settings kept; the model key delivered only to the referencing instance and never returned; uploads in the owner's private home only, bounded by the gateway; a cron job firing without browser traffic and running its command in a terminal backend; two backends sharing the workspace, a backend-only static fixture home mounted only in one and the private home in neither; idle workers retired; a backend change during an active lease; a private registry backend with wrong credentials reported and right ones pulling; foreign cookies, tickets and forged headers refused; an email change at the provider; the manager, the database and the provider unavailable, and a person disabled at the provider, denied under the current test thresholds; suspension closing an open WebSocket and draining a pending worker; data and claims kept on re-enable; only the controller holding cluster rights, an execution credential refused by the administration API and the gateway, and no secret in any log; a restore onto a new cluster with `rebind-cluster`, static volume data and the original material; an instance missing from an older backup reported as orphans and left alone | A real model provider, NFS sources and multi-node scheduling |
-| `tests/test_manager_chart.py` | The chart's admission policies and RBAC equal the renderer's; generated role configurations are the ones the Rust parsers load; pod security, NetworkPolicy peers, strict values and operator Jobs | A live installation |
+| `tests/integration/test_manager_chart.py` | The chart's admission policies and RBAC equal the renderer's; generated role configurations are the ones the Rust parsers load; pod security, NetworkPolicy peers, strict values and operator Jobs | A live installation |
 | `tests.personal_hermes.native_runtime --build` | Reviewed runtime image; non-root gateway and dashboard, private API denial, CA handling, init-only key isolation, managed configuration precedence and state after a forced restart | Cluster or provider acceptance |
+| `HERMES_TEST_NATIVE_IMAGE=… tests.support.verification run python-native` | The same installed-image properties as 13 separately collected cases (`tests/integration/test_native_runtime.py`), each with its own result | Cluster or provider acceptance |
+| `hermes-kube/tests/admission.rs` | The real admission and RBAC matrix as the controller's ServiceAccount: a positive control and one-field negatives for Pods, namespaces, volumes, Services and RoleBindings, each refused by the intended policy or Pod Security layer, plus escalation and impersonation refusals | Real traffic, NetworkPolicy enforcement, multi-node scheduling |
 | `tests.personal_hermes.native_owner` | The pinned Hermes provider requires the mounted owner policy and accepts only the exact issuer and subject on login, session and refresh; missing or malformed policy is refused, and environment pins cannot replace it | A real Keycloak exchange |
-| Dashboard (`ui`) | Unit tests, Chromium presentation workflows with mocked APIs, and a separate real-server production-build/CSP browser case | A real browser Keycloak login and dashboard-driven commissioning on the installed chart |
+| Dashboard (`ui`) | Unit tests, Chromium presentation workflows with mocked APIs, and a separate real-server production-build/CSP browser case | The native UI as a rendered application |
+| `tests/e2e/test_browser.py` | Chromium (Python Playwright) on the installed chart through Keycloak's login form, trusting the fixture CA: cookie scope, owner-only instance and files, dashboard-driven commissioning of a working instance, stale-revision refusal, administrator revocation, foreign-origin requests, logout and session replay, hostile text shown as text | Native chat, history and WebSocket views; template rollout in the browser |
 
 ## Testing strategy and coverage limits
 
@@ -61,8 +64,7 @@ native/system scripts. CI's cluster driver defaults to direct k3s;
 `kubernetes.py --k3d` is optional and the restore code still creates direct k3s.
 The existing system script is one sequential run. It proves selected examples,
 not complete per-clause/security-bound coverage. In particular, live NFS,
-multi-node policy enforcement, a real cluster browser commissioning journey
-and full private-home restore are not established by the evidence table.
+multi-node policy enforcement and full private-home restore are not established by the evidence table.
 
 The commands below describe the current implementation. They are not the
 proposed pytest/k3d invocation surface, which does not exist yet.
@@ -110,6 +112,8 @@ cargo test --workspace --locked
 cargo test -p hermes-manager --features fault-injection --test process --locked
 cd ../..
 uv run python -m tests.personal_hermes.native_runtime --build
+HERMES_TEST_NATIVE_IMAGE=personal-hermes-native-test:local \
+  uv run python -m tests.support.verification run python-native --output .local/verification/python-native.json
 uv run python -m agent_platform.manager_build --tag hermes-manager:e2e
 uv run python -m tests.personal_hermes.kubernetes --native --postgres-container personal-hermes-manager-tests
 ```
@@ -124,9 +128,12 @@ behind basic authentication (`registry_proxy.py`) next to the cluster, pauses
 the PostgreSQL fixture once to prove the database outage bound, and restores
 onto a second disposable cluster. For development,
 `python -m tests.personal_hermes.native_e2e --keep` runs only the end-to-end
-part. It keeps the cluster after failure and disables test-database cleanup;
-a successful run still removes its cluster. `--reuse <container>` resets and
-reruns on it. Use reuse only with disposable run-owned fixtures; its broad
-reset/cleanup scope is recorded in G04 of the [gap register](../testing/gaps.md).
+part. After a failure it keeps the cluster and the run's database; a successful
+run removes both. `--reuse <container>` resets and reruns on a kept cluster. It
+refuses a container that is not labelled as a Kubernetes fixture, refuses a
+PostgreSQL container that is not labelled as one, and drops only the databases
+the kept run commented as its own. The PostgreSQL container is shared and
+paused once to prove the database outage bound, so run one end-to-end run at a
+time against it (G04 in the [gap register](../testing/gaps.md)).
 Clean up only the exact disposable PostgreSQL fixture after verification. Keep
 fixture credentials out of logs and release inputs.

@@ -6,16 +6,23 @@ dependencies = ["PyYAML==6.0.2"]
 
 [dependency-groups]
 dev = [
+    "cryptography==50.0.2",
+    "jsonschema==4.26.0",
     "kubernetes==31.0.0",
     "openapi-spec-validator==0.7.2",
+    "playwright==1.64.1",
     "pytest>=9,<10",
+    "requests==2.34.2",
     "ruff>=0.9",
+    "urllib3==2.8.0",
+    "websocket-client==1.9.2",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "--strict-config --strict-markers"
+# A plain run needs no infrastructure; a profile selects its capability with -m.
+addopts = "--strict-config --strict-markers -m 'not (cluster or database or native or browser or destructive or multi_node or soak)'"
 markers = [
     "unit: no external service or cluster",
     "integration: a real dependency, image or process boundary",

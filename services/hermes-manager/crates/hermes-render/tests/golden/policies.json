@@ -243,6 +243,10 @@
           "message": "Pods run as the installation's non-root data identity"
         },
         {
+          "expression": "(has(object.spec.initContainers) ? object.spec.containers + object.spec.initContainers : object.spec.containers).all(c, !has(c.securityContext) || ((!has(c.securityContext.runAsUser) || c.securityContext.runAsUser == 1000) && (!has(c.securityContext.runAsGroup) || c.securityContext.runAsGroup == 1000) && (!has(c.securityContext.runAsNonRoot) || c.securityContext.runAsNonRoot == true)))",
+          "message": "containers keep the Pod's data identity"
+        },
+        {
           "expression": "(has(object.spec.initContainers) ? object.spec.containers + object.spec.initContainers : object.spec.containers).all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false && (!has(c.securityContext.privileged) || c.securityContext.privileged == false) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop && (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0))",
           "message": "containers are unprivileged and drop every capability"
         },

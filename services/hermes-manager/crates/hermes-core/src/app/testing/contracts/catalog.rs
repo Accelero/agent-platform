@@ -89,11 +89,19 @@ pub(super) async fn publish<S: Store + Clone, D: Definition>(
 pub(super) async fn published_catalog<S: Store + Clone>(
     store: &S,
 ) -> (VersionReceipt, VersionReceipt) {
+    published_catalog_with(store, backend_definition()).await
+}
+
+/// The same, with `python-tools` defined as given.
+pub(super) async fn published_catalog_with<S: Store + Clone>(
+    store: &S,
+    definition: BackendDefinition,
+) -> (VersionReceipt, VersionReceipt) {
     let template = draft(store, "personal-default", template_definition()).await;
     let template = publish::<S, TemplateDefinition>(store, &template)
         .await
         .expect("publish template");
-    let backend = draft(store, "python-tools", backend_definition()).await;
+    let backend = draft(store, "python-tools", definition).await;
     let backend = publish::<S, BackendDefinition>(store, &backend)
         .await
         .expect("publish backend");
@@ -116,7 +124,7 @@ pub(super) async fn secret<S: Store + Clone>(store: &S, name: &str, kind: Secret
         .expect("secret");
 }
 
-fn problems(error: AppError) -> Vec<(String, &'static str)> {
+pub(super) fn problems(error: AppError) -> Vec<(String, &'static str)> {
     assert_eq!(
         (error.kind, error.code),
         (ErrorKind::Invalid, "invalid_configuration")

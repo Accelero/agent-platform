@@ -172,6 +172,6 @@ def test_build_attestations_do_not_copy_the_github_event_payload():
         workflow = yaml.safe_load(
             (build.ROOT / f".github/workflows/{name}.yml").read_text()
         )
-        steps = next(iter(workflow["jobs"].values()))["steps"]
+        steps = [step for job in workflow["jobs"].values() for step in job["steps"]]
         builder = next(step for step in steps if step.get("name") == "Set up BuildKit")
         assert builder["with"]["driver-opts"] == "provenance-add-gha=false"

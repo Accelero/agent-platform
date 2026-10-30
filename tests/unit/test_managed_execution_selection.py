@@ -17,7 +17,7 @@ import yaml
 pytestmark = pytest.mark.unit
 
 SOURCE = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[2]
     / "runtimes/hermes/plugins/managed_execution/__init__.py"
 )
 
@@ -198,7 +198,7 @@ def test_personal_connection_requires_manager_host_identity(plugin):
 
 CONTRACT = yaml.safe_load(
     (
-        Path(__file__).resolve().parents[1]
+        Path(__file__).resolve().parents[2]
         / "contracts/hermes-manager/execution.openapi.yaml"
     ).read_text()
 )

@@ -256,6 +256,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/Stale' }
+        '422': { $ref: '#/components/responses/Invalid' }
         '503': { $ref: '#/components/responses/Unavailable' }
   /api/v1/assignment-rollouts:
     post:
@@ -475,6 +476,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '412': { $ref: '#/components/responses/Stale' }
+        '422': { $ref: '#/components/responses/Invalid' }
   /api/v1/terminal-backends:
     get:
       operationId: listTerminalBackends
@@ -628,6 +630,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '412': { $ref: '#/components/responses/Stale' }
+        '422': { $ref: '#/components/responses/Invalid' }
   /api/v1/storage-sources:
     get:
       operationId: listStorageSources
@@ -714,6 +717,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '412': { $ref: '#/components/responses/Stale' }
+        '422': { $ref: '#/components/responses/Invalid' }
   /api/v1/administrators:
     get:
       operationId: listAdministrators
@@ -789,6 +793,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '412': { $ref: '#/components/responses/Stale' }
+        '422': { $ref: '#/components/responses/Invalid' }
   /api/v1/administrator-candidates:
     get:
       operationId: listAdministratorCandidates
@@ -864,7 +869,11 @@ components:
       in: header
       required: true
       schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$' }
-      description: One intended change. Repeating it with the same body returns the original result.
+      description: >-
+        One intended change. Repeating it with the same body returns the original
+        result; the same command with a different body is a conflict. A key is
+        scoped to the actor and the command, so the same key sent to another
+        command is a separate change.
     IfMatch:
       name: If-Match
       in: header
@@ -983,7 +992,7 @@ components:
       required: [pointer, code, severity]
       properties:
         pointer: { type: string, description: JSON pointer into the submitted document }
-        code: { type: string }
+        code: { type: string, description: 'A stable machine-readable code such as `unknown_secret`, `wrong_secret_kind` or `unknown_storage_source`; the set can grow' }
         severity: { type: string, enum: [error] }
     Error:
       type: object

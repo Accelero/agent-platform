@@ -3,6 +3,7 @@
 //! resolves to a ready route, and goes only to that route's instance.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use axum::Router;
@@ -15,6 +16,7 @@ use axum::routing::{get, post};
 use hermes_core::domain::routing::{Destination, Route};
 use hermes_identity::AuthError;
 use hermes_identity::crypto::hash;
+use http_body_util::{BodyExt, LengthLimitError};
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -158,6 +160,14 @@ impl Gateway {
         )
     }
 
+    /// A request that names an origin other than the public one. Browsers
+    /// send `Origin` on every cross-origin request that can change state, and
+    /// `null` from sandboxed or redirected contexts; clients that send none
+    /// are not browsers acting for a page.
+    fn foreign_origin(&self, headers: &HeaderMap) -> bool {
+        headers.contains_key(header::ORIGIN) && !self.same_origin(headers)
+    }
+
     fn upstream_request(
         &self,
         route: &Route,
@@ -183,7 +193,21 @@ impl Gateway {
 /// The gateway: `platform` (the gateway's own routes, with their bounds
 /// already applied) and the proxy for every other request.
 pub fn router(gateway: Arc<Gateway>, platform: Router) -> Router {
-    platform.fallback_service(axum::routing::any(proxy).with_state(gateway))
+    // `/_platform` belongs to the gateway: what it does not answer is not
+    // found, and never reaches an instance, which could otherwise draw a page
+    // that looks like the platform's own.
+    platform
+        .route("/_platform", axum::routing::any(unknown_platform_path))
+        .route("/_platform/", axum::routing::any(unknown_platform_path))
+        .route(
+            "/_platform/{*rest}",
+            axum::routing::any(unknown_platform_path),
+        )
+        .fallback_service(axum::routing::any(proxy).with_state(gateway))
+}
+
+async fn unknown_platform_path() -> Response {
+    error_response(StatusCode::NOT_FOUND)
 }
 
 /// Platform routes the gateway answers itself. The binary adds the login
@@ -205,8 +229,10 @@ fn session_key(session: &str, browser: &str) -> String {
         .collect()
 }
 
-/// On `/_platform/logout`: forgets the ended session at once and expires
-/// native cookies, whatever the outcome.
+/// On `/_platform/logout`: forgets the ended session at once and expires the
+/// cookies, whatever the outcome except a refusal of its Origin or CSRF check,
+/// which changes nothing: a page of another origin must not be able to end
+/// someone's session in their browser.
 pub async fn expire_on_logout(
     State(gateway): State<Arc<Gateway>>,
     request: Request,
@@ -219,7 +245,9 @@ pub async fn expire_on_logout(
         if response.status() == StatusCode::NO_CONTENT {
             gateway.forget_cookies(&headers);
         }
-        expire_cookies(response.headers_mut());
+        if response.status() != StatusCode::FORBIDDEN {
+            expire_cookies(response.headers_mut());
+        }
     }
     response
 }
@@ -359,7 +387,16 @@ pub async fn proxy(State(gateway): State<Arc<Gateway>>, mut request: Request) ->
         Err(_) if navigation => return sign_in(request.uri()),
         Err(error) => return auth_failure(error),
     };
-    if websocket && !gateway.same_origin(request.headers()) {
+    // A WebSocket upgrade must come from the public origin, and a request that
+    // can change state must not come from another one: the owner's cookies
+    // travel with a page of a sibling host, and only this check refuses it.
+    let unsafe_method = !matches!(
+        *request.method(),
+        Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE
+    );
+    if (websocket && !gateway.same_origin(request.headers()))
+        || (unsafe_method && gateway.foreign_origin(request.headers()))
+    {
         return error_response(StatusCode::FORBIDDEN);
     }
     let route = match gateway.route(&signed).await {
@@ -394,13 +431,23 @@ pub async fn proxy(State(gateway): State<Arc<Gateway>>, mut request: Request) ->
     let method = request.method().clone();
     let uri = request.uri().clone();
     let headers = std::mem::take(request.headers_mut());
+    // A body without a declared length is cut off at the limit mid-stream; the
+    // upstream request then fails, which must not read as a dependency outage.
+    let exceeded = Arc::new(AtomicBool::new(false));
     let body = if websocket {
         Body::empty()
     } else {
-        Body::new(http_body_util::Limited::new(
-            request.into_body(),
-            gateway.max_upload as usize,
-        ))
+        let tripped = exceeded.clone();
+        Body::new(
+            http_body_util::Limited::new(request.into_body(), gateway.max_upload as usize).map_err(
+                move |error| {
+                    if error.is::<LengthLimitError>() {
+                        tripped.store(true, Ordering::Relaxed);
+                    }
+                    error
+                },
+            ),
+        )
     };
     let Some(upstream) =
         gateway.upstream_request(&route, method.clone(), &uri, &headers, websocket, body)
@@ -410,6 +457,9 @@ pub async fn proxy(State(gateway): State<Arc<Gateway>>, mut request: Request) ->
     let mut response =
         match tokio::time::timeout(RESPONSE_DEADLINE, gateway.client.request(upstream)).await {
             Ok(Ok(response)) => response,
+            _ if exceeded.load(Ordering::Relaxed) => {
+                return error(StatusCode::PAYLOAD_TOO_LARGE, "invalid_request");
+            }
             _ => return Page::BadGateway.respond(navigation),
         };
     if let Some(client_upgrade) = client_upgrade

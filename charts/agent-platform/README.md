@@ -85,7 +85,7 @@ Build and test locally, without publication or a deployment kubecontext:
 uv sync --locked
 uv run python -m agent_platform.manager_build
 helm lint charts/agent-platform
-uv run pytest -q tests/test_manager_chart.py
+uv run pytest -q tests/integration/test_manager_chart.py
 ```
 
 ## Release and upgrade

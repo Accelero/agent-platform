@@ -182,8 +182,11 @@ macro_rules! contract_tests {
             mount_rules_are_enforced_when_saving,
             secrets_are_sealed_versions_with_a_fixed_kind,
             referenced_secrets_cannot_be_deleted_and_new_versions_restart_users,
+            a_secret_delete_racing_a_publish_that_names_it_leaves_no_dangling_reference,
             a_new_instance_converges_to_ready_with_material_created_once,
             a_crash_at_any_controller_point_resumes_without_regenerating_material,
+            a_vault_that_opens_no_stored_material_is_refused_before_any_work,
+            a_home_the_initializer_refuses_blocks_with_the_typed_reason_until_it_verifies,
             a_deposed_controller_cannot_record_status,
             suspension_stops_then_retains_and_reenabling_reuses_everything,
             a_rejected_apply_blocks_with_a_reason,
@@ -194,6 +197,7 @@ macro_rules! contract_tests {
             only_the_assignments_backends_and_mode_are_served,
             leases_renew_release_and_expire_by_database_time_and_never_revive,
             parent_leases_join_only_live_leases_in_the_same_environment,
+            a_lease_never_outlives_its_backends_lease_limit,
             closing_a_session_drains_its_environment_and_waits_for_retirement,
             each_instance_holds_a_bounded_number_of_environments,
             workers_start_only_after_ssh_verification_and_drain_when_suspended,
@@ -202,6 +206,11 @@ macro_rules! contract_tests {
             each_identity_reaches_only_its_own_instance,
             unassigned_and_foreign_identities_are_denied_without_side_effects,
             decisions_follow_access_and_readiness_without_waiting_for_the_controller,
+            generated_command_walks_follow_the_model_and_record_only_accepted_commands,
+            revocation_racing_acquisitions_grants_nothing_after_it_commits,
+            concurrent_heartbeat_and_release_leave_the_lease_finally_dead,
+            a_heartbeat_racing_the_expiry_sweep_never_revives_an_expired_lease,
+            concurrent_acquisitions_with_one_request_id_grant_one_lease,
         );
     };
     (@cases #[$attr:meta] $params:tt => $store:expr; $($case:ident),+ $(,)?) => {

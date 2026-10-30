@@ -364,7 +364,7 @@ mod tests {
 
     use super::*;
 
-    /// The configurations the chart generates (`tests/test_manager_chart.py`
+    /// The configurations the chart generates (`tests/integration/test_manager_chart.py`
     /// keeps these fixtures equal to the chart's output).
     #[tokio::test]
     async fn the_charts_role_configurations_load() {

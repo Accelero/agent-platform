@@ -34,7 +34,14 @@ CARGO_PROFILES = {
         "process",
     ],
     "rust-browser": ["-p", "hermes-http", "--test", "dashboard_browser"],
-    "rust-cluster": ["-p", "hermes-kube", "--test", "cluster"],
+    "rust-cluster": [
+        "-p",
+        "hermes-kube",
+        "--test",
+        "cluster",
+        "--test",
+        "admission",
+    ],
     "rust-controller": [
         "-p",
         "hermes-manager",
@@ -45,7 +52,19 @@ CARGO_PROFILES = {
     ],
 }
 IGNORED_PROFILES = {"rust-browser", "rust-cluster", "rust-controller"}
+# The default Python profile never needs infrastructure; a test that does
+# carries a capability marker and belongs to the profile that provides it.
+PYTHON_PROFILES = {
+    "python": "not (cluster or database or native or browser or destructive "
+    "or multi_node or soak)",
+    "python-native": "native",
+    "python-cluster": "cluster and not destructive",
+    "python-destructive": "destructive",
+}
 PROFILE_INPUTS = {
+    "python-cluster": ("HERMES_TEST_K3D",),
+    "python-destructive": ("HERMES_TEST_K3D",),
+    "python-native": ("HERMES_TEST_NATIVE_IMAGE",),
     "rust": ("DATABASE_URL",),
     "rust-faults": ("DATABASE_URL",),
     "rust-browser": ("DATABASE_URL", "MANAGER_UI_DIST"),
@@ -107,7 +126,7 @@ class PythonCases:
                 case["status"] = "passed"
 
 
-def python_cases(*, execute):
+def python_cases(*, execute, profile="python"):
     import pytest
 
     recorder = PythonCases()
@@ -116,7 +135,7 @@ def python_cases(*, execute):
         if execute
         else ["--collect-only", "-q"]
     )
-    code = pytest.main(arguments, plugins=[recorder])
+    code = pytest.main([*arguments, "-m", PYTHON_PROFILES[profile]], plugins=[recorder])
     return int(code), recorder.cases
 
 
@@ -253,6 +272,10 @@ def rust_cases(profile, *, execute):
         test_arguments.append("--ignored")
     if profile == "rust-cluster":
         test_arguments.extend(["--test-threads", "2"])
+    if profile == "rust-controller":
+        # Each case installs the cluster-scoped admission objects for its own
+        # control namespace; two at once would overwrite each other's.
+        test_arguments.extend(["--test-threads", "1"])
     code, output = capture(
         [*arguments, "--no-fail-fast", "--", *test_arguments],
         cwd=WORKSPACE,
@@ -270,7 +293,7 @@ def rust_cases(profile, *, execute):
 def read_catalogue(path=CATALOGUE):
     document = json.loads(path.read_text())
     if document["schemaVersion"] != 1 or set(document["profiles"]) != {
-        "python",
+        *PYTHON_PROFILES,
         *CARGO_PROFILES,
     }:
         raise ValueError("Unsupported case catalogue")
@@ -428,7 +451,7 @@ def write_junit(path, report):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["inventory", "run"])
-    parser.add_argument("profile", choices=["python", *CARGO_PROFILES])
+    parser.add_argument("profile", choices=[*PYTHON_PROFILES, *CARGO_PROFILES])
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     started = datetime.now(UTC).isoformat()
@@ -444,8 +467,8 @@ def main():
     ]
     try:
         if not problems:
-            if args.profile == "python":
-                code, cases = python_cases(execute=execute)
+            if args.profile in PYTHON_PROFILES:
+                code, cases = python_cases(execute=execute, profile=args.profile)
             else:
                 code, cases = rust_cases(args.profile, execute=execute)
             problems = gate(catalogue["profiles"][args.profile], cases, execute=execute)

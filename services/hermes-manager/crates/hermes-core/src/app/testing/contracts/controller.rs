@@ -7,11 +7,11 @@ use std::sync::Arc;
 use serde_json::json;
 use uuid::Uuid;
 
-use super::super::fakes::{FakeCluster, FakeNative, FakeVault};
+use super::super::fakes::{FakeCluster, FakeNative, FakeVault, WrongKeyVault};
 use super::super::{Inspect, ScriptedFaults, identity, settings};
 use super::access::{admin, bootstrap, envelope, key};
 use super::assignments::bob_spec;
-use super::catalog::published_catalog;
+use super::catalog::{published_catalog, published_catalog_with};
 use crate::app::assignments::{
     AssignmentChanges, AssignmentReceipt, CreateAssignment, UpdateAssignment,
 };
@@ -20,6 +20,7 @@ use crate::app::faults::{FaultHook, FaultPoint, NoFaults};
 use crate::app::ports::Store;
 use crate::app::secrets::WriteSecret;
 use crate::domain::assignments::{Access, AssignmentSpec};
+use crate::domain::backends::BackendDefinition;
 use crate::domain::execution::SshCheck;
 use crate::domain::instances::{Apply, BlockedReason, Phase, Workload};
 use crate::domain::materials::MaterialPurpose;
@@ -107,6 +108,16 @@ pub(super) async fn setup<S: Store + Clone>(store: &S, spec: AssignmentSpec) -> 
     bootstrap(store, "alice").await;
     published_catalog(store).await;
     assign(store, spec).await
+}
+
+/// Bob's assignment with `python-tools` defined as given.
+pub(super) async fn setup_with_backend<S: Store + Clone>(
+    store: &S,
+    backend: BackendDefinition,
+) -> AssignmentReceipt {
+    bootstrap(store, "alice").await;
+    published_catalog_with(store, backend).await;
+    assign(store, bob_spec()).await
 }
 
 async fn sealed<S: InstanceStore>(store: &S, instance: Uuid) -> Vec<(MaterialPurpose, Vec<u8>)> {
@@ -216,6 +227,47 @@ pub async fn a_crash_at_any_controller_point_resumes_without_regenerating_materi
     let healthy = controller(&store, &cluster, Arc::new(NoFaults));
     until(&healthy, epoch, receipt.instance_id, Phase::Ready).await;
     assert_eq!(Some(sealed(&store, receipt.instance_id).await), material);
+}
+
+pub async fn a_vault_that_opens_no_stored_material_is_refused_before_any_work<
+    S: Store + InstanceStore + Inspect + Clone,
+>(
+    store: S,
+) {
+    let cluster = FakeCluster::default();
+    let right = controller(&store, &cluster, Arc::new(NoFaults));
+    let wrong = Controller {
+        store: store.clone(),
+        cluster: cluster.clone(),
+        vault: WrongKeyVault,
+        native: FakeNative::default(),
+        settings: settings(),
+        faults: Arc::new(NoFaults) as Arc<dyn FaultHook>,
+    };
+    // Nothing is stored yet, so no key can be shown wrong.
+    right.verify_vault().await.expect("no material, no check");
+    wrong.verify_vault().await.expect("no material, no check");
+
+    let receipt = setup(&store, bob_spec()).await;
+    let epoch = store.advance_epoch().await.unwrap();
+    until(&right, epoch, receipt.instance_id, Phase::Ready).await;
+    let material = sealed(&store, receipt.instance_id).await;
+    assert_eq!(material.len(), MaterialPurpose::ALL.len());
+
+    right
+        .verify_vault()
+        .await
+        .expect("the sealing key opens it");
+    let refused = wrong.verify_vault().await.unwrap_err();
+    assert!(
+        matches!(&refused, ControllerError::Vault(error) if error.code == "sealing_key_mismatch"),
+        "{refused:?}"
+    );
+    assert_eq!(
+        sealed(&store, receipt.instance_id).await,
+        material,
+        "the check changes nothing"
+    );
 }
 
 pub async fn a_deposed_controller_cannot_record_status<
@@ -349,6 +401,38 @@ pub async fn a_missing_static_directory_blocks_until_it_can_be_mounted<
         Some("storage_unavailable")
     );
     cluster.with(|world| world.mount_failed = false);
+    until(&controller, epoch, receipt.instance_id, Phase::Ready).await;
+}
+
+pub async fn a_home_the_initializer_refuses_blocks_with_the_typed_reason_until_it_verifies<
+    S: Store + InstanceStore + Inspect + Clone,
+>(
+    store: S,
+) {
+    let receipt = setup(&store, bob_spec()).await;
+    let cluster = FakeCluster::default();
+    cluster.with(|world| world.home_refused = true);
+    let controller = controller(&store, &cluster, Arc::new(NoFaults));
+    let epoch = store.advance_epoch().await.unwrap();
+    let blocked = until(&controller, epoch, receipt.instance_id, Phase::Blocked).await;
+    assert_eq!(
+        blocked.plan.status.blocked,
+        Some(BlockedReason::InvalidInitializationReceipt)
+    );
+    // The objects stay applied; the instance starts once the proof is back.
+    assert!(matches!(
+        blocked.plan.apply,
+        Apply::Everything(Workload::Run)
+    ));
+    assert_eq!(
+        store
+            .instance_status(receipt.instance_id)
+            .await
+            .1
+            .as_deref(),
+        Some("invalid_initialization_receipt")
+    );
+    cluster.with(|world| world.home_refused = false);
     until(&controller, epoch, receipt.instance_id, Phase::Ready).await;
 }
 

@@ -11,7 +11,7 @@ from agent_platform import build, release
 
 pytestmark = pytest.mark.unit
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture

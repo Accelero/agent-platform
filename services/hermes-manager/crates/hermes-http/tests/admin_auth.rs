@@ -178,19 +178,37 @@ async fn browser_sessions_carry_csrf_and_logout_needs_origin_and_token(pool: PgP
         }
         async move { request.send().await.unwrap() }
     };
-    assert_eq!(logout(None, Some(&csrf)).await.status(), 403);
+    // Each refusal changes nothing: no cookie is cleared, so a page of another
+    // origin cannot end the session in the administrator's browser.
+    for refused in [
+        logout(None, Some(&csrf)).await,
+        logout(Some("https://evil.example.org"), Some(&csrf)).await,
+        logout(Some(PUBLIC), Some(&"0".repeat(64))).await,
+        logout(Some(PUBLIC), None).await,
+    ] {
+        assert_eq!(refused.status(), 403);
+        assert!(
+            refused
+                .headers()
+                .get_all("set-cookie")
+                .iter()
+                .next()
+                .is_none()
+        );
+    }
     assert_eq!(
-        logout(Some("https://evil.example.org"), Some(&csrf))
+        fixture
+            .get("/api/v1/session")
+            .header("cookie", &cookies)
+            .send()
             .await
+            .unwrap()
             .status(),
-        403
-    );
-    assert_eq!(
-        logout(Some(PUBLIC), Some(&"0".repeat(64))).await.status(),
-        403
+        200
     );
     let done = logout(Some(PUBLIC), Some(&csrf)).await;
     assert_eq!(done.status(), 204);
+    assert!(done.headers().get_all("set-cookie").iter().next().is_some());
     let after = fixture
         .get("/api/v1/session")
         .header("cookie", &cookies)

@@ -16,6 +16,7 @@ use hermes_http::resolver::router;
 use hermes_http::server::{bind, serve_until, tls_config};
 use hermes_store::PgStore;
 use hermes_testkit::contract::Contract;
+use hermes_testkit::raw::{chunked, head};
 use hermes_testkit::{FOREIGN_PEER, GATEWAY_PEER, Secrets};
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -290,4 +291,63 @@ async fn a_stalled_registry_is_unavailable_within_the_deadline(pool: PgPool) {
     );
     blocker.rollback().await.unwrap();
     assert_eq!(fixture.resolve("gateway", &identity("bob")).await.0, 200);
+}
+
+#[sqlx::test(migrator = "hermes_store::MIGRATOR")]
+async fn resolver_bodies_are_bounded_at_exactly_16_kib_and_only_the_gateway_is_answered(
+    pool: PgPool,
+) {
+    let fixture = Fixture::new(pool).await;
+    let request = serde_json::to_vec(&identity("bob")).unwrap();
+    let baseline = fixture.resolve("gateway", &identity("bob")).await;
+    assert_eq!(baseline.0, 202, "an owner whose instance is not ready yet");
+
+    let send = |peer: &'static str, size: usize, stream: bool| {
+        let mut body = request.clone();
+        body.resize(size, b' ');
+        let secrets = &fixture.secrets;
+        let url = fixture.url.clone();
+        async move {
+            let mut raw = secrets.raw_as(&url, Some(peer)).await;
+            let length = body.len().to_string();
+            let (framing, payload): (&[u8], Vec<u8>) = if stream {
+                (b"chunked", chunked(&body, 1000))
+            } else {
+                (length.as_bytes(), body)
+            };
+            let name = if stream {
+                "Transfer-Encoding"
+            } else {
+                "Content-Length"
+            };
+            raw.send(&head(
+                "POST",
+                PATH,
+                &[("Content-Type", b"application/json"), (name, framing)],
+            ))
+            .await;
+            raw.send(&payload).await;
+            raw.response().await
+        }
+    };
+    for stream in [false, true] {
+        let exact = send("gateway", 16 * 1024, stream).await;
+        assert_eq!((exact.status, exact.json()), baseline, "stream={stream}");
+        fixture
+            .contract
+            .check(OPERATION, exact.status, &exact.json());
+        let over = send("gateway", 16 * 1024 + 1, stream).await;
+        assert_eq!(
+            (over.status, over.json()),
+            (422, json!({"error": "invalid_request"})),
+            "stream={stream}"
+        );
+        // A peer that is not the gateway learns no more from an oversized or
+        // an exact body than from any other: refusal or denial, never a route.
+        let foreign = send("foreign", 16 * 1024, stream).await;
+        assert_eq!(
+            (foreign.status, foreign.json()),
+            (403, json!({"status": "denied", "reason": "access_denied"}))
+        );
+    }
 }

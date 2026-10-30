@@ -468,6 +468,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_client_refuses_what_could_redirect_or_widen_its_credential() {
+        let config = || {
+            let mut config = Config::new("https://127.0.0.1:1".parse().unwrap());
+            config.auth_info.token = Some("test-only-controller-token".to_owned().into());
+            config
+        };
+        assert!(client(config()).is_ok(), "the valid control builds");
+        type Widen = fn(&mut Config);
+        let cases: [(&str, Widen); 8] = [
+            ("plain HTTP", |c| {
+                c.cluster_url = "http://127.0.0.1:1".parse().unwrap()
+            }),
+            ("skipped certificate checks", |c| {
+                c.accept_invalid_certs = true
+            }),
+            ("a proxy", |c| {
+                c.proxy_url = Some("http://proxy:3128".parse().unwrap())
+            }),
+            ("impersonating a user", |c| {
+                c.auth_info.impersonate = Some("system:admin".into())
+            }),
+            ("impersonating groups", |c| {
+                c.auth_info.impersonate_groups = Some(vec!["system:masters".into()])
+            }),
+            ("impersonating a UID", |c| {
+                c.auth_info.impersonate_uid = Some("0".into())
+            }),
+            ("an extra header", |c| {
+                c.headers.push((
+                    "x-forwarded-for".parse().unwrap(),
+                    "10.0.0.1".parse().unwrap(),
+                ))
+            }),
+            ("an executable credential plugin", |c| {
+                c.auth_info.exec = Some(
+                    serde_json::from_value(json!({
+                        "apiVersion": "client.authentication.k8s.io/v1",
+                        "command": "true",
+                    }))
+                    .unwrap(),
+                )
+            }),
+        ];
+        for (case, widen) in cases {
+            let mut config = config();
+            widen(&mut config);
+            assert_eq!(client(config).err(), Some(ClusterError::Rejected), "{case}");
+        }
+    }
+
+    #[tokio::test]
     async fn executable_kubeconfig_is_rejected_without_running_its_command() {
         let directory = std::env::temp_dir().join(format!("hermes-kube-{}", Uuid::new_v4()));
         std::fs::create_dir(&directory).unwrap();

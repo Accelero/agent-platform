@@ -277,6 +277,18 @@ pub fn policies(config: &RenderConfig) -> Result<Vec<Object>, RenderError> {
                 ),
                 "Pods run as the installation's non-root data identity",
             ),
+            // A container's own security context overrides the Pod's.
+            validation(
+                format!(
+                    "{containers}.all(c, !has(c.securityContext) || \
+                     ((!has(c.securityContext.runAsUser) || c.securityContext.runAsUser == {uid}) && \
+                     (!has(c.securityContext.runAsGroup) || c.securityContext.runAsGroup == {gid}) && \
+                     (!has(c.securityContext.runAsNonRoot) || c.securityContext.runAsNonRoot == true)))",
+                    uid = identity.uid,
+                    gid = identity.gid,
+                ),
+                "containers keep the Pod's data identity",
+            ),
             validation(
                 format!(
                     "{containers}.all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false && \

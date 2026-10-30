@@ -5,10 +5,10 @@ use std::sync::Arc;
 use serde_json::json;
 use uuid::Uuid;
 
-use super::super::Inspect;
+use super::super::{Inspect, join};
 use super::access::{admin, bootstrap, envelope, key};
 use super::assignments::bob_spec;
-use super::catalog::{draft, publish, published_catalog, secret, template_definition};
+use super::catalog::{draft, problems, publish, published_catalog, secret, template_definition};
 use crate::app::assignments::CreateAssignment;
 use crate::app::error::AppError;
 use crate::app::ports::Store;
@@ -141,4 +141,59 @@ pub async fn referenced_secrets_cannot_be_deleted_and_new_versions_restart_users
     assert_eq!((after.0, after.1), (before.0 + 1, before.1));
     secret(&store, "unused", SecretKind::Env).await;
     assert_eq!(store.instance_generations(bob.instance_id).await, after);
+}
+
+const ROUNDS: u32 = 150;
+
+/// Deleting a secret while a template version that names it is published: the
+/// two commands exclude each other, so one of them wins whole and no published
+/// version is ever left naming a secret that no longer exists.
+pub async fn a_secret_delete_racing_a_publish_that_names_it_leaves_no_dangling_reference<
+    S: Store + Inspect + Clone,
+>(
+    store: S,
+) {
+    bootstrap(&store, "alice").await;
+    published_catalog(&store).await;
+    let (mut published, mut deleted) = (0, 0);
+    for round in 0..ROUNDS {
+        let name = format!("racing-{round}");
+        secret(&store, &name, SecretKind::Env).await;
+        let mut definition = template_definition();
+        definition.secrets =
+            serde_json::from_value(json!([{"name": name, "env": "RACE_KEY"}])).unwrap();
+        let version = draft(&store, &format!("naming-{round}"), definition).await;
+        let (publication, deletion) = join(
+            publish::<S, TemplateDefinition>(&store, &version),
+            delete(&store, &name, 1),
+        )
+        .await;
+        match (publication, deletion) {
+            (Ok(_), Err(refused)) => {
+                assert_eq!(refused.code, "secret_in_use", "round {round}");
+                published += 1;
+                // The reference holds: the secret is still there.
+                assert_eq!(
+                    delete(&store, &name, 1).await.unwrap_err().code,
+                    "secret_in_use",
+                    "round {round}"
+                );
+            }
+            (Err(refused), Ok(())) => {
+                assert_eq!(refused.code, "invalid_configuration", "round {round}");
+                assert_eq!(
+                    problems(refused),
+                    [("/secrets/0/name".to_owned(), "unknown_secret")],
+                    "round {round}"
+                );
+                deleted += 1;
+            }
+            (publication, deletion) => panic!(
+                "round {round}: publish {:?}, delete {:?}",
+                publication.map(|_| ()),
+                deletion
+            ),
+        }
+    }
+    assert_eq!(published + deleted, ROUNDS);
 }

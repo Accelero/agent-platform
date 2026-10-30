@@ -13,7 +13,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-SOURCE = Path(__file__).resolve().parents[1] / "runtimes/hermes/personal-init.py"
+SOURCE = Path(__file__).resolve().parents[2] / "runtimes/hermes/personal-init.py"
 
 
 def module():
@@ -276,3 +276,86 @@ def test_concurrent_initializers_produce_one_receipt(fixture):
     assert (root / "config.yaml").read_bytes() == config.read_bytes()
     invoke(fixture)
     assert (root / initializer.META / initializer.RECEIPT).is_file()
+
+
+def run_main(fixture, monkeypatch, result):
+    initializer, root, context, config, key = fixture
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "personal-init",
+            "--root",
+            str(root),
+            "--context",
+            str(context),
+            "--config",
+            str(config),
+            "--key",
+            str(key),
+            "--result",
+            str(result),
+        ],
+    )
+    return initializer.main()
+
+
+def test_a_home_without_proof_is_refused_with_one_code_as_its_termination_message(
+    fixture, monkeypatch, tmp_path
+):
+    initializer, root, *_ = fixture
+    result = tmp_path / "result.json"
+    run_main(fixture, monkeypatch, result)
+    genuine = (root / ".agent-platform/native-init-receipt.json").read_bytes()
+    assert result.read_bytes() == genuine
+    user_data = root / "memories.md"
+    user_data.write_text("kept")
+
+    forged = json.loads(genuine)
+    forged["signature"] = forged["signature"][:-1] + (
+        "0" if forged["signature"][-1] != "0" else "1"
+    )
+    receipt = root / ".agent-platform/native-init-receipt.json"
+    receipt.write_text(json.dumps(forged))
+    with pytest.raises(SystemExit):
+        run_main(fixture, monkeypatch, result)
+    assert result.read_text() == "invalid_initialization_receipt"
+
+    # Neither receipt nor intent on a home that holds data: not adopted.
+    receipt.unlink()
+    (root / ".agent-platform/native-init-intent.json").unlink()
+    with pytest.raises(SystemExit):
+        run_main(fixture, monkeypatch, result)
+    assert result.read_text() == "unexplained_native_home"
+    assert user_data.read_text() == "kept"
+    assert not receipt.exists(), "a refused home was given a receipt"
+
+
+def test_another_failure_leaves_no_code_and_clears_an_earlier_one(
+    fixture, monkeypatch, tmp_path
+):
+    initializer, root, context, *_ = fixture
+    result = tmp_path / "result.json"
+    result.write_text("invalid_initialization_receipt")
+    context.write_text("{}")
+    with pytest.raises(SystemExit):
+        run_main(fixture, monkeypatch, result)
+    assert result.read_bytes() == b"", "an earlier refusal outlived this failure"
+
+
+def test_the_refusal_codes_are_the_ones_the_manager_blocks_on(fixture):
+    initializer = fixture[0]
+    rust = (
+        Path(__file__).resolve().parents[2]
+        / "services/hermes-manager/crates/hermes-core/src/domain/instances.rs"
+    ).read_text()
+    block = rust.split("pub const HOME_REFUSALS: &[&str] = &[", 1)[1].split("];", 1)[0]
+    listed = {
+        line.strip().strip(",").strip('"')
+        for line in block.splitlines()
+        if line.strip()
+    }
+    assert listed == set(initializer.REFUSALS)
+    # Every code is a constant the initializer raises, and none can carry data.
+    source = SOURCE.read_text()
+    for code in initializer.REFUSALS:
+        assert f'raise ValueError("{code}")' in source, code

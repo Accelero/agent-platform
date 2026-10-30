@@ -91,9 +91,10 @@ release numbers to documentation. A release requires an explicit
 `vMAJOR.MINOR.PATCH` tag, or `vMAJOR.MINOR.PATCH-dev.N` for a prerelease of
 unmerged work. GHCR already holds versions up to 0.6.9 under these package
 names: never overwrite or reuse an existing version. The GitHub-hosted release
-workflow validates, builds and publishes matching images and their
-self-contained chart, and publishes the chart only after the images pass
-validation. Keep the source and version OCI labels and the upstream license
+workflow first requires passing `Checks` and `Cluster scenarios` runs for the
+exact tagged commit (`agent_platform/release_gate.py`), then validates, builds
+and publishes matching images and their self-contained chart, and publishes the
+chart only after the images pass validation. Keep the source and version OCI labels and the upstream license
 notices in images. The chart owns configuration generation and exact image
 defaults.
 

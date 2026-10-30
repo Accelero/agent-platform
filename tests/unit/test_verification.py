@@ -177,7 +177,7 @@ def test_reviewed_ledger_accounts_for_every_cited_helper():
         "Operational bounds",
     }
     assert len([row for row in rows if row["section"] == "Interfaces"]) == 58
-    assert len([row for row in rows if row["section"] == "Operational bounds"]) == 9
+    assert len([row for row in rows if row["section"] == "Operational bounds"]) == 10
 
 
 def test_machine_reports_do_not_capture_failure_text_or_environment(tmp_path):
@@ -228,3 +228,23 @@ def test_unreviewed_parameter_values_are_not_written_to_reports(tmp_path):
     assert "generated-canary-secret" not in (tmp_path / "report.json").read_text()
     assert "generated-canary-secret" not in (tmp_path / "report.xml").read_text()
     assert list(cases)[0].startswith("unreviewed:")
+
+
+def test_a_plain_pytest_run_selects_exactly_the_default_python_profile():
+    import shlex
+    import tomllib
+
+    options = shlex.split(
+        tomllib.loads((verify.ROOT / "pyproject.toml").read_text())["tool"]["pytest"][
+            "ini_options"
+        ]["addopts"]
+    )
+    assert options[options.index("-m") + 1] == verify.PYTHON_PROFILES["python"]
+
+
+def test_infrastructure_capabilities_are_outside_the_default_profile():
+    capabilities = {"cluster", "database", "native", "browser", "destructive"}
+    capabilities |= {"multi_node", "soak"}
+    assert all(name in verify.PYTHON_PROFILES["python"] for name in capabilities)
+    assert verify.PYTHON_PROFILES["python-native"] == "native"
+    assert verify.PROFILE_INPUTS["python-native"] == ("HERMES_TEST_NATIVE_IMAGE",)

@@ -22,12 +22,14 @@ pub fn idempotency_key(headers: &HeaderMap) -> Result<IdempotencyKey, AppError> 
     IdempotencyKey::parse(one_header(headers, "idempotency-key")?)
 }
 
-/// `If-Match: "<version>"`.
+/// `If-Match: "<version>"`, exactly the contract's `^"[1-9][0-9]*"$`: no sign,
+/// no leading zero, no list and no weak validator.
 pub fn if_match(headers: &HeaderMap) -> Result<i64, AppError> {
     let value = one_header(headers, "if-match")?;
     value
         .strip_prefix('"')
         .and_then(|v| v.strip_suffix('"'))
+        .filter(|v| !v.starts_with('0') && v.bytes().all(|b| b.is_ascii_digit()))
         .and_then(|v| v.parse::<i64>().ok())
         .filter(|version| *version >= 1)
         .ok_or_else(AppError::invalid)

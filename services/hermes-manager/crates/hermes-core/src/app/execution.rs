@@ -283,6 +283,15 @@ fn rejected(rejection: ExecutionRejected) -> AppError {
     rejection.into()
 }
 
+/// The longest a lease of this environment's backend lives in all: the
+/// backend's `maxLeaseSeconds`, however renewed.
+fn lease_limit(client: &Client, environment: &EnvironmentRow) -> u32 {
+    client
+        .limits
+        .get(&environment.backend.0)
+        .map_or(LEASE_TTL_SECONDS, |limits| limits.max_lease_seconds)
+}
+
 pub struct Execution<S> {
     store: S,
 }
@@ -423,14 +432,9 @@ impl<S: ExecutionStore> Execution<S> {
             .await?
             .ok_or(StoreError::Unavailable)?;
         let lease = Uuid::new_v4();
-        tx.insert_lease(
-            lease,
-            instance,
-            environment.id,
-            request.parent_lease,
-            LEASE_TTL_SECONDS,
-        )
-        .await?;
+        let ttl = LEASE_TTL_SECONDS.min(lease_limit(&client, &environment));
+        tx.insert_lease(lease, instance, environment.id, request.parent_lease, ttl)
+            .await?;
         tx.grant_request(instance, &request.request, lease).await?;
         tx.touch_environment(environment.id).await?;
         tx.commit().await?;
@@ -438,7 +442,7 @@ impl<S: ExecutionStore> Execution<S> {
             environment: environment.id,
             generation: "1".into(),
             lease,
-            ttl: i64::from(LEASE_TTL_SECONDS),
+            ttl: i64::from(ttl),
             ssh: SshEndpoint {
                 host,
                 port: SSH_PORT,
@@ -469,10 +473,7 @@ impl<S: ExecutionStore> Execution<S> {
             tx.commit().await?;
             return Err(rejected(ExecutionRejected::LeaseNotLive));
         }
-        let max = client
-            .limits
-            .get(&environment.backend.0)
-            .map_or(LEASE_TTL_SECONDS, |l| l.max_lease_seconds);
+        let max = lease_limit(&client, &environment);
         let ttl = tx.extend_lease(lease.id, LEASE_TTL_SECONDS, max).await?;
         let Some(ttl) = ttl.filter(|ttl| *ttl >= MIN_RENEWAL_SECONDS) else {
             tx.commit().await?;

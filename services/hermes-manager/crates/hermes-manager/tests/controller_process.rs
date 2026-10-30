@@ -23,7 +23,7 @@ use hermes_store::PgStore;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::authentication::v1::{TokenRequest, TokenRequestSpec};
 use k8s_openapi::api::core::v1::{Namespace, ServiceAccount};
-use kube::api::{Api, Patch, PatchParams, PostParams};
+use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::config::{KubeConfigOptions, Kubeconfig};
 use serde_json::json;
 use sqlx::PgPool;
@@ -394,4 +394,245 @@ async fn the_controller_process_commissions_and_survives_aborts_at_every_point(p
     let rebind = fixture.run("rebind-cluster");
     assert!(rebind.status.success());
     assert!(String::from_utf8_lossy(&rebind.stdout).contains("unchanged"));
+}
+
+/// A controller started with a sealing key other than the one the stored
+/// material was sealed under must stop before it reads or writes anything: a
+/// controller that carried on would seal material for new instances that the
+/// right key could never open.
+#[sqlx::test(migrator = "hermes_store::MIGRATOR")]
+#[ignore = "needs HERMES_TEST_KUBECONFIG from the disposable Kubernetes fixture"]
+async fn a_controller_with_a_different_sealing_key_exits_before_acting(pool: PgPool) {
+    let fixture = Fixture::new(&pool).await;
+    let initialized = fixture.run("initialize");
+    assert!(
+        initialized.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initialized.stderr)
+    );
+    let store = PgStore::connect(&database_url(&pool)).await.unwrap();
+    let receipt = bob_assignment(&store).await;
+
+    // The right key seals the instance's material.
+    let mut right = fixture.controller(None);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let sealed = loop {
+        let rows = material(&store, receipt.instance_id).await;
+        if rows.len() == 5 || Instant::now() > deadline {
+            break rows;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    };
+    let _ = right.kill();
+    let _ = right.wait();
+    assert_eq!(sealed.len(), 5, "the controller sealed the material");
+
+    // The same configuration with another key file.
+    std::fs::write(fixture.path("sealing.key"), [7u8; 32]).unwrap();
+    let mut wrong = Command::new(BINARY)
+        .args(["controller", "--config"])
+        .arg(fixture.path("config.json"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    assert!(
+        wait_exit(&mut wrong, Duration::from_secs(30)),
+        "a controller with the wrong key kept running"
+    );
+    let output = wrong.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("sealing_key_mismatch"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        material(&store, receipt.instance_id).await,
+        sealed,
+        "the material is untouched"
+    );
+}
+
+/// A database restored from another cluster is bound to that cluster. Until an
+/// operator rebinds it, the controller refuses to act, and `rebind-cluster`
+/// refuses while the cluster still holds a namespace of the installation; once
+/// the namespaces are gone it records the new identity, and the controller
+/// recreates the instance on the same material.
+#[sqlx::test(migrator = "hermes_store::MIGRATOR")]
+#[ignore = "needs HERMES_TEST_KUBECONFIG from the disposable Kubernetes fixture"]
+async fn a_restored_registry_is_rebound_only_to_a_cluster_without_its_namespaces(pool: PgPool) {
+    let fixture = Fixture::new(&pool).await;
+    assert!(fixture.run("initialize").status.success());
+    let store = PgStore::connect(&database_url(&pool)).await.unwrap();
+    let receipt = bob_assignment(&store).await;
+
+    // Commissioned: the instance's namespace exists and is bound.
+    let mut controller = fixture.controller(None);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let bound = loop {
+        let desired = store
+            .desired_instance(receipt.instance_id)
+            .await
+            .unwrap()
+            .unwrap();
+        if desired.namespace_uid.is_some() || Instant::now() > deadline {
+            break desired;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    };
+    let _ = controller.kill();
+    let _ = controller.wait();
+    let uid = bound
+        .namespace_uid
+        .clone()
+        .expect("the namespace was bound");
+    let sealed = material(&store, receipt.instance_id).await;
+    assert_eq!(sealed.len(), 5);
+    let own_cluster = store.cluster_uid().await.unwrap();
+
+    // The registry now claims to come from another cluster.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('manager.rebind', 'on', true)")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE manager.installation SET cluster_uid = 'restored-from-elsewhere'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    // The controller refuses to act on a registry bound to another cluster.
+    let mut refused = Command::new(BINARY)
+        .args(["controller", "--config"])
+        .arg(fixture.path("config.json"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    assert!(
+        wait_exit(&mut refused, Duration::from_secs(30)),
+        "it kept running"
+    );
+    let output = refused.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("cluster_changed"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Rebinding is refused while this cluster holds the installation's
+    // namespace, and nothing is cleared.
+    let blocked = fixture.run("rebind-cluster");
+    assert!(!blocked.status.success());
+    assert!(
+        String::from_utf8_lossy(&blocked.stderr).contains("namespaces_exist"),
+        "{}",
+        String::from_utf8_lossy(&blocked.stderr)
+    );
+    assert_eq!(
+        store.cluster_uid().await.unwrap(),
+        "restored-from-elsewhere"
+    );
+    let after = store
+        .desired_instance(receipt.instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.namespace_uid.as_deref(), Some(uid.as_str()));
+
+    // A new cluster has no such namespace. This one is made to look like it by
+    // lifting the binding that keeps everyone but the controller out of
+    // instance namespaces, as a cluster operator could, and deleting it.
+    let bindings: Api<kube::core::DynamicObject> = Api::all_with(
+        fixture.admin.clone(),
+        &kube::core::ApiResource::from_gvk_with_plural(
+            &kube::core::GroupVersionKind::gvk(
+                "admissionregistration.k8s.io",
+                "v1",
+                "ValidatingAdmissionPolicyBinding",
+            ),
+            "validatingadmissionpolicybindings",
+        ),
+    );
+    for object in admission::policies(&fixture.render()).unwrap() {
+        if object.kind == "ValidatingAdmissionPolicyBinding"
+            && object.name.ends_with("owned-writes")
+        {
+            bindings
+                .delete(&object.name, &DeleteParams::default())
+                .await
+                .unwrap();
+        }
+    }
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    // Every namespace of the installation goes, including those earlier cases
+    // left in this shared cluster.
+    let namespaces = Api::<Namespace>::all(fixture.admin.clone());
+    let owned = hermes_kube::owned_namespaces(&fixture.admin, installation().id)
+        .await
+        .unwrap();
+    assert!(owned.contains(&bound.namespace));
+    for name in &owned {
+        namespaces
+            .delete(name, &DeleteParams::default())
+            .await
+            .unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(180);
+    while !hermes_kube::owned_namespaces(&fixture.admin, installation().id)
+        .await
+        .unwrap()
+        .is_empty()
+    {
+        assert!(Instant::now() < deadline, "the namespaces never went");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    let rebound = fixture.run("rebind-cluster");
+    assert!(
+        rebound.status.success(),
+        "{}",
+        String::from_utf8_lossy(&rebound.stderr)
+    );
+    assert_ne!(
+        store.cluster_uid().await.unwrap(),
+        "restored-from-elsewhere"
+    );
+    assert_eq!(store.cluster_uid().await.unwrap(), own_cluster);
+    assert!(
+        store
+            .desired_instance(receipt.instance_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .namespace_uid
+            .is_none(),
+        "the old binding was cleared"
+    );
+
+    // The controller recreates the namespace on the material it already had.
+    let mut controller = fixture.controller(None);
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let recreated = loop {
+        let desired = store
+            .desired_instance(receipt.instance_id)
+            .await
+            .unwrap()
+            .unwrap();
+        if desired.namespace_uid.is_some() || Instant::now() > deadline {
+            break desired;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    };
+    let _ = controller.kill();
+    let _ = controller.wait();
+    assert!(recreated.namespace_uid.is_some(), "never recreated");
+    assert_ne!(recreated.namespace_uid, Some(uid), "a new namespace");
+    assert_eq!(
+        material(&store, receipt.instance_id).await,
+        sealed,
+        "the instance keeps its material"
+    );
 }

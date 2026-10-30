@@ -13,12 +13,25 @@ Run from the repository root with Python 3.14 and `uv sync --locked`:
 uv run python -m tests.support.verification inventory python --output .local/verification/python-collection.json
 uv run python -m tests.support.verification inventory rust --output .local/verification/rust-collection.json
 uv run python -m tests.support.verification run python --output .local/verification/python.json
+HERMES_TEST_NATIVE_IMAGE=personal-hermes-native-test:local uv run python -m tests.support.verification run python-native --output .local/verification/python-native.json
+HERMES_TEST_K3D=/path/to/k3d PATH=$PATH:/path/to/helm uv run python -m tests.support.verification run python-cluster --output .local/verification/python-cluster.json
+HERMES_TEST_K3D=/path/to/k3d PATH=$PATH:/path/to/helm uv run python -m tests.support.verification run python-destructive --output .local/verification/python-destructive.json
 uv run python -m tests.support.verification run rust --output .local/verification/rust.json
 uv run python -m tests.support.verification run rust-faults --output .local/verification/rust-faults.json
 MANAGER_UI_DIST="$PWD/services/hermes-manager/ui/dist" uv run python -m tests.support.verification run rust-browser --output .local/verification/rust-browser.json
 ```
 
-Python execution needs Helm on `PATH` for the chart cases. Rust inventory needs
+Python execution needs Helm on `PATH` for the chart cases. The `python` profile
+and a plain `uv run pytest -q` select only tests that need no infrastructure:
+a test that needs a cluster, database, native image, browser or exclusive
+infrastructure carries that capability marker and belongs to the profile that
+provides it. `python-native` needs `HERMES_TEST_NATIVE_IMAGE` to name the image
+under test; `python-cluster` needs `HERMES_TEST_K3D` to name a k3d binary at the
+pinned version, builds one run-owned cluster of one server and two agents, and
+proves NetworkPolicy enforcement before any case runs; its browser journeys also
+need Playwright's Chromium for the locked version (`uv run playwright install
+chromium`) and the NSS `certutil` tool. `python-destructive` runs the cases that break their platform on one of their own. All fail rather than skip
+when their input is absent. Rust inventory needs
 the pinned toolchain and compiles test targets, then asks their actual libtest
 binaries for their collected names. Collection does not create infrastructure
 or need a running database, browser or Docker daemon. Rust execution needs the

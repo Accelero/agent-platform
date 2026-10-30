@@ -5,6 +5,7 @@ name: Release agent platform
     tags: ['v[0-9]*.[0-9]*.[0-9]*']
 
 permissions:
+  actions: read
   contents: write
   packages: write
 
@@ -13,7 +14,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The tagged commit must already have passed the ordinary checks and the
+  # cluster scenarios; nothing is built or published otherwise.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the gate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.13.0'
+          python-version: '3.14'
+      - name: Require passing runs for the exact commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=100" \
+            > runs.json
+          uv run python -m agent_platform.release_gate --sha "$GITHUB_SHA" --runs runs.json
   publish:
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 110
     steps:
@@ -40,14 +65,9 @@ jobs:
           uv run python -m agent_platform.privacy
           uv run pytest -q
           uv run python - <<'PY'
-          import os, tomllib
-          from pathlib import Path
-          import yaml
-          from agent_platform.release import VERSION
-          version = os.environ['GITHUB_REF_NAME'].removeprefix('v')
-          assert VERSION.fullmatch(version), 'Release tag must be vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-dev.N'
-          assert yaml.safe_load(Path('charts/agent-platform/Chart.yaml').read_text())['version'] == version
-          assert tomllib.loads(Path('pyproject.toml').read_text())['project']['version'] == version
+          import os
+          from agent_platform.release import verify_release_source
+          verify_release_source(os.environ['GITHUB_REF_NAME'].removeprefix('v'))
           PY
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'This release already exists. Publish a new version.' >&2

@@ -62,6 +62,15 @@ pub async fn run(config: Config) -> Result<(), AppError> {
         settings: config.settings()?,
         faults: faults::hook(),
     });
+    // A key that opens none of the stored material would let this controller
+    // seal material for new instances that the right key could never open.
+    controller
+        .verify_vault()
+        .await
+        .map_err(|error| match error {
+            ControllerError::Vault(error) => error,
+            _ => AppError::unavailable(),
+        })?;
     let candidate = format!(
         "{}-{}",
         std::env::var("HOSTNAME").unwrap_or_else(|_| "controller".into()),

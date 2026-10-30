@@ -62,6 +62,8 @@ pub struct World {
     /// A volume cannot be mounted, as with a missing static directory: the
     /// Pod exists but never starts.
     pub mount_failed: bool,
+    /// The home initializer refuses the home, so the Pod never starts Hermes.
+    pub home_refused: bool,
     /// Namespaces and volumes with the installation label: the instance's
     /// namespace once applied, and whatever a test adds.
     pub owned: Vec<OwnedObject>,
@@ -104,7 +106,9 @@ impl World {
             worker.2 = true;
         }
         match &mut self.deployment {
-            Some(deployment) if deployment.replicas == 1 && self.mount_failed => {
+            Some(deployment)
+                if deployment.replicas == 1 && (self.mount_failed || self.home_refused) =>
+            {
                 deployment.rolled_out = false;
                 self.hermes_pods = 1;
                 self.receipt = None;
@@ -162,6 +166,7 @@ impl Cluster for FakeCluster {
                     claims: world.claims.clone(),
                     native: NativeCheck::NotChecked,
                     mount_failed: world.mount_failed && !current_pod_ready,
+                    home_refused: world.home_refused && !current_pod_ready,
                 },
                 receipt: world.receipt.clone(),
             })
@@ -390,6 +395,35 @@ impl Vault for FakeVault {
         sealed: &[u8],
     ) -> Result<Plain, AppError> {
         Ok(Plain::new(sealed.to_vec()))
+    }
+}
+
+/// A vault whose key is not the one the material was sealed with: it seals
+/// as [`FakeVault`] does but opens nothing.
+#[derive(Clone, Default)]
+pub struct WrongKeyVault;
+
+impl Vault for WrongKeyVault {
+    fn generate(&self, instance: Uuid, purpose: MaterialPurpose) -> Result<NewMaterial, AppError> {
+        FakeVault.generate(instance, purpose)
+    }
+
+    fn open_material(
+        &self,
+        _instance: Uuid,
+        _purpose: MaterialPurpose,
+        _sealed: &[u8],
+    ) -> Result<Plain, AppError> {
+        Err(AppError::unavailable())
+    }
+
+    fn open_secret(
+        &self,
+        _name: &str,
+        _kind: SecretKind,
+        _sealed: &[u8],
+    ) -> Result<Plain, AppError> {
+        Err(AppError::unavailable())
     }
 }
 

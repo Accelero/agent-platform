@@ -12,10 +12,22 @@ import subprocess
 import sys
 import tempfile
 import time
-import uuid
 from pathlib import Path
 
 import yaml
+
+from tests.support.ownership import (
+    FIXTURE,
+    KUBERNETES,
+    POSTGRES,
+    RUN,
+    Cleanup,
+    CommandFailed,
+    ForeignResource,
+    new_run,
+    remove_fixture,
+    require_fixture,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 IMAGE = (
@@ -80,8 +92,9 @@ def import_worker_image(identifier, temporary):
     return import_image(identifier, WORKER_TAG, temporary)
 
 
-def start_k3s(network, name):
-    """Starts a digest-pinned k3s server container; returns its ID."""
+def start_k3s(network, name, run):
+    """Starts a digest-pinned k3s server container labelled with its run;
+    returns its ID."""
     return command(
         [
             "docker",
@@ -97,7 +110,9 @@ def start_k3s(network, name):
             "--tmpfs",
             "/var/run",
             "--label",
-            "agent-platform.io/fixture=personal-hermes-kubernetes",
+            f"{FIXTURE}={KUBERNETES}",
+            "--label",
+            f"{RUN}={run}",
             "--volume",
             f"{ROOT / 'tests/personal_hermes/k3s-registries.yaml'}"
             ":/etc/rancher/k3s/registries.yaml:ro",
@@ -169,24 +184,20 @@ def wait_ready(identifier):
     return config
 
 
-def remove_container(identifier):
-    """Removes exactly this fixture container."""
+def remove_container(identifier, run=None):
+    """Removes exactly this fixture container, after proving it is one."""
     # Docker can report a transient removal conflict while the server
-    # finishes exiting. Retry only this fixture's exact container ID;
-    # an inspect/daemon failure is never treated as proof of absence.
+    # finishes exiting, or lose the CLI's response after removing it. Retry
+    # only this fixture's exact ID and observe its absence; a daemon failure
+    # is never treated as proof of absence.
     for attempt in range(3):
         try:
-            removed = subprocess.run(
-                ["docker", "rm", "--force", "--volumes", identifier],
-                capture_output=True,
-                timeout=30,
-            )
-        except subprocess.TimeoutExpired:
-            # The daemon may finish after its CLI loses the response.
-            # Observe this exact container before retrying removal.
-            removed = None
-        if removed is not None and removed.returncode == 0:
-            break
+            remove_fixture(identifier, KUBERNETES, run)
+            return
+        except ForeignResource:
+            raise
+        except CommandFailed, subprocess.TimeoutExpired:
+            pass
         remaining = command(
             [
                 "docker",
@@ -200,7 +211,7 @@ def remove_container(identifier):
             ]
         )
         if not remaining.strip():
-            break
+            return
         assert attempt < 2, "Disposable Kubernetes fixture cleanup failed"
         time.sleep(0.2)
 
@@ -219,19 +230,26 @@ def main():
         help="Use a disposable k3d cluster without touching a deployment context",
     )
     args = parser.parse_args()
+    # Injection (pausing the database) and database creation happen in this
+    # container: prove it is a fixture before anything else.
+    require_fixture(args.postgres_container, POSTGRES)
     postgres = json.loads(command(["docker", "inspect", args.postgres_container]))[0]
     networks = postgres["NetworkSettings"]["Networks"]
     assert networks, "Disposable PostgreSQL fixture has no network"
     network = "bridge" if "bridge" in networks else next(iter(networks))
-    name = "personal-hermes-kube-test-" + uuid.uuid4().hex[:12]
+    run = new_run()
+    name = "personal-hermes-kube-test-" + run
     if args.k3d:
-        name = "hermes-native-" + uuid.uuid4().hex[:8]
-    identifier = None
-    try:
+        name = "hermes-native-" + run[:8]
+    with Cleanup() as cleanup:
         if args.k3d:
             with socket.socket() as port_socket:
                 port_socket.bind(("127.0.0.1", 0))
                 api_port = port_socket.getsockname()[1]
+            cleanup.add(
+                "k3d cluster",
+                lambda: command(["k3d", "cluster", "delete", name], timeout=90),
+            )
             command(
                 [
                     "k3d",
@@ -254,11 +272,24 @@ def main():
             identifier = command(
                 ["docker", "inspect", "--format", "{{.Id}}", f"k3d-{name}-server-0"]
             ).strip()
+            cleanup.add(
+                "database network membership",
+                lambda: command(
+                    [
+                        "docker",
+                        "network",
+                        "disconnect",
+                        f"k3d-{name}",
+                        args.postgres_container,
+                    ]
+                ),
+            )
             command(
                 ["docker", "network", "connect", f"k3d-{name}", args.postgres_container]
             )
         else:
-            identifier = start_k3s(network, name)
+            identifier = start_k3s(network, name, run)
+            cleanup.add("k3s container", lambda: remove_container(identifier, run))
         config = wait_ready(identifier)
         postgres_port = (
             command(["docker", "port", args.postgres_container, "5432/tcp"])
@@ -274,6 +305,7 @@ def main():
             path.chmod(0o600)
             environment = dict(os.environ)
             environment["HERMES_TEST_KUBECONFIG"] = str(path)
+            environment["HERMES_TEST_RUN"] = run
             environment["DATABASE_URL"] = (
                 f"postgres://hermes_test@127.0.0.1:{postgres_port}/hermes_test"
             )
@@ -324,24 +356,6 @@ def main():
                 from tests.personal_hermes.native_e2e import run_e2e
 
                 run_e2e(identifier, temporary, environment)
-    finally:
-        if args.k3d:
-            subprocess.run(
-                [
-                    "docker",
-                    "network",
-                    "disconnect",
-                    f"k3d-{name}",
-                    args.postgres_container,
-                ],
-                capture_output=True,
-                timeout=30,
-            )
-            subprocess.run(
-                ["k3d", "cluster", "delete", name], capture_output=True, timeout=90
-            )
-        elif identifier:
-            remove_container(identifier)
 
 
 if __name__ == "__main__":

@@ -5,9 +5,17 @@ info:
   description: >-
     Public interface of hermes-gateway on the Hermes hostname. The gateway owns
     `/_platform/*` and intercepts native `POST /auth/logout`; it forwards every
-    other request to the signed-in owner's own instance (see `x-proxy`). It
+    other request to the signed-in owner's own instance (see `x-proxy`). A path
+    under `/_platform` that is not listed here is answered `404`
+    (`invalid_request`) to everyone, with or without a session, and is never
+    forwarded: an instance runs agent code and must not be able to serve pages
+    under the platform's own prefix. It
     holds no registry state: the manager's resolver (`router.openapi.yaml`)
     decides every route. Every response under `/_platform/*` is no-store.
+    Every response the gateway produces itself (pages, redirects and errors, not
+    those of an instance) also carries `X-Content-Type-Options: nosniff` and
+    `Referrer-Policy: no-referrer`, and its pages `Content-Security-Policy:
+    default-src 'none'` without framing.
     Provider tokens, session handles and identities never appear in URLs,
     logs or error bodies.
 servers:
@@ -28,6 +36,15 @@ x-proxy:
     pending: '`202` owner status page that refreshes itself; `instance_blocked` says an administrator is needed'
     denied: '`403` denial page; no request reaches any instance'
     unavailable: '`503` page; never a fallback destination'
+  origin: >-
+    A request that can change state (`POST`, `PUT`, `PATCH`, `DELETE`) that
+    carries an `Origin` other than the public origin (or more than one, or
+    `null`) is refused with `403` before the instance sees it, and so is a
+    WebSocket upgrade from another origin. A request without an `Origin`, as
+    from a client that is not a browser page, and a read from any origin, are
+    served as usual. The owner's `SameSite=Lax` cookies travel with requests from
+    a sibling host of the same site, so only this check keeps such a page from
+    acting for the owner.
   requestHygiene: >-
     Removed before forwarding: hop-by-hop headers, `Forwarded`, `X-Forwarded-*`,
     `X-Real-IP`, `X-Hermes-*`, `X-Auth-Request-*`, `X-Remote-*`, `Remote-User`
@@ -111,8 +128,11 @@ paths:
       description: >-
         Needs the exact `Origin` and the session's CSRF token. The session ends
         before the provider refresh token is revoked on a best-effort basis.
-        Platform and native cookies are expired whether or not the call
-        succeeds, and whether or not the instance is reachable.
+        Platform and native cookies are expired whether or not the instance is
+        reachable, and also when the session is already gone (`401`). A refusal
+        of the `Origin` or the token (`403`) changes nothing: the session stays
+        and no cookie is expired, so a page of another origin cannot end
+        someone's session.
       parameters:
         - { name: Origin, in: header, required: true, schema: { type: string, format: uri } }
         - { name: X-CSRF-Token, in: header, required: true, schema: { $ref: '#/components/schemas/Handle' } }

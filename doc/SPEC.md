@@ -116,7 +116,10 @@ He cannot mount another folder, use another image or override admin
 settings.
 
 Template versions and terminal backend versions are immutable once
-published. An assignment pins exact versions. Changing them is an explicit,
+published. A version is edited and published only while it is a draft and
+withdrawn only while it is published; any other attempt is `409
+version_not_draft` (whichever of the three it was) and changes nothing, and a
+withdrawn version is final. An assignment pins exact versions. Changing them is an explicit,
 audited assignment change; changing many assignments is one bulk command
 that reports the result for each assignment.
 
@@ -127,7 +130,11 @@ Every mutation:
 - uses `If-Match` for updates;
 - writes an audit event in the same transaction.
 
-Browser mutations also check `Origin` and a CSRF token.
+Browser mutations also check `Origin` and a CSRF token. The gateway likewise
+refuses a request that can change state when its `Origin` names another
+origin than the public one, before the instance sees it; the owner's cookies
+travel with requests from a sibling host of the same site, and only this check
+refuses them.
 
 The dashboard never exposes model keys, native tokens, chat history, private
 files, raw Pod specifications or an impersonation function. The optional
@@ -147,7 +154,11 @@ Keycloak directory lookup is read-only.
 4. In the native dashboard, the user selects a terminal backend per profile
    (`terminal.runtime_id`). An empty selection means the assignment's default.
 5. Logging out ends the platform session and expires the native cookies,
-   even if the instance is unreachable.
+   even if the instance is unreachable. A logout request that fails its Origin
+   or CSRF check changes nothing: the session stays and no cookie is expired.
+   The identity provider's own session is not ended, so the browser can sign in
+   again at once without a password; signing out of the provider is the
+   provider's own function.
 
 ## Lifecycle
 
@@ -256,12 +267,21 @@ The rules for volumes:
 - **Lifetime modes.** The assignment's terminal lifetime mode
   (`per_session`, the default; `per_profile_on_demand`;
   `per_profile_always_running`) is written into the managed configuration. An
-  acquire request with a different mode is rejected. Idle and maximum
-  lifetimes come from the backend version.
+  acquire request with a different mode is rejected. `per_session` keeps one
+  environment per session and retires it when the session ends. The two
+  profile modes keep one environment per profile home, shared by every session
+  of the profile: `per_profile_on_demand` retires it once it has been idle for
+  the backend's idle timeout, and `per_profile_always_running` never retires
+  it for being idle. Idle and maximum lifetimes come from the backend version.
+- **Limits.** A backend allows at most `maxEnvironments` environments of an
+  instance at once. An acquisition that would exceed the limit is answered
+  `503` and creates nothing; the room returns when an environment retires.
 - **Changes.** Changes to an assignment's backends or volumes apply to new
   environments. Existing leases keep the environment they were granted;
-  superseded environments drain when their leases end. A worker's image or
-  mounts are never modified in place.
+  superseded environments drain when their leases end, so a change reaches a
+  running session at most `maxLeaseSeconds` after it is made. An access change
+  (suspension or revocation) drains at once, and is the way to stop running
+  work immediately. A worker's image or mounts are never modified in place.
 - **Removed backend.** Removing a backend from an assignment stops new
   grants for it and drains its environments.
 - **Data on worker loss.** Worker loss, retirement or replacement never
@@ -285,10 +305,23 @@ use admin secrets instead.
 How admin secrets work:
 
 - **Write-only storage.** They are stored encrypted. Only the controller can
-  decrypt them.
+  decrypt them. A controller whose key opens none of the stored material
+  refuses to start, so that it never seals material for new instances that the
+  right key could not open.
 - **Delivery.** A referenced secret is copied into the instance's namespace
-  as an environment variable, a read-only file under
-  `/run/hermes/admin-secrets/`, or an image pull secret.
+  as an environment variable, a read-only file (mode `0440`) under
+  `/run/hermes/admin-secrets/`, or an image pull secret. A secret reaches only
+  the instances that reference it, and only in the form each reference names.
+- **References.** A template, a terminal backend or an assignment may name only
+  a secret that exists, and only in a form its kind allows: `env` and `file`
+  secrets as a variable or a file of an instance, `registry` secrets as the pull
+  secret of a backend. A draft may name anything; publication, and the
+  validation that precedes it, refuse a reference to nothing (`unknown_secret`)
+  or of the wrong kind (`wrong_secret_kind`) at the place it appears. A secret
+  keeps the kind it was created with, and a value must fit it (a `registry`
+  value is a Docker config with `auths`). A secret that anything references
+  cannot be deleted (`409 secret_in_use`); deleting needs its current version in
+  `If-Match`.
 - **Rotation.** Rotating a secret creates a new version, and referencing
   instances restart to receive it.
 - **What it protects.** A secret delivered to an instance can be read by
@@ -305,7 +338,8 @@ The rules at each boundary:
 - **Administration change.** Commit desired state, audit event and
   idempotency receipt together before acknowledging. A retry with the same key
   returns the recorded result; the same key with a different body returns
-  `409`.
+  `409`. A key is scoped to the actor and the command: sending the same key to
+  a different command is a new, independent change.
 - **Reconciliation.** It is level-triggered from PostgreSQL desired state and
   observed Kubernetes state, and repeatable. A restart resumes by observation
   and needs no in-memory record.
@@ -337,7 +371,7 @@ Further rules:
 | Administration API `/api/v1/*`, browser auth `/auth/*`, dashboard | Administrators, external clients | `contracts/hermes-manager/openapi.yaml` |
 | Route resolution `POST /internal/v1/routes/resolve` | Gateway (mTLS) | `contracts/hermes-manager/router.openapi.yaml` |
 | Execution `/execution/v1/*` | `managed_execution` plugin (instance credential) | `contracts/hermes-manager/execution.openapi.yaml` |
-| Gateway public `/_platform/*` and native logout | Browsers | `contracts/hermes-manager/gateway.openapi.yaml` |
+| Gateway public `/_platform/*` (the gateway's own prefix: an unlisted path under it is `404`, never forwarded) and native logout | Browsers | `contracts/hermes-manager/gateway.openapi.yaml` |
 | CLI | Operators, chart | `hermes-manager {api, controller, migrate, check, initialize, grant-administrator, rebind-cluster, generate-sealing-key}`, `hermes-gateway` |
 
 The OpenAPI files are the authority for each interface.
@@ -345,7 +379,21 @@ The OpenAPI files are the authority for each interface.
 Error semantics: `401` unauthenticated, `403` not permitted, `404` not
 found, `409` idempotency or state conflict, `412` stale `If-Match`, `422`
 invalid or unapproved input, `503` dependency unavailable or maintenance.
-Responses never reveal another owner's data.
+An update without a well-formed `If-Match` is `422` (incomplete, not stale);
+one whose version is not the current one is `412`. A refused request changes
+nothing. Responses never reveal another owner's data.
+
+A path identifier that is malformed is answered like one that names nothing
+(`404`), so that no response tells what exists; the listing of a catalog's
+versions is the exception, and answers an empty page for a name with none. A
+request that presents more than one credential (a bearer token together with a
+session, or a cookie sent twice) is refused as unauthenticated: no credential is
+preferred over another. Everything the gateway and the administration API answer
+themselves, errors, redirects and pages included, is `no-store`, `nosniff` and
+`no-referrer`, and the pages they serve (denial, status, signed out) allow
+nothing: `default-src 'none'`, no framing. Stored text, such as names, labels,
+template content and configuration, is shown as text, never as markup or
+script.
 
 ## Operational bounds
 
@@ -353,11 +401,12 @@ Responses never reveal another owner's data.
 | --- | --- |
 | Route resolution | 2 s deadline; failure denies |
 | Authorization freshness | HTTP decisions at most 5 s old; open WebSockets re-checked every 5 s and closed within 10 s of denial or failure |
-| Identity evidence | Gateway refreshes provider state at most every 60 s; evidence older than 120 s is rejected |
+| Identity evidence | While a session is in use the gateway refreshes provider state at most every 60 s; evidence older than 120 s is never used as it stands: it is refreshed first, and a session whose refresh fails (the provider login lapsed, was revoked or is unreachable) is refused and ended |
+| Provider signing keys | The manager API and the gateway cache the provider's published keys for 5 min and refetch for a key ID they do not know, at most once every 5 s. A token of a newly rotated key is therefore accepted without a restart, except that a request arriving less than 5 s after the last fetch is refused and the next one is accepted; a token of a key the provider stops publishing is refused once the cache has expired and been refetched |
 | External identity revocation | Effective within 130 s, including open WebSockets |
 | Upload size | 64 MiB unless a deployment lowers it |
 | WebSocket idle | Up to 1 h with native heartbeats |
-| Terminal drain | At most 5 min after access or policy change, then forced stop |
+| Terminal drain | At most 5 min after an access change, then forced stop; after a backend or volume change, when the leases of the superseded environment end (at most the backend's `maxLeaseSeconds`) |
 | Kubernetes and HTTP calls | Explicit deadlines, bounded concurrency, capped backoff |
 | Administration request bodies | 16 KiB; `adminConfig` 8 KiB |
 
@@ -452,7 +501,7 @@ restorable:
 | Missing static volume directory | Volume blocked with a condition; no empty-directory substitute |
 | User requests a disallowed backend or edits profile YAML | Denied without fallback; no image or mount change |
 | Custom backend image and private registry | Runs with the registry secret; pull or contract failure reported without fallback |
-| Backend or volume change during an active lease | Active lease keeps its environment; new acquisitions use the new definition; superseded environment drains |
+| Backend or volume change during an active lease | Active lease keeps its environment until it ends (at most `maxLeaseSeconds`); new acquisitions use the new definition; superseded environment drains after its last lease |
 | Revoke during terminal acquisition | No new lease after revocation; pending worker drained |
 | Hermes with no browser traffic | One replica keeps running; a cron job fires and acquires a terminal |
 | Idle terminal cleanup | Worker retired; Hermes and its data untouched |

@@ -17,6 +17,7 @@ use hermes_http::server::{bind, serve_until, tls_config};
 use hermes_store::PgStore;
 use hermes_testkit::Secrets;
 use hermes_testkit::contract::Contract;
+use hermes_testkit::raw::{Response, chunked, head};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
@@ -375,5 +376,129 @@ async fn credentials_scope_and_strictness_are_enforced(pool: PgPool) {
     assert_eq!(
         revoked.status, 401,
         "a revoked instance's credential is refused at once"
+    );
+}
+
+/// `value` as compact JSON followed by spaces up to exactly `size` bytes.
+fn padded(value: &Value, size: usize) -> Vec<u8> {
+    let mut bytes = serde_json::to_vec(value).unwrap();
+    assert!(bytes.len() <= size);
+    bytes.resize(size, b' ');
+    bytes
+}
+
+impl Fixture {
+    /// A heartbeat on its own connection with exactly these header lines.
+    async fn heartbeat_with(&self, headers: &[(&str, &[u8])], body: &[u8]) -> Response {
+        let mut raw = self._secrets.raw(&self.url).await;
+        raw.send(&head("POST", "/execution/v1/leases/heartbeat", headers))
+            .await;
+        raw.send(body).await;
+        raw.response().await
+    }
+
+    async fn heartbeat_sized(&self, body: &[u8]) -> Response {
+        let length = body.len().to_string();
+        let bearer = format!("Bearer {TOKEN}");
+        self.heartbeat_with(
+            &[
+                ("Authorization", bearer.as_bytes()),
+                ("Content-Type", b"application/json"),
+                ("Content-Length", length.as_bytes()),
+            ],
+            body,
+        )
+        .await
+    }
+}
+
+#[sqlx::test(migrator = "hermes_store::MIGRATOR")]
+async fn execution_bodies_are_bounded_at_exactly_16_kib_sized_or_streamed(pool: PgPool) {
+    let fixture = Fixture::new(pool).await;
+    let request = json!({"lease": Uuid::new_v4()});
+    let baseline = fixture.heartbeat_sized(&padded(&request, 100)).await;
+    assert_eq!(baseline.status, 404, "an unknown lease, not a refusal");
+    fixture
+        .contract
+        .check("heartbeatExecutionLease", baseline.status, &baseline.json());
+
+    for size in [16 * 1024 - 1, 16 * 1024] {
+        let response = fixture.heartbeat_sized(&padded(&request, size)).await;
+        assert_eq!(response.status, baseline.status, "{size} bytes");
+        assert_eq!(response.json(), baseline.json(), "{size} bytes");
+    }
+    let over = fixture
+        .heartbeat_sized(&padded(&request, 16 * 1024 + 1))
+        .await;
+    assert_eq!(
+        (over.status, over.json()),
+        (422, json!({"error": "invalid_request"}))
+    );
+    fixture
+        .contract
+        .check("heartbeatExecutionLease", over.status, &over.json());
+
+    let bearer = format!("Bearer {TOKEN}");
+    for (size, accepted) in [(16 * 1024, true), (16 * 1024 + 1, false)] {
+        let response = fixture
+            .heartbeat_with(
+                &[
+                    ("Authorization", bearer.as_bytes()),
+                    ("Content-Type", b"application/json"),
+                    ("Transfer-Encoding", b"chunked"),
+                ],
+                &chunked(&padded(&request, size), 1000),
+            )
+            .await;
+        let expected = if accepted { 404 } else { 422 };
+        assert_eq!(response.status, expected, "{size} streamed bytes");
+    }
+}
+
+#[sqlx::test(migrator = "hermes_store::MIGRATOR")]
+async fn execution_requests_with_repeated_credentials_or_content_types_are_refused(pool: PgPool) {
+    let fixture = Fixture::new(pool).await;
+    let body = serde_json::to_vec(&json!({"lease": Uuid::new_v4()})).unwrap();
+    let length = body.len().to_string();
+    let valid = format!("Bearer {TOKEN}");
+    let wrong = format!("Bearer {}", "f".repeat(64));
+
+    // Parser order must never choose between two credentials, whichever is
+    // the valid one.
+    for (first, second) in [(&valid, &wrong), (&wrong, &valid), (&valid, &valid)] {
+        let response = fixture
+            .heartbeat_with(
+                &[
+                    ("Authorization", first.as_bytes()),
+                    ("Authorization", second.as_bytes()),
+                    ("Content-Type", b"application/json"),
+                    ("Content-Length", length.as_bytes()),
+                ],
+                &body,
+            )
+            .await;
+        assert_eq!(
+            (
+                response.status,
+                response.json()["error"].as_str().map(str::to_owned)
+            ),
+            (401, Some("invalid_identity_evidence".into()))
+        );
+        assert_eq!(response.header("www-authenticate"), Some(&b"Bearer"[..]));
+    }
+    let response = fixture
+        .heartbeat_with(
+            &[
+                ("Authorization", valid.as_bytes()),
+                ("Content-Type", b"application/json"),
+                ("Content-Type", b"text/plain"),
+                ("Content-Length", length.as_bytes()),
+            ],
+            &body,
+        )
+        .await;
+    assert_eq!(
+        (response.status, response.json()),
+        (422, json!({"error": "invalid_request"}))
     );
 }
