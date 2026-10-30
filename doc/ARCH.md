@@ -81,7 +81,7 @@ taken from the installation values.
 | `Instance` | random `id`, assignment, derived `namespace`, `namespace_uid`, `desired_generation`, status | `namespace_uid` is set once, on first observation, and never changes; status is written only by the controller |
 | `TemplateVersion` | `id`, `version`, `state ∈ {Draft, Published, Withdrawn}`, definition | Published definitions are immutable; Withdrawn versions cannot be newly selected; rollout eligibility (no storage-class change, no shrink) |
 | `TerminalBackendVersion` | `id`, `version`, state, definition | Immutable when published; image digest pinned; `managed-ssh-v2`; UID/GID equal to the data identity |
-| `Volume` | instance, `name`, `source`, `path` or `size_gib`, `read_only` | Source must be approved; static paths are clean relative paths; paths on one source never overlap across instances; size never shrinks |
+| `Volume` | instance, `name`, `source`, `path` or `size_gib`, `read_only` | Source must be approved; static paths are clean relative paths; volumes within or across assignments may share equal or nested static paths; size never shrinks |
 | `AdminSecret` | `name`, `kind ∈ {Env, File, Registry}`, `version`, sealed value | Value is write-only; each write creates a new version |
 | `Material` | instance, `purpose`, sealed value | Created once per `(instance, purpose)` |
 | Execution credential | the `execution-credential` material and its SHA-256 digest | Authorizes only while the instance's access is `enabled`; suspension and revocation keep it, so re-enabling restores it |
@@ -344,12 +344,14 @@ hermesManager:
   `localPath`, reclaim policy `Retain` and a `claimRef` to the PVC in the
   owned namespace. The deployment must create the directory beforehand, owned
   by the data identity.
-- **Overlap check.** Paths on a source are checked for overlap in the domain,
-  in the same transaction as the assignment change. A lock on the source's
-  row serializes concurrent changes, and a database trigger checks again as
-  defence in depth. Admission validates each PersistentVolume against the
-  approved roots, but cannot see overlaps between objects. Overlap is
-  therefore a domain invariant.
+- **Static sharing.** Administrators may share equal or nested paths within or
+  across assignments with independent read-only settings. Each volume has its
+  own PV and PVC in its instance namespace;
+  local paths use ReadWriteOnce and node affinity, NFS uses ReadWriteMany.
+  All containers use the data identity, so writable shared folders have no
+  per-user permission separation; workloads coordinate concurrent writers.
+  Operators keep provisioner roots and private instance data outside static
+  source roots. Admission confines each PV to an approved root.
 - **Mount rendering.**
   - The Hermes container gets `hermes-home` at `/opt/data` and the
     template's volume mounts.
@@ -472,7 +474,7 @@ network peers are untrusted.
 | Compromised Hermes instance | No Kubernetes token; execution credential scoped server-side to that instance; NetworkPolicy allows only the execution API, its own workers and approved egress |
 | Compromised terminal backend | No credentials beyond its mounts and keys; SSH ingress only from its Hermes and the controller |
 | Instance requests another owner's backend, image or mount | Requests carry only `runtime_id`; resolution happens inside the caller's assignment; images and mounts come only from PostgreSQL |
-| Administrator assigns another owner's folder | Domain overlap invariant on source paths |
+| Administrator assigns a shared folder | Trusted administrators decide who shares each folder; assignment audit records include volume source, path, size and read-only settings |
 | Compromised or buggy API | No Kubernetes credentials; cannot read admin secrets or materials; what it writes is bounded by static admission when rendered |
 | Buggy controller | Static admission rejects privileged Pods, hostPath, unapproved PersistentVolume paths, foreign namespaces, unpinned images and token automount |
 | Compromised controller | Accepted (trusted). RBAC limits it to the namespace prefix, owned namespaces and PersistentVolume creation, without cluster-wide Secrets or role escalation |
@@ -567,7 +569,7 @@ Contexts use the same module names in every crate:
 
 | Type | Layer | Notes |
 | --- | --- | --- |
-| Rejections and `Problems` | domain | Stable snake_case codes, such as `mount_path_mismatch`, `volume_overlap`, `last_administrator`, `storage_migration_required`, `lease_not_live`; validation problems carry a JSON pointer |
+| Rejections and `Problems` | domain | Stable snake_case codes, such as `mount_path_mismatch`, `last_administrator`, `storage_migration_required`, `lease_not_live`; validation problems carry a JSON pointer |
 | `AppError { kind, code, problems }` | app | `kind` is one of `Invalid`, `Unauthenticated`, `Forbidden`, `NotFound`, `Conflict`, `Precondition`, `Pending`, `Unavailable` |
 | `StoreError` | store | `Conflict` (serialization failure, deadlock, unique violation) or `Unavailable`; never SQL text or URLs |
 | `ClusterError` | kube | `Rejected` (admission or validation), `Conflict` (a precondition or race lost) or `Unavailable` |
@@ -589,8 +591,7 @@ Triggers guard only against data corruption:
 - immutability of published versions, receipts, audit records and
   `namespace_uid`;
 - monotonic generations;
-- final lease and environment states;
-- source path overlap.
+- final lease and environment states.
 
 Each trigger names the domain rule it mirrors.
 

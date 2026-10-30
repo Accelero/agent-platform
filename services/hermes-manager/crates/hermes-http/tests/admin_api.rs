@@ -598,6 +598,12 @@ async fn assignments_commission_one_instance_and_changes_are_versioned(pool: PgP
         actions.contains(&"assignment.create".to_owned()),
         "{actions:?}"
     );
+    for event in audit.body["items"].as_array().unwrap() {
+        assert_eq!(
+            event["change"]["volumes"]["workspace"],
+            json!({"source": "nvme", "sizeGib": 10, "readOnly": false})
+        );
+    }
     let event_id = audit.body["items"][0]["id"].as_str().unwrap();
     let event = fixture
         .call(

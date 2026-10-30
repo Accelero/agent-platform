@@ -242,14 +242,6 @@ impl VolumeSpec {
             );
         }
     }
-
-    /// Two volumes refer to the same data or one contains the other.
-    pub fn overlaps(&self, other: &Self) -> bool {
-        match (&self.path, &other.path) {
-            (Some(a), Some(b)) => self.source == other.source && paths_overlap(a, b),
-            _ => false,
-        }
-    }
 }
 
 /// Paths inside the Hermes container that no volume may cover.
@@ -418,20 +410,6 @@ mod tests {
             }),
             ["unknown_storage_source"]
         );
-    }
-
-    #[test]
-    fn static_volumes_overlap_only_on_the_same_source() {
-        let volume = |source: &str, path: &str| VolumeSpec {
-            source: source.into(),
-            path: Some(path.into()),
-            size_gib: None,
-            read_only: false,
-        };
-        assert!(volume("nas", "bob").overlaps(&volume("nas", "bob/projects")));
-        assert!(volume("nas", "bob").overlaps(&volume("nas", "bob")));
-        assert!(!volume("nas", "bob").overlaps(&volume("nas", "bobby")));
-        assert!(!volume("nas", "bob").overlaps(&volume("host-data", "bob")));
     }
 
     #[test]

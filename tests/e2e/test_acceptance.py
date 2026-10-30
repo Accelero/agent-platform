@@ -62,9 +62,13 @@ def test_an_email_change_keeps_ownership_and_the_old_email_gets_nothing(platform
 
 
 @pytest.mark.security
-def test_another_owners_path_cannot_be_assigned(platform):
-    scenarios.another_owners_path_cannot_be_assigned(
-        platform.admin, platform.state.template, platform.state.terminal
+def test_owners_share_a_static_folder(platform):
+    scenarios.owners_share_a_static_folder(
+        platform.identifier,
+        platform.admin,
+        platform.assignments,
+        platform.state.template,
+        platform.state.terminal,
     )
 
 

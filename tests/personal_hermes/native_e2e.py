@@ -1415,7 +1415,7 @@ def published_versions_commission_ready_instances_from_the_api(
     a_missing_static_directory_blocks_without_a_substitute(
         identifier, admin, template, terminal
     )
-    another_owners_path_cannot_be_assigned(admin, template, terminal)
+    owners_share_a_static_folder(identifier, admin, assignments, template, terminal)
     two_owners_reach_their_own_native_instances_through_the_gateway(
         identifier, admin, ca, passwords, assignments
     )
@@ -1457,7 +1457,8 @@ def published_versions_commission_ready_instances_from_the_api(
         "PASS: chart install with operator Jobs; two owners commissioned and reached "
         "through the gateway with Keycloak; owner-pinned native login; denial "
         "without assignment or enrollment; a missing static directory blocks, then "
-        "recovers; overlapping paths refused; chat, settings precedence and the "
+        "recovers; static folders shared with independent read-only mounts; "
+        "chat, settings precedence and the "
         "admin secret only where referenced; uploads isolated per owner; a cron "
         "job fired without browser traffic and acquired a terminal; a second "
         "backend with the private home only there; idle workers retired; a backend "
@@ -1821,28 +1822,99 @@ def suspension_closes_open_connections_and_reenabling_keeps_data(
     assert again.headers["Location"].startswith("/_platform/login")
 
 
-def another_owners_path_cannot_be_assigned(admin, template, terminal):
-    """Carol's static path, or one inside it, is refused for anyone else, and
-    the refusal creates nothing."""
-    before = admin.call("GET", "/api/v1/assignments?limit=50").json()["items"]
-    for path in ("carol", "carol/inner"):
-        refused = admin.call(
-            "POST",
-            "/api/v1/assignments",
-            {
-                "identity": {"issuer": ISSUER, "subject": SUBJECTS["mallory"]},
-                "spec": {
-                    "access": "enabled",
-                    "template": {"id": "personal", "version": template},
-                    "volumes": {"workspace": {"source": "host", "path": path}},
-                    "terminal": terminal,
+def owners_share_a_static_folder(identifier, admin, assignments, template, terminal):
+    """Two real instances and a worker share Carol's existing local folder."""
+    receipt = admin.call(
+        "POST",
+        "/api/v1/assignments",
+        {
+            "identity": {"issuer": ISSUER, "subject": str(uuid.uuid4())},
+            "spec": {
+                "access": "enabled",
+                "template": {"id": "personal", "version": template},
+                "volumes": {
+                    "workspace": {"source": "host", "path": "carol", "readOnly": True}
                 },
+                "terminal": terminal,
             },
-            expected=(422,),
-        )
-        assert "volume_overlap" in refused.text, refused.text[:300]
-    after = admin.call("GET", "/api/v1/assignments?limit=50").json()["items"]
-    assert len(after) == len(before), "a refused assignment left something behind"
+        },
+    ).json()
+    wait(
+        lambda: admin.phase(receipt["instanceId"])["phase"] == "ready",
+        READY_TIMEOUT,
+        "shared read-only instance did not become ready",
+        interval=5,
+    )
+    events = admin.call(
+        "GET",
+        f"/api/v1/audit-events?targetKind=assignment&targetId={receipt['assignmentId']}",
+    ).json()["items"]
+    assert events[0]["change"]["volumes"]["workspace"] == {
+        "source": "host",
+        "path": "carol",
+        "readOnly": True,
+    }
+    uses = admin.call("GET", "/api/v1/volumes?source=host").json()["items"]
+    shared_uses = [use for use in uses if use.get("path") == "carol"]
+    assert {(use["assignmentId"], use["readOnly"]) for use in shared_uses} == {
+        (assignments["carol"]["assignmentId"], False),
+        (receipt["assignmentId"], True),
+    }
+    writable = admin.phase(assignments["carol"]["instanceId"])["namespace"]
+    readonly = admin.phase(receipt["instanceId"])["namespace"]
+    marker = secrets.token_hex(8)
+    instance_pod_exec(identifier, writable, f"printf {marker} > /workspace/e2e-drive")
+    assert instance_pod_exec(identifier, readonly, "cat /workspace/e2e-drive") == marker
+    # Invert the shell result so kubectl succeeds only when the write fails.
+    denied = instance_pod_exec(
+        identifier,
+        readonly,
+        "if touch /workspace/e2e-forbidden 2>/tmp/e2e-write-error; "
+        "then exit 1; fi; cat /tmp/e2e-write-error",
+    )
+    assert "Read-only file system" in denied, denied
+    script = (
+        PLUGIN_PRELUDE
+        + """
+worker = environment("", "e2e-shared-drive")
+result = worker.execute("cat /workspace/e2e-drive; "
+                        "printf worker > /workspace/e2e-worker-drive")
+worker.cleanup()
+print(json.dumps(result))
+"""
+    )
+    result = hermes_python(identifier, writable, script)
+    assert result["returncode"] == 0 and result["output"].strip() == marker, result
+    assert (
+        instance_pod_exec(identifier, readonly, "cat /workspace/e2e-worker-drive")
+        == "worker"
+    )
+    readonly_script = (
+        PLUGIN_PRELUDE
+        + """
+worker = environment("", "e2e-readonly-drive")
+result = worker.execute(
+    "cat /workspace/e2e-worker-drive; "
+    "if touch /workspace/e2e-worker-forbidden 2>/tmp/write-error; "
+    "then exit 1; fi; grep -q 'Read-only file system' /tmp/write-error")
+worker.cleanup()
+print(json.dumps(result))
+"""
+    )
+    result = hermes_python(identifier, readonly, readonly_script)
+    assert result["returncode"] == 0 and result["output"].strip() == "worker", result
+    pvs = json.loads(kubectl(identifier, "get", "pv", "-o", "json"))["items"]
+    shared = [
+        pv
+        for pv in pvs
+        if pv["spec"].get("local", {}).get("path") == "/srv/hermes-data/carol"
+    ]
+    assert len(shared) == 2 and len({pv["metadata"]["name"] for pv in shared}) == 2
+    assert {pv["spec"]["claimRef"]["namespace"] for pv in shared} == {
+        writable,
+        readonly,
+    }
+    assert all(pv["spec"]["accessModes"] == ["ReadWriteOnce"] for pv in shared)
 
 
 def namespaces(identifier):

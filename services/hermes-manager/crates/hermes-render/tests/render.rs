@@ -408,6 +408,70 @@ fn volumes_use_their_sources_and_mounts_follow_the_template() {
 }
 
 #[test]
+fn shared_static_paths_render_distinct_claims_and_independent_read_only_mounts() {
+    for source in ["host-data", "nas"] {
+        let mut first = desired();
+        first.definition.mounts.get_mut("home").unwrap().read_only = false;
+        first.volumes.get_mut("home").unwrap().source = source.into();
+        let mut second = first.clone();
+        second.instance_id = Uuid::from_u128(42);
+        second.assignment_id = Uuid::from_u128(43);
+        second.namespace = installation().instance_namespace(second.instance_id);
+        second.identity = identity("carol");
+        second.volumes.get_mut("home").unwrap().read_only = true;
+        let left = instance::render(
+            &config(),
+            &first,
+            &materials(),
+            &secrets("x"),
+            Workload::Run,
+        )
+        .unwrap();
+        let right = instance::render(
+            &config(),
+            &second,
+            &materials(),
+            &secrets("x"),
+            Workload::Run,
+        )
+        .unwrap();
+        let left_name = instance::volume_name(&first.namespace, "home");
+        let right_name = instance::volume_name(&second.namespace, "home");
+        assert_ne!(left_name, right_name);
+        let a = find(&left, "PersistentVolume", &left_name);
+        let b = find(&right, "PersistentVolume", &right_name);
+        assert_eq!(a["spec"]["local"], b["spec"]["local"]);
+        assert_eq!(a["spec"]["nfs"], b["spec"]["nfs"]);
+        if source == "nas" {
+            assert_eq!(a["spec"]["nfs"]["path"], "/export/homes/bob/home");
+            assert_eq!(a["spec"]["accessModes"], json!(["ReadWriteMany"]));
+        } else {
+            assert_eq!(a["spec"]["local"]["path"], "/srv/hermes-data/bob/home");
+            assert_eq!(a["spec"]["accessModes"], json!(["ReadWriteOnce"]));
+            assert_eq!(a["spec"]["nodeAffinity"], b["spec"]["nodeAffinity"]);
+        }
+        assert_ne!(a["spec"]["claimRef"], b["spec"]["claimRef"]);
+        for (objects, namespace, pv, read_only) in [
+            (&left, &first.namespace, left_name, false),
+            (&right, &second.namespace, right_name, true),
+        ] {
+            let pvc = find(objects, "PersistentVolumeClaim", "home");
+            assert_eq!(pvc["metadata"]["namespace"], *namespace);
+            assert_eq!(pvc["spec"]["volumeName"], pv);
+            let mounts =
+                find(objects, "Deployment", "hermes")["spec"]["template"]["spec"]["containers"][0]
+                    ["volumeMounts"]
+                    .as_array()
+                    .unwrap();
+            assert_eq!(
+                mounts.iter().find(|m| m["name"] == "home").unwrap()["readOnly"],
+                read_only
+            );
+        }
+    }
+}
+
+#[test]
 fn foreign_namespaces_and_identities_are_refused() {
     let mut foreign = desired();
     foreign.namespace = "kube-system".into();

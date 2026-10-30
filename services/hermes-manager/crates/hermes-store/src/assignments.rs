@@ -231,41 +231,4 @@ impl AssignmentTx for PgTx {
         }
         Ok(())
     }
-
-    async fn lock_source_volumes(
-        &mut self,
-        sources: &[String],
-        except: Option<Uuid>,
-    ) -> Result<Vec<hermes_core::domain::storage::VolumeSpec>, StoreError> {
-        let mut sorted = sources.to_vec();
-        sorted.sort();
-        sorted.dedup();
-        for source in &sorted {
-            sqlx::query(
-                "SELECT pg_advisory_xact_lock(hashtextextended('manager.volumes:' || $1, 0))",
-            )
-            .bind(source)
-            .execute(&mut *self.tx)
-            .await
-            .map_err(store_error)?;
-        }
-        let rows = sqlx::query(
-            "SELECT source, path, read_only FROM manager.assignment_volumes \
-             WHERE source = ANY($1) AND path IS NOT NULL AND assignment_id IS DISTINCT FROM $2",
-        )
-        .bind(&sorted)
-        .bind(except)
-        .fetch_all(&mut *self.tx)
-        .await
-        .map_err(store_error)?;
-        Ok(rows
-            .into_iter()
-            .map(|row| VolumeSpec {
-                source: row.get("source"),
-                path: row.get("path"),
-                size_gib: None,
-                read_only: row.get("read_only"),
-            })
-            .collect())
-    }
 }

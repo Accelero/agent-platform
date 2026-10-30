@@ -43,7 +43,6 @@ use crate::domain::materials::MaterialPurpose;
 use crate::domain::orphans::Orphan;
 use crate::domain::routing::RouteRow;
 use crate::domain::secrets::SecretKind;
-use crate::domain::storage::VolumeSpec;
 use crate::domain::templates::TemplateDefinition;
 
 type ReceiptKey = (String, &'static str, String);
@@ -408,22 +407,6 @@ impl AssignmentTx for MemTx {
             instance.execution_generation += 1;
         }
         Ok(())
-    }
-
-    async fn lock_source_volumes(
-        &mut self,
-        sources: &[String],
-        except: Option<Uuid>,
-    ) -> Result<Vec<VolumeSpec>, StoreError> {
-        Ok(self
-            .state
-            .assignments
-            .values()
-            .filter(|record| Some(record.id) != except)
-            .flat_map(|record| record.spec.volumes.values())
-            .filter(|volume| volume.path.is_some() && sources.contains(&volume.source))
-            .cloned()
-            .collect())
     }
 }
 

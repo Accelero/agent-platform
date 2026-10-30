@@ -240,30 +240,54 @@ async fn withdraw_template<S: Store + Clone>(store: &S, receipt: &VersionReceipt
         .expect("withdraw");
 }
 
-pub async fn owner_paths_never_overlap_even_concurrently<S: Store + Inspect + Clone>(store: S) {
+pub async fn owners_share_static_paths_even_concurrently<S: Store + Inspect + Clone>(store: S) {
     bootstrap(&store, "alice").await;
     published_catalog(&store).await;
-    create(&store, "bob", bob_spec()).await.unwrap();
-    let mut nested = bob_spec();
-    nested.volumes.get_mut("home").unwrap().path = Some("bob/projects".into());
-    let refused = create(&store, "mallory", nested).await.unwrap_err();
-    assert_eq!(
-        problems(refused),
-        [("/volumes/home".to_owned(), "volume_overlap")]
-    );
-
-    let shared = |subject: &'static str| {
+    let shared = |subject: &'static str, path: &'static str, read_only: bool| {
         let mut spec = bob_spec();
-        spec.volumes.get_mut("home").unwrap().path = Some("shared".into());
+        let home = spec.volumes.get_mut("home").unwrap();
+        home.path = Some(path.into());
+        home.read_only = read_only;
         let store = store.clone();
-        async move { create(&store, subject, spec).await }
+        async move { create(&store, subject, spec).await.unwrap() }
     };
-    let (first, second) = join(shared("carol"), shared("dave")).await;
-    assert_eq!(
-        [&first, &second].iter().filter(|r| r.is_ok()).count(),
-        1,
-        "{first:?} {second:?}"
-    );
+    let (first, second) = join(
+        shared("bob", "shared", false),
+        shared("carol", "shared", true),
+    )
+    .await;
+    let (third, fourth) = join(
+        shared("dave", "shared/inner", true),
+        shared("erin", "shared", false),
+    )
+    .await;
+    for (left, right) in [(first, second), (third, fourth)] {
+        let change = |read_only| {
+            let mut volumes = bob_spec().volumes;
+            let home = volumes.get_mut("home").unwrap();
+            home.path = Some("shared/inner".into());
+            home.read_only = read_only;
+            AssignmentChanges {
+                volumes: Some(volumes),
+                ..Default::default()
+            }
+        };
+        let (left, right) = join(
+            update(&store, &left, change(false)),
+            update(&store, &right, change(true)),
+        )
+        .await;
+        assert_eq!(left.unwrap().version, 2);
+        assert_eq!(right.unwrap().version, 2);
+    }
+    for (subject, path) in [("mallory", "bob"), ("frank", "bob/inner")] {
+        let mut shared = bob_spec();
+        let mut scratch = shared.volumes["home"].clone();
+        scratch.path = Some(path.into());
+        scratch.read_only = true;
+        shared.volumes.insert("scratch".into(), scratch);
+        create(&store, subject, shared).await.unwrap();
+    }
 }
 
 pub async fn updates_need_the_current_version_and_advance_generations<
@@ -370,7 +394,6 @@ pub async fn mount_rules_are_enforced_when_saving<S: Store + Inspect + Clone>(st
     assert_eq!(
         problems(refused),
         [
-            ("/volumes/scratch".to_owned(), "volume_overlap"),
             (
                 "/terminal/allowed/moved-tools/workspace".to_owned(),
                 "mount_path_mismatch"

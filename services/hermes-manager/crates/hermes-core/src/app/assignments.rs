@@ -18,7 +18,7 @@ use super::settings::Settings;
 use crate::domain::Problem;
 use crate::domain::access::Permission;
 use crate::domain::assignments::{
-    Access, AssignmentRejected, AssignmentSpec, TerminalGrant, overlapping, storage_change,
+    Access, AssignmentRejected, AssignmentSpec, TerminalGrant, storage_change,
 };
 use crate::domain::backends::BackendDefinition;
 use crate::domain::catalog::{CatalogKind, CatalogRejected, VersionRef, selectable};
@@ -82,20 +82,6 @@ async fn check<T: Tx>(
     }
     problems.extend(check_secret_uses(tx, &reference_uses(&next.secrets, "/secrets")).await?);
 
-    let sources: BTreeSet<String> = next
-        .volumes
-        .values()
-        .filter(|volume| volume.path.is_some())
-        .map(|volume| volume.source.clone())
-        .collect();
-    let sources: Vec<String> = sources.into_iter().collect();
-    let others = tx
-        .lock_source_volumes(&sources, current.map(|record| record.id))
-        .await?;
-    if let Err(found) = overlapping(&next.volumes, others.iter()) {
-        problems.extend(found);
-    }
-
     if let Some(current) = current_spec {
         if let Err(found) = storage_change(&current.volumes, &next.volumes, &settings.sources) {
             problems.extend(found);
@@ -128,7 +114,7 @@ struct Change<'a> {
     version: i64,
     access: &'a str,
     template: &'a VersionRef,
-    volumes: Vec<&'a String>,
+    volumes: &'a BTreeMap<String, VolumeSpec>,
     backends: Vec<&'a String>,
 }
 
@@ -137,7 +123,7 @@ fn change(record: &AssignmentRecord) -> Change<'_> {
         version: record.version,
         access: record.spec.access.as_str(),
         template: &record.spec.template,
-        volumes: record.spec.volumes.keys().collect(),
+        volumes: &record.spec.volumes,
         backends: record.spec.terminal.allowed.keys().collect(),
     }
 }

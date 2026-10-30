@@ -68,7 +68,7 @@ Not in scope:
 | R1 | Keycloak authenticates identities. PostgreSQL in the manager is the only source of assignments, templates, terminal backends, volumes, admin secrets and administrator grants. |
 | R2 | Only an explicit administrator command enables an assignment. Login, group membership or directory presence never enroll anyone. |
 | R3 | Enabling an assignment converges to exactly one instance for that identity, including under concurrent commands and restarts. |
-| R4 | Every instance has independent storage, native session keys, model authentication and execution credentials. A new instance inherits nothing from another owner. |
+| R4 | Every instance has a private home, native session keys, model authentication and execution credentials. A new instance inherits no private state from another owner; administrators may explicitly share static folders. |
 | R5 | One hostname routes by verified `(issuer, subject)`. A missing, disabled, unknown or foreign assignment is denied, with no fallback to any other backend. |
 | R6 | Native Hermes chat, settings, history, uploads, HTTP mutations and WebSockets work through the gateway. Native authentication stays enabled and verifies the exact owner. |
 | R7 | The dashboard uses only the administration API. The API without the dashboard supports every administration workflow. |
@@ -77,7 +77,7 @@ Not in scope:
 | R10 | Admin settings take precedence over the user's settings. Settings an administrator does not set stay editable by the user. Platform-enforced settings cannot be overridden by anyone. |
 | R11 | An admin secret value is delivered only to the instances whose template or assignment references it, and is never returned by any API or shown in the dashboard after it is written. |
 | R12 | An instance can use only the terminal backends its assignment allows. A user can choose any allowed backend per Hermes profile; an unknown or disallowed choice fails without fallback. Image, resources and mounts come only from manager records. |
-| R13 | Volumes can only come from installation-approved storage sources. Volume paths of different instances never overlap. Users cannot add, widen or redirect mounts. The private Hermes home is never mounted in a terminal backend. |
+| R13 | Volumes can only come from installation-approved storage sources. Volumes within or across assignments may share identical or nested static paths, each with its own read-only setting. Users cannot add, widen or redirect mounts. The private Hermes home is never mounted in a terminal backend. |
 | R14 | A volume mounted in both Hermes and a terminal backend has the same mount path and the same data identity (UID/GID) in both, so files and paths agree. |
 | R15 | Only the manager controller holds Kubernetes credentials. Its rights are limited to owned namespaces and approved storage by RBAC and static admission policies that the chart installs and the controller cannot change. |
 | R16 | Each enabled instance runs one Hermes replica continuously. Terminal backends start on demand and have independent lifetimes. |
@@ -211,8 +211,17 @@ The rules for volumes:
 
 - **Paths.** A volume from a `localPath` or `nfs` source names a relative
   path inside the root. Absolute paths, `..`, empty segments and control
-  characters are rejected. Two instances' volume paths on the same source never
-  overlap (neither may be a prefix of the other).
+  characters are rejected. Volumes within or across assignments may use equal
+  or nested paths, independently marked read-only or writable. Read-only applies
+  to each mount; a writable alias of the same data permits writes.
+- **Sharing.** Administrators decide which folders assignments share; changes
+  to volume source, path, size and read-only settings are audited. All containers
+  use the data identity (UID/GID 1000), so shared writable folders have no
+  per-user permission separation. Concurrent writers are the workload's
+  responsibility. Local-path sharing is single-node; NFS supports consumers
+  across nodes. Static source roots must not contain a provisioner root or
+  other private instance data: administrators can assign any path within them.
+  Dynamic volumes remain per-assignment and cannot be shared.
 - **Existing data.** Static volumes (`localPath`, `nfs`) refer to existing
   directories. The deployment creates them, owned by the installation's data
   identity. The manager never creates, chowns or deletes host directories. A
@@ -497,7 +506,7 @@ restorable:
 | Suspend during an open chat and during provisioning | New access denied within 5 s, connection closed within 10 s, terminal work drained, data retained |
 | Re-enable after revoke | Same instance ID, same data and credentials |
 | Admin setting and admin secret | Enforced over the user's setting; the user's other settings unchanged; secret delivered only to referencing instances and never returned by the API |
-| Bob's example assignment | `/workspace` shows the same files in Hermes and both backends; `homes/bob` appears only in `python-tools`; another owner's path cannot be assigned to Bob (overlap rejected) |
+| Bob's example assignment | `/workspace` shows the same files in Hermes and both backends; `homes/bob` appears only in `python-tools`; administrators can share a static folder between owners with independent read-only settings; volumes within one assignment may also share equal or nested paths |
 | Missing static volume directory | Volume blocked with a condition; no empty-directory substitute |
 | User requests a disallowed backend or edits profile YAML | Denied without fallback; no image or mount change |
 | Custom backend image and private registry | Runs with the registry secret; pull or contract failure reported without fallback |

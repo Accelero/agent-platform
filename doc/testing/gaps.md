@@ -340,7 +340,8 @@ overall percentage. Rust domain properties remain Rust tests.
 
 **P1 · Extend existing Rust shared cases/process tests; Python for black-box races · R1–R4, R9, R17, R18.**
 
-Current: shared same-key/enrollment/last-admin/overlap races, SQL guards and API
+Current: shared same-key/enrollment/last-admin races, concurrent equal and
+nested static sharing within and across assignments, SQL guards and API
 before/after-commit aborts already exist. Do not replace them with weaker HTTP
 smokes. Database pause is not a database crash-and-durable-restart test. Four
 shared lease-race cases now run on both stores: revocation racing concurrent
@@ -606,8 +607,9 @@ a client configured to ignore TLS errors.
 
 **P1 · Add k3d dependency/E2E profiles · R8, R9, R13, R14, R16.**
 
-Current: source validation/rendering, static overlap races, real local workspace
-sharing and missing-directory recovery exist. There is no live NFS fixture or
+Current: source validation/rendering, concurrent equal and nested static sharing
+within and across assignments, real local workspace sharing and missing-directory
+recovery exist. There is no live NFS fixture or
 multi-node mounted-data/read-only matrix.
 
 A first multi-node attempt showed the interaction G16 must test: with a

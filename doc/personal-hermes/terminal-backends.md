@@ -88,8 +88,8 @@ that.
 
 Saving the assignment validates three things:
 
-- every volume source and path is approved and does not overlap another
-  instance's path;
+- every volume source and path is approved; static paths may be shared
+  within or across assignments;
 - every required slot of every allowed backend is bound;
 - each volume mounted both in Hermes (through the template) and in a backend
   uses the same path in both.

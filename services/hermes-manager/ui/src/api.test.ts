@@ -127,8 +127,8 @@ describe("administration client", () => {
             error: "invalid_configuration",
             problems: [
               {
-                pointer: "/volumes/home/path",
-                code: "volume_overlap",
+                pointer: "/mounts/home/mountPath",
+                code: "overlapping_path",
                 severity: "error",
               },
               { pointer: "/x", code: "Not A Code <script>", severity: "error" },
@@ -141,7 +141,9 @@ describe("administration client", () => {
     const error = (await api.session().catch((e: unknown) => e)) as ApiError;
     expect(error.code).toBe("invalid_configuration");
     expect(error.problems).toHaveLength(1);
-    expect(error.problems[0].message).toContain("overlaps");
+    expect(error.problems[0].message).toBe(
+      "Two container mount paths overlap.",
+    );
   });
   it("validates drafts with the CSRF token", async () => {
     const fetch = vi

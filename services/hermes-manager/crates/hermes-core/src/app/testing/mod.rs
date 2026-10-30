@@ -177,7 +177,7 @@ macro_rules! contract_tests {
             concurrent_enables_for_one_identity_commission_one_instance,
             missing_volumes_default_from_the_template,
             only_published_versions_can_be_newly_selected,
-            owner_paths_never_overlap_even_concurrently,
+            owners_share_static_paths_even_concurrently,
             updates_need_the_current_version_and_advance_generations,
             mount_rules_are_enforced_when_saving,
             secrets_are_sealed_versions_with_a_fixed_kind,

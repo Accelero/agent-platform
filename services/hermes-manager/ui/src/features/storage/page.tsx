@@ -51,8 +51,9 @@ export function StoragePage() {
     <>
       <p>
         Storage sources come from the installation's Helm values and cannot be
-        changed here. Volumes from different assignments never overlap, and
-        users cannot mount anything else.
+        changed here. Administrators can share static folders between
+        assignments with independent read-only settings. Users cannot add or
+        redirect mounts.
       </p>
       <ReadState pending={sources.isPending} error={sources.error}>
         {sources.data && (

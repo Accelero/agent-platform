@@ -30,7 +30,7 @@ backends chosen by an administrator.
   private registries, reports pull, start and contract failures instead of
   falling back, and retires idle workers.
 - **Storage from approved sources.** Storage classes, local paths on a node and
-  NFS exports, declared by the operator. Paths never overlap between people. A
+  NFS exports, declared by the operator. Administrators can share static folders between people. A
   shared workspace has the same path in Hermes and in the workers; the private
   home is never mounted in a worker.
 - **Safe lifecycle.** Suspending or revoking someone denies new access within

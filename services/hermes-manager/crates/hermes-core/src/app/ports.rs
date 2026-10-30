@@ -13,7 +13,6 @@ use crate::domain::catalog::{CatalogKind, VersionStatus};
 use crate::domain::identity::Identity;
 use crate::domain::installation::Installation;
 use crate::domain::secrets::SecretKind;
-use crate::domain::storage::VolumeSpec;
 
 /// Opens short transactions. Implementations must not hold a transaction open
 /// across an external call; the application never asks them to.
@@ -198,14 +197,6 @@ pub trait AssignmentTx: Send {
     /// execution generation too.
     async fn advance_instance(&mut self, instance: Uuid, execution: bool)
     -> Result<(), StoreError>;
-
-    /// Serializes volume changes on these sources until commit, then returns
-    /// the static volumes of every other assignment on them.
-    async fn lock_source_volumes(
-        &mut self,
-        sources: &[String],
-        except: Option<Uuid>,
-    ) -> Result<Vec<VolumeSpec>, StoreError>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

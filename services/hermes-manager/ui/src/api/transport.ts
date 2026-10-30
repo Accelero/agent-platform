@@ -72,8 +72,7 @@ const messages: Record<string, string> = {
     "Published and withdrawn versions are immutable. Create the next version instead.",
 };
 const problemMessages: Record<string, string> = {
-  volume_overlap: "This path overlaps a volume owned by another assignment.",
-  overlapping_path: "Two volumes of this assignment overlap.",
+  overlapping_path: "Two container mount paths overlap.",
   mount_slot_unbound:
     "A required mount slot of an allowed terminal backend has no volume.",
   mount_path_mismatch:

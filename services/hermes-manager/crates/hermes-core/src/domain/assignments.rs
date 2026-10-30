@@ -154,12 +154,6 @@ impl AssignmentSpec {
             }
             spec.validate(sources, &volume(name), &mut problems);
         }
-        let names: Vec<_> = self.volumes.iter().collect();
-        for (index, (name, spec)) in names.iter().enumerate() {
-            if names[..index].iter().any(|(_, other)| spec.overlaps(other)) {
-                problems.add(volume(name), "volume_overlap");
-            }
-        }
         for name in template.mounts.keys() {
             problems.check(
                 self.volumes.contains_key(name),
@@ -211,27 +205,6 @@ impl AssignmentSpec {
     pub fn execution_changed(&self, next: &Self) -> bool {
         self.volumes != next.volumes || self.terminal != next.terminal
     }
-}
-
-/// Volumes of an instance that overlap other instances' volumes.
-pub fn overlapping<'a>(
-    volumes: &BTreeMap<String, VolumeSpec>,
-    others: impl IntoIterator<Item = &'a VolumeSpec> + Clone,
-) -> Result<(), Vec<Problem>> {
-    let mut problems = Problems::default();
-    for (name, volume) in volumes {
-        if others
-            .clone()
-            .into_iter()
-            .any(|other| volume.overlaps(other))
-        {
-            problems.add(
-                format!("/volumes/{}", pointer_segment(name)),
-                "volume_overlap",
-            );
-        }
-    }
-    problems.into_result()
 }
 
 /// Existing dynamic volumes keep their source and never shrink; a volume
@@ -365,17 +338,24 @@ mod tests {
     }
 
     #[test]
-    fn owners_cannot_overlap_and_dynamic_volumes_never_move_or_shrink() {
-        let alice = VolumeSpec {
-            source: "nas".into(),
-            path: Some("bob/shared".into()),
-            size_gib: None,
-            read_only: false,
-        };
-        assert_eq!(
-            codes(overlapping(&spec().volumes, [&alice])),
-            [("/volumes/home".to_owned(), "volume_overlap")]
-        );
+    fn static_paths_can_be_equal_or_nested_within_and_across_assignments() {
+        for path in ["bob", "bob/projects"] {
+            let mut other = spec();
+            other.volumes.get_mut("home").unwrap().path = Some(path.into());
+            assert_eq!(
+                spec().validate(&template(), &backends(), &sources()),
+                Ok(())
+            );
+            assert_eq!(other.validate(&template(), &backends(), &sources()), Ok(()));
+            other
+                .volumes
+                .insert("scratch".into(), spec().volumes["home"].clone());
+            assert_eq!(other.validate(&template(), &backends(), &sources()), Ok(()));
+        }
+    }
+
+    #[test]
+    fn dynamic_volumes_never_move_or_shrink() {
         let mut smaller = spec();
         smaller.volumes.get_mut("workspace").unwrap().size_gib = Some(5);
         assert_eq!(

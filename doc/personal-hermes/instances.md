@@ -234,8 +234,13 @@ An assignment defines the instance's volumes by name:
   source root. The controller creates a `Retain` PersistentVolume pointing at
   `root/path` (with node affinity for `localPath`) and a PVC bound to it.
 - **Path rules.** Paths are clean relative paths: no leading `/`, no `.` or
-  `..`, no empty segments. Two instances' paths on one source never overlap,
-  so `bob` and `bob/projects` cannot belong to different instances.
+  `..`, no empty segments. Volumes within or across assignments may use equal or nested static paths,
+  with independent read-only settings. Administrators decide which folders are
+  shared. Writable shared folders have no per-user permission separation;
+  workloads coordinate concurrent writers. Local-path sharing is single-node,
+  while NFS supports consumers across nodes. Keep provisioner roots and private
+  instance data outside approved static roots. The private home stays dynamic
+  and private; dynamic volumes cannot be shared.
 - **Missing folders.** A missing or inaccessible folder blocks the instance:
   its status is `blocked` with `storage_unavailable` and the storage condition
   `mount_failed`, taken from the kubelet's mount failure. It is never replaced

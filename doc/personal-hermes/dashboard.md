@@ -154,9 +154,9 @@ markup.
 - **Never shown.** Private user configuration, secret values and command
   content.
 - **Validation before saving.** When editing an assignment, the dashboard
-  validates source paths for overlap with other instances, required mount
+  validates approved sources and clean relative paths, required mount
   slots and mount paths shared between Hermes and backends. It shows the
-  server's errors (`volume_overlap`, `mount_slot_unbound`,
+  server's errors (`mount_slot_unbound`,
   `mount_path_mismatch`) on the affected fields.
 
 ## Templates, publication and rollout
