@@ -2325,9 +2325,11 @@ print(json.dumps(result))
     home = instance_pod_exec(
         identifier,
         namespace,
-        "id -u; id -g; stat -c '%u:%g' /opt/data; test ! -e /drive",
+        "id -u; id -g; stat -c '%g' /opt/data; test -w /opt/data; test ! -e /drive",
     )
-    assert home.split() == ["1000", "1000", "1000:1000"], home
+    # `fsGroup` gives the home root the data GID; its owner is whatever the
+    # storage source created (root for local-path), so only the group is pinned.
+    assert home.split() == ["1000", "1000", "1000"], home
     failure_script = (
         PLUGIN_PRELUDE
         + """

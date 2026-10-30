@@ -247,7 +247,9 @@ The rules for volumes:
   so, or if the assignment marks the volume read-only. Assignments can only
   restrict access.
 - **Data identity.** Hermes containers and the private home use the
-  installation's data UID/GID, by default `1000:1000`. A backend version declares
+  installation's data UID/GID, by default `1000:1000`. The home's group is the
+  data GID through `fsGroup` and it is writable by the data UID; the owner of its
+  root is whatever the storage source created. A backend version declares
   its workers' UID and GID, each from 1 through 4294967294. There is no
   installation allow-list; users and agents cannot choose the identity. Volumes
   mounted by both sides are reliably usable with equal identities; with
