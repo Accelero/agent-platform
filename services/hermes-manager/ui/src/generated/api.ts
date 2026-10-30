@@ -621,6 +621,7 @@ export interface components {
     Problem: {
       /** @description JSON pointer into the submitted document */
       pointer: string;
+      /** @description A stable machine-readable code such as `unknown_secret`, `wrong_secret_kind` or `unknown_storage_source`; the set can grow */
       code: string;
       /** @enum {string} */
       severity: "error";
@@ -1173,7 +1174,7 @@ export interface components {
     };
   };
   parameters: {
-    /** @description One intended change. Repeating it with the same body returns the original result. */
+    /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
     IdempotencyKey: string;
     IfMatch: string;
     /** @description Required for browser-session mutations; ignored for bearer requests */
@@ -1413,7 +1414,7 @@ export interface operations {
     parameters: {
       query?: never;
       header: {
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -1474,7 +1475,7 @@ export interface operations {
       query?: never;
       header: {
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -1546,7 +1547,7 @@ export interface operations {
       query?: never;
       header: {
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -1571,6 +1572,7 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       412: components["responses"]["Stale"];
+      422: components["responses"]["Invalid"];
       503: components["responses"]["Unavailable"];
     };
   };
@@ -1578,7 +1580,7 @@ export interface operations {
     parameters: {
       query?: never;
       header: {
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -1767,7 +1769,7 @@ export interface operations {
     parameters: {
       query?: never;
       header: {
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -1830,7 +1832,7 @@ export interface operations {
       query?: never;
       header: {
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -1869,7 +1871,7 @@ export interface operations {
       query?: never;
       header: {
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -1904,7 +1906,7 @@ export interface operations {
       query?: never;
       header: {
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -1931,6 +1933,7 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       412: components["responses"]["Stale"];
+      422: components["responses"]["Invalid"];
     };
   };
   listTerminalBackends: {
@@ -2022,7 +2025,7 @@ export interface operations {
     parameters: {
       query?: never;
       header: {
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -2085,7 +2088,7 @@ export interface operations {
       query?: never;
       header: {
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -2124,7 +2127,7 @@ export interface operations {
       query?: never;
       header: {
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -2159,7 +2162,7 @@ export interface operations {
       query?: never;
       header: {
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -2186,6 +2189,7 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       412: components["responses"]["Stale"];
+      422: components["responses"]["Invalid"];
     };
   };
   listStorageSources: {
@@ -2267,7 +2271,7 @@ export interface operations {
     parameters: {
       query?: never;
       header: {
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -2303,7 +2307,7 @@ export interface operations {
       query?: never;
       header: {
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -2329,6 +2333,7 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       412: components["responses"]["Stale"];
+      422: components["responses"]["Invalid"];
     };
   };
   listAdministrators: {
@@ -2361,7 +2366,7 @@ export interface operations {
     parameters: {
       query?: never;
       header: {
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -2421,7 +2426,7 @@ export interface operations {
       query?: never;
       header: {
         "If-Match": components["parameters"]["IfMatch"];
-        /** @description One intended change. Repeating it with the same body returns the original result. */
+        /** @description One intended change. Repeating it with the same body returns the original result; the same command with a different body is a conflict. A key is scoped to the actor and the command, so the same key sent to another command is a separate change. */
         "Idempotency-Key": components["parameters"]["IdempotencyKey"];
         /** @description Required for browser-session mutations; ignored for bearer requests */
         "X-CSRF-Token"?: components["parameters"]["Csrf"];
@@ -2451,6 +2456,7 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       412: components["responses"]["Stale"];
+      422: components["responses"]["Invalid"];
     };
   };
   listAdministratorCandidates: {
