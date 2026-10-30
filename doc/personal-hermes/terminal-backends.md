@@ -30,16 +30,25 @@ published versions:
 
 - **Image.** The image is pinned by digest. Custom images must implement
   `managed-ssh-v2`:
-  - non-root user `worker` with the installation data UID/GID;
+  - non-root user `worker` with the version's declared UID/GID;
   - SSH on port 2222;
   - the authorized key at `/etc/ssh/authorized_keys/worker`;
   - the provisioned host key at `/etc/ssh/hostkeys/ssh_host_ed25519_key`;
   - shell and file transfer.
 
   The repository's `agent-runtime` image implements this contract.
-- **UID and GID.** They must equal the installation's data identity
-  (default `1000:1000`), so files on shared volumes stay usable from Hermes
-  and the shell. Versions with other values are rejected.
+- **UID and GID.** Each is an integer from 1 through 4294967294. The
+  administrator chooses them in the backend version; no installation allow-list
+  applies, and neither user nor agent can override them. They must match the
+  image's `worker` user. Hermes and its private home keep the data identity.
+  Shared volumes are reliably usable with equal identities; different identities
+  follow ordinary Unix permissions and may fail. There is no mapping or warning.
+  Use backend-only volumes to give an agent another identity.
+
+  Build `runtimes/agent-runtime/Dockerfile` with
+  `--build-arg HOST_UID=<uid> --build-arg HOST_GID=<gid>`, or derive from
+  `agent-runtime` and recreate the `worker` user with those IDs. The release
+  provides one default image; no additional identity variants are published.
 - **Mount slots.** Each slot names a volume and the path where it appears in
   the container. The assignment decides which actual volume fills the slot.
   A slot is required unless it is marked `optional`. If a required slot is
@@ -55,7 +64,7 @@ the instance's environments in the dashboard:
 | --- | --- |
 | `image_unavailable` | The image cannot be pulled: wrong reference or digest, or missing registry credentials |
 | `start_failed` | The container exits or keeps crashing |
-| `contract_failed` | The worker breaks the SSH contract: wrong host key, the instance's key refused, or the shell not running as the data identity |
+| `contract_failed` | The worker breaks the SSH contract: wrong host key, the instance's key refused, or the shell not running as the declared UID, or the image lacking the matching `worker` user |
 
 Hermes receives `422 backend_failed` for that environment. Correct the
 registry secret, or publish a corrected version and select it in the

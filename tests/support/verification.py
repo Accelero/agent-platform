@@ -221,7 +221,7 @@ def rust_level(target, name):
             "the_real_initializer_receipt_verifies_for_exactly_its_owner_and_key"
         )
         or name.endswith(
-            "a_worker_is_ready_only_with_its_pinned_host_key_and_the_data_identity"
+            "a_worker_is_ready_only_with_its_pinned_host_key_and_the_declared_identity"
         )
         or name.endswith("unusable_inputs_and_unreachable_workers_are_not_ready_yet")
     ):

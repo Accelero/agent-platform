@@ -450,7 +450,7 @@
       "hermes-core/lib:hermes_core::domain::assignments::tests::mounts_must_be_bound_and_shared_paths_must_agree": "unit",
       "hermes-core/lib:hermes_core::domain::assignments::tests::dynamic_volumes_never_move_or_shrink": "unit",
       "hermes-core/lib:hermes_core::domain::assignments::tests::template_defaults_fill_only_missing_volumes": "unit",
-      "hermes-core/lib:hermes_core::domain::backends::tests::backends_must_match_the_data_identity_and_contract": "unit",
+      "hermes-core/lib:hermes_core::domain::backends::tests::backends_require_non_root_identities_and_the_ssh_contract": "unit",
       "hermes-core/lib:hermes_core::domain::catalog::tests::drafts_edit_publish_and_withdraw_in_order": "unit",
       "hermes-core/lib:hermes_core::domain::catalog::tests::only_published_versions_are_selectable": "unit",
       "hermes-core/lib:hermes_core::domain::execution::tests::a_failing_worker_drains_with_its_reason_and_is_never_replaced": "unit",
@@ -592,7 +592,7 @@
       "hermes-native/lib:hermes_native::receipt::tests::canonical_json_sorts_keys_and_keeps_unicode": "unit",
       "hermes-native/lib:hermes_native::receipt::tests::the_real_initializer_receipt_verifies_for_exactly_its_owner_and_key": "integration",
       "hermes-native/lib:hermes_native::sealing::tests::only_the_controller_key_opens_and_only_for_the_same_secret": "unit",
-      "hermes-native/lib:hermes_native::ssh::tests::a_worker_is_ready_only_with_its_pinned_host_key_and_the_data_identity": "integration",
+      "hermes-native/lib:hermes_native::ssh::tests::a_worker_is_ready_only_with_its_pinned_host_key_and_the_declared_identity": "integration",
       "hermes-native/lib:hermes_native::ssh::tests::host_keys_must_be_ed25519_lines": "unit",
       "hermes-native/lib:hermes_native::ssh::tests::unusable_inputs_and_unreachable_workers_are_not_ready_yet": "integration",
       "hermes-proxy/lib:hermes_proxy::cache::tests::values_are_served_for_their_ttl_only_and_the_size_is_bounded": "unit",
@@ -719,7 +719,8 @@
       "hermes-kube/test:cluster::dynamic_claims_bind_when_the_scheduler_places_the_hermes_pod": "integration",
       "hermes-kube/test:cluster::leader_election_has_one_holder_at_a_time": "integration",
       "hermes-kube/test:cluster::the_controller_applies_an_instance_idempotently_under_admission": "integration",
-      "hermes-kube/test:cluster::the_controller_commissions_and_stops_an_instance_through_the_real_api": "integration"
+      "hermes-kube/test:cluster::the_controller_commissions_and_stops_an_instance_through_the_real_api": "integration",
+      "hermes-kube/test:admission::worker_identities_are_non_root_and_hermes_keeps_the_data_identity": "integration"
     },
     "rust-controller": {
       "hermes-manager/test:controller_process::a_controller_with_a_different_sealing_key_exits_before_acting": "integration",
@@ -1034,7 +1035,8 @@
       "tests/e2e/test_unknown_resources.py::test_an_identifier_that_names_nothing_is_not_found_and_changes_nothing[withdrawTerminalBackend-malformed]": "e2e",
       "tests/e2e/test_unknown_resources.py::test_an_identifier_that_names_nothing_is_not_found_and_changes_nothing[withdrawTerminalBackend-unknown]": "e2e",
       "tests/e2e/test_unknown_resources.py::test_the_set_of_addressed_operations_is_the_contracts": "e2e",
-      "tests/e2e/test_worker_loss.py::test_a_worker_lost_mid_command_is_not_replayed_or_replaced_and_keeps_its_data": "e2e"
+      "tests/e2e/test_worker_loss.py::test_a_worker_lost_mid_command_is_not_replayed_or_replaced_and_keeps_its_data": "e2e",
+      "tests/e2e/test_acceptance.py::test_a_backend_identity_controls_its_workers_and_keeps_the_hermes_home_private": "e2e"
     },
     "python-destructive": {
       "tests/e2e/test_execution.py::test_a_backend_change_keeps_active_leases_and_drains_superseded_environments": "e2e",

@@ -33,7 +33,7 @@ reference.
 | `hermes-manager-controller` Deployment and ServiceAccount | Leader-elected reconciliation. The only Pod with a Kubernetes token |
 | `hermes-gateway` Deployment and Service | The Hermes hostname: sign-in, routing and proxying (8443). No Kubernetes token |
 | Controller RBAC | Cluster rights to create instance namespaces and static volumes and to bind the instance role; the instance role; its leader Lease |
-| ValidatingAdmissionPolicies | The installation's static policies, with storage roots, data identity and names rendered in as literals. They mirror `hermes-render`; the chart tests compare them |
+| ValidatingAdmissionPolicies | The installation's static policies, with storage roots, Hermes data identity and names rendered in as literals. Worker Pods use the non-zero UID/GID declared by their backend version. They mirror `hermes-render`; the chart tests compare them |
 | NetworkPolicies | The resolver admits only the gateway, the execution API only instance Hermes Pods, the controller nothing |
 
 Each role reads one existing Secret, mounted read-only at
@@ -96,3 +96,9 @@ Releases. Select the chart's SemVer version or OCI digest and deploy it with its
 own image defaults. The controller runs one active replica by leader election;
 `api` and `gateway` can run several. Source charts carry the `0.0.0`
 development placeholder until a release sets the version.
+
+`hermesManager.dataIdentity` is the identity of every Hermes container and the
+default for workers unless a backend declares another non-zero UID/GID. Backend
+identities have no installation allow-list. Shared-volume access with different
+identities follows Unix permissions; backend-only volumes support another
+identity. The private Hermes home stays at the data identity.

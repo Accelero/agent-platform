@@ -1434,6 +1434,9 @@ def published_versions_commission_ready_instances_from_the_api(
     bobs_backends_share_the_workspace_and_idle_workers_retire(
         identifier, admin, assignments
     )
+    a_backend_identity_controls_its_workers_and_keeps_the_hermes_home_private(
+        identifier, admin, template, worker
+    )
     a_backend_change_keeps_active_leases_and_drains_superseded_environments(
         identifier, admin, assignments, worker, versions
     )
@@ -2241,6 +2244,115 @@ def bobs_backends_share_the_workspace_and_idle_workers_retire(
     assert hermes_pod(identifier, namespace) == pod, "an idle worker restarted Hermes"
     kept = instance_pod_exec(identifier, namespace, "cat /workspace/e2e-shared")
     assert kept == shared, "the workspace changed"
+
+
+def a_backend_identity_controls_its_workers_and_keeps_the_hermes_home_private(
+    identifier, admin, template, worker
+):
+    """A backend-only folder belongs to its worker identity; mismatches fail."""
+    with tempfile.TemporaryDirectory(prefix="hermes-other-identity-") as temporary:
+        image = import_worker_image(identifier, temporary, uid=2000, gid=3000)
+    folder = "other-user-" + uuid.uuid4().hex[:8]
+    command(
+        [
+            "docker",
+            "exec",
+            identifier,
+            "sh",
+            "-c",
+            f"mkdir /srv/hermes-data/{folder} && "
+            f"chown 2000:3000 /srv/hermes-data/{folder} && "
+            f"chmod 700 /srv/hermes-data/{folder}",
+        ]
+    )
+    definition = {
+        **worker,
+        "uid": 2000,
+        "gid": 3000,
+        "limits": {"idleSeconds": 60, "maxLeaseSeconds": 900, "maxEnvironments": 2},
+        "mounts": {"drive": {"mountPath": "/drive"}},
+    }
+    good = admin.publish("terminal-backends", folder, {**definition, "image": image})
+    bad_id = folder + "-bad"
+    bad = admin.publish("terminal-backends", bad_id, definition)
+    receipt = admin.call(
+        "POST",
+        "/api/v1/assignments",
+        {
+            "identity": {"issuer": ISSUER, "subject": str(uuid.uuid4())},
+            "spec": {
+                "access": "enabled",
+                "template": {"id": "personal", "version": template},
+                "volumes": {"drive": {"source": "host", "path": folder}},
+                "terminal": {"default": folder, "allowed": {folder: good, bad_id: bad}},
+            },
+        },
+    ).json()
+    instance = receipt["instanceId"]
+    wait(
+        lambda: admin.phase(instance)["phase"] == "ready",
+        READY_TIMEOUT,
+        "the alternate-identity assignment did not become ready",
+        interval=5,
+    )
+    namespace = admin.phase(instance)["namespace"]
+    script = (
+        PLUGIN_PRELUDE
+        + """
+provider = managed_execution.Provider(Context("BACKEND"))
+worker = provider.create_environment(
+    cwd="/drive", timeout=120, task_id="other-identity")
+result = worker.execute("id -u; id -g; printf owned > /drive/created; "
+                        "test ! -e /opt/data")
+worker.cleanup()
+print(json.dumps(result))
+"""
+    )
+    result = hermes_python(identifier, namespace, script.replace("BACKEND", folder))
+    assert result["returncode"] == 0 and result["output"].split() == ["2000", "3000"]
+    ownership = command(
+        [
+            "docker",
+            "exec",
+            identifier,
+            "stat",
+            "-c",
+            "%u:%g",
+            f"/srv/hermes-data/{folder}/created",
+        ]
+    )
+    assert ownership.strip() == "2000:3000", ownership
+    home = instance_pod_exec(
+        identifier,
+        namespace,
+        "id -u; id -g; stat -c '%u:%g' /opt/data; test ! -e /drive",
+    )
+    assert home.split() == ["1000", "1000", "1000:1000"], home
+    failure_script = (
+        PLUGIN_PRELUDE
+        + """
+try:
+    provider = managed_execution.Provider(Context("BACKEND"))
+    worker = provider.create_environment(
+        cwd="/drive", timeout=120, task_id="bad-identity")
+    worker.execute("true")
+except Exception:
+    print(json.dumps({"refused": True}))
+else:
+    worker.cleanup()
+    print(json.dumps({"refused": False}))
+"""
+    )
+    result = hermes_python(
+        identifier, namespace, failure_script.replace("BACKEND", bad_id)
+    )
+    assert result["refused"], "an image without the declared worker identity ran"
+    failures = [
+        e["failure"]
+        for e in environments(admin, instance)
+        if e["backend"]["id"] == bad_id
+    ]
+    assert failures == ["contract_failed"], failures
 
 
 CHANGE_SCRIPT = (

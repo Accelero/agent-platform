@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::names::{paths_overlap, validate_absolute_path, validate_name, validate_relative_path};
 use super::{Problems, pointer_segment};
 
-/// The UID/GID every Hermes and terminal container runs as.
+/// The UID/GID of Hermes containers and the default worker identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DataIdentity {

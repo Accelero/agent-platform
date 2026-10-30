@@ -157,3 +157,14 @@ def test_bobs_backends_share_the_workspace_and_idle_workers_retire(platform):
             f"{str(error)[:600]}\n--- placement ---\n"
             + placement(platform, platform.assignments["bob"]["instanceId"])
         ) from None
+
+
+def test_a_backend_identity_controls_its_workers_and_keeps_the_hermes_home_private(
+    platform,
+):
+    scenarios.a_backend_identity_controls_its_workers_and_keeps_the_hermes_home_private(
+        platform.identifier,
+        platform.admin,
+        platform.state.template,
+        platform.state.worker,
+    )

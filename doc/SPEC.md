@@ -78,7 +78,7 @@ Not in scope:
 | R11 | An admin secret value is delivered only to the instances whose template or assignment references it, and is never returned by any API or shown in the dashboard after it is written. |
 | R12 | An instance can use only the terminal backends its assignment allows. A user can choose any allowed backend per Hermes profile; an unknown or disallowed choice fails without fallback. Image, resources and mounts come only from manager records. |
 | R13 | Volumes can only come from installation-approved storage sources. Volumes within or across assignments may share identical or nested static paths, each with its own read-only setting. Users cannot add, widen or redirect mounts. The private Hermes home is never mounted in a terminal backend. |
-| R14 | A volume mounted in both Hermes and a terminal backend has the same mount path and the same data identity (UID/GID) in both, so files and paths agree. |
+| R14 | A volume mounted in both Hermes and a terminal backend has the same mount path in both. With different UID/GID values, access follows ordinary Unix permissions and may fail. |
 | R15 | Only the manager controller holds Kubernetes credentials. Its rights are limited to owned namespaces and approved storage by RBAC and static admission policies that the chart installs and the controller cannot change. |
 | R16 | Each enabled instance runs one Hermes replica continuously. Terminal backends start on demand and have independent lifetimes. |
 | R17 | Every acknowledged administration change is durable before acknowledgement. After an abrupt process kill at any point, the system converges without duplicate instances, regenerated credentials, duplicate worker generations or lease grants, revived leases or deletion of anything it did not observe. |
@@ -215,18 +215,19 @@ The rules for volumes:
   or nested paths, independently marked read-only or writable. Read-only applies
   to each mount; a writable alias of the same data permits writes.
 - **Sharing.** Administrators decide which folders assignments share; changes
-  to volume source, path, size and read-only settings are audited. All containers
-  use the data identity (UID/GID 1000), so shared writable folders have no
-  per-user permission separation. Concurrent writers are the workload's
-  responsibility. Local-path sharing is single-node; NFS supports consumers
+  to volume source, path, size and read-only settings are audited. Hermes
+  containers use the data identity (default UID/GID 1000). Workers use
+  the administrator's backend identity. Containers sharing an identity have no
+  per-user permission separation on writable shared folders. Concurrent writers
+  are the workload's responsibility. Local-path sharing is single-node; NFS supports consumers
   across nodes. Static source roots must not contain a provisioner root or
   other private instance data: administrators can assign any path within them.
   Dynamic volumes remain per-assignment and cannot be shared.
 - **Existing data.** Static volumes (`localPath`, `nfs`) refer to existing
-  directories. The deployment creates them, owned by the installation's data
-  identity. The manager never creates, chowns or deletes host directories. A
-  missing or unreadable directory blocks that volume with a condition, and is
-  never replaced by an empty directory.
+  directories. The deployment creates them with ownership and permissions
+  suitable for their consuming identities. The manager never creates, chowns
+  or deletes host directories. A missing or unreadable directory blocks that
+  volume with a condition, and is never replaced by an empty directory.
 - **Retention.** All volumes are retained on suspension and revocation.
   PersistentVolumes created for static volumes use the `Retain` reclaim
   policy.
@@ -245,9 +246,14 @@ The rules for volumes:
 - **Read-only.** A mount is read-only if the template or backend slot says
   so, or if the assignment marks the volume read-only. Assignments can only
   restrict access.
-- **Data identity.** All Hermes and terminal backend containers run as the
-  installation's data UID/GID, by default `1000:1000`. A terminal backend
-  version with a different UID/GID is rejected.
+- **Data identity.** Hermes containers and the private home use the
+  installation's data UID/GID, by default `1000:1000`. A backend version declares
+  its workers' UID and GID, each from 1 through 4294967294. There is no
+  installation allow-list; users and agents cannot choose the identity. Volumes
+  mounted by both sides are reliably usable with equal identities; with
+  different identities ordinary Unix permissions apply and access may fail.
+  The platform maps nothing and issues no warning. Backend-only volumes are
+  the supported way to give an agent another identity.
 - **Required slots.** A backend slot that the assignment does not bind makes
   that backend unusable for the instance, unless the slot is optional. Missing
   storage never falls back to an empty or different volume.
@@ -260,8 +266,8 @@ The rules for volumes:
 
 - **Immutable versions.** Terminal backend versions are immutable and pinned
   by image digest. Custom images must implement `managed-ssh-v2`: non-root
-  user `worker` with the data UID/GID, SSH on port 2222, the provisioned
-  authorized key and host key, shell and file transfer. Private registries use
+  user `worker` with the backend version's declared UID/GID, SSH on port 2222,
+  the provisioned authorized key and host key, shell and file transfer. Private registries use
   `registry` admin secrets. Pull or compatibility failures are reported, never
   replaced by the default image.
 - **Lease protocol.** The `managed_execution` plugin requests a backend by

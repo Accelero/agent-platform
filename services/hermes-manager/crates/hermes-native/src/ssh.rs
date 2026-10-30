@@ -1,6 +1,6 @@
 //! Worker readiness over SSH, in process: log in as `worker` with the
 //! instance's client key, accept only the host key the controller
-//! provisioned, and check that the shell runs as the data identity. One
+//! provisioned, and check that the shell runs as the backend-declared UID. One
 //! deadline bounds the whole check; nothing is retried here.
 
 use std::sync::Arc;
@@ -240,28 +240,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_worker_is_ready_only_with_its_pinned_host_key_and_the_data_identity() {
+    async fn a_worker_is_ready_only_with_its_pinned_host_key_and_the_declared_identity() {
         let (client_private, client_public) = crate::materials::ed25519_pair().unwrap();
-        let (port, host_public) = worker(&client_public, "1000").await;
+        let (port, host_public) = worker(&client_public, "2000").await;
         let key = client_private.as_bytes();
         assert_eq!(
-            ready_at("127.0.0.1", port, key, &host_public, 1000).await,
+            ready_at("127.0.0.1", port, key, &host_public, 2000).await,
             SshCheck::Ready
         );
         let (_, impostor) = crate::materials::ed25519_pair().unwrap();
         assert_eq!(
-            ready_at("127.0.0.1", port, key, &impostor, 1000).await,
+            ready_at("127.0.0.1", port, key, &impostor, 2000).await,
             SshCheck::ContractFailed,
             "another host key breaks the contract"
         );
         assert_eq!(
-            ready_at("127.0.0.1", port, key, &host_public, 0).await,
+            ready_at("127.0.0.1", port, key, &host_public, 1000).await,
             SshCheck::ContractFailed,
-            "the shell must run as the data identity"
+            "the shell must run as the backend declared identity"
         );
         let (stranger, _) = crate::materials::ed25519_pair().unwrap();
         assert_eq!(
-            ready_at("127.0.0.1", port, stranger.as_bytes(), &host_public, 1000).await,
+            ready_at("127.0.0.1", port, stranger.as_bytes(), &host_public, 2000).await,
             SshCheck::ContractFailed,
             "only the instance's client key"
         );

@@ -43,12 +43,12 @@ hermesManager:
 
 - **Storage sources** cannot be added from the dashboard; changing them is a
   chart upgrade. The dashboard lists them read-only.
-- **`dataIdentity`** is the UID/GID that every Hermes and terminal backend
-  container runs as. The repository's Hermes and `agent-runtime` images use
+- **`dataIdentity`** is the UID/GID of every Hermes container and the default
+  for workers unless a backend declares otherwise. The repository's Hermes and `agent-runtime` images use
   `1000:1000`.
 - **Existing folders.** For `localPath` and `nfs` sources, the deployment
-  creates each folder an administrator will assign, owned by the data
-  identity. The manager never creates, changes ownership of or deletes host
+  creates each folder an administrator will assign, owned for the identities that consume them. Backend-only folders may be
+  owned by the backend identity. The manager never creates, changes ownership of or deletes host
   directories.
 - **Node NVMe as dynamic storage.** Install a local-path provisioner whose
   storage class points at the NVMe root. Give it a deterministic path pattern
@@ -272,8 +272,10 @@ The rules that make this work:
 - **Same path.** A shared volume must have the same mount path on both
   sides. The assignment is rejected otherwise (`mount_path_mismatch`), because
   paths that differ between Hermes and the shell break file references.
-- **Same identity.** Every container runs as the data identity, so files
-  created on either side can be read and written by the other.
+- **Identity and permissions.** Shared volumes are reliably usable when both
+  sides use the same UID/GID. With different backend identities Unix permissions
+  apply and access may fail, without mapping or warnings. Backend-only volumes
+  are the supported way to give an agent another identity.
 - **Access.** Either side may mount it read-only. An assignment can mark a
   volume read-only, which applies everywhere.
 - **Private home stays private.** The private home (`/opt/data`) can never be

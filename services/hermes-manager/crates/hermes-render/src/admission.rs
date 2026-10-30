@@ -8,8 +8,9 @@
 //! - only the controller (and the cluster's own controllers) write inside
 //!   instance namespaces, and the controller writes nowhere else except its
 //!   leader lease, namespaces and PersistentVolumes;
-//! - Pods are non-root with the data identity, unprivileged, without host
-//!   access or tokens, with digest-pinned images and approved volume types;
+//! - Pods are non-root with the Hermes or backend-declared identity,
+//!   unprivileged, without host access or tokens, with digest-pinned images
+//!   and approved volume types;
 //! - PersistentVolumes stay under approved roots and bind into instance
 //!   namespaces with `Retain`;
 //! - RoleBindings bind only the instance role to the controller;
@@ -270,24 +271,16 @@ pub fn policies(config: &RenderConfig) -> Result<Vec<Object>, RenderError> {
         vec![
             validation(
                 format!(
-                    "has(object.spec.securityContext) && object.spec.securityContext.runAsNonRoot == true && \
-                     object.spec.securityContext.runAsUser == {uid} && object.spec.securityContext.runAsGroup == {gid}",
+                    "has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true && has(object.spec.securityContext.runAsUser) && has(object.spec.securityContext.runAsGroup) && ((has(object.metadata.labels) && 'app.kubernetes.io/component' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/component'] == 'worker') ? (object.spec.securityContext.runAsUser > 0 && object.spec.securityContext.runAsGroup > 0) : (object.spec.securityContext.runAsUser == {uid} && object.spec.securityContext.runAsGroup == {gid}))",
                     uid = identity.uid,
                     gid = identity.gid,
                 ),
-                "Pods run as the installation's non-root data identity",
+                "Hermes Pods use the data identity; worker Pods use non-root identities",
             ),
             // A container's own security context overrides the Pod's.
             validation(
-                format!(
-                    "{containers}.all(c, !has(c.securityContext) || \
-                     ((!has(c.securityContext.runAsUser) || c.securityContext.runAsUser == {uid}) && \
-                     (!has(c.securityContext.runAsGroup) || c.securityContext.runAsGroup == {gid}) && \
-                     (!has(c.securityContext.runAsNonRoot) || c.securityContext.runAsNonRoot == true)))",
-                    uid = identity.uid,
-                    gid = identity.gid,
-                ),
-                "containers keep the Pod's data identity",
+                format!("{containers}.all(c, !has(c.securityContext) || ((!has(c.securityContext.runAsUser) || c.securityContext.runAsUser == object.spec.securityContext.runAsUser) && (!has(c.securityContext.runAsGroup) || c.securityContext.runAsGroup == object.spec.securityContext.runAsGroup) && (!has(c.securityContext.runAsNonRoot) || c.securityContext.runAsNonRoot == true)))"),
+                "containers keep the Pod's identity",
             ),
             validation(
                 format!(

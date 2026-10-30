@@ -104,8 +104,8 @@ impl Definition for BackendDefinition {
     const PUBLISH: &'static str = "terminal_backend.publish";
     const WITHDRAW: &'static str = "terminal_backend.withdraw";
 
-    fn check(&self, settings: &Settings) -> Result<(), Vec<Problem>> {
-        self.validate(settings.data_identity)
+    fn check(&self, _settings: &Settings) -> Result<(), Vec<Problem>> {
+        self.validate()
     }
 
     fn secret_uses(&self) -> Vec<SecretUse> {

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::names::{validate_image, validate_name};
-use super::storage::{DataIdentity, WORKER_RESERVED, validate_mount_paths};
+use super::storage::{WORKER_RESERVED, validate_mount_paths};
 use super::{Problem, Problems};
 
 pub const SSH_CONTRACT: &str = "managed-ssh-v2";
@@ -60,7 +60,7 @@ pub struct BackendDefinition {
 }
 
 impl BackendDefinition {
-    pub fn validate(&self, identity: DataIdentity) -> Result<(), Vec<Problem>> {
+    pub fn validate(&self) -> Result<(), Vec<Problem>> {
         let mut problems = Problems::default();
         problems.check(
             validate_image(&self.image).is_ok(),
@@ -72,8 +72,8 @@ impl BackendDefinition {
             "/sshContract",
             "unsupported_contract",
         );
-        problems.check(self.uid == identity.uid, "/uid", "data_identity_mismatch");
-        problems.check(self.gid == identity.gid, "/gid", "data_identity_mismatch");
+        problems.check((1..u32::MAX).contains(&self.uid), "/uid", "out_of_range");
+        problems.check((1..u32::MAX).contains(&self.gid), "/gid", "out_of_range");
         let resources = &self.resources;
         problems.check(
             (10..=64_000).contains(&resources.cpu_millis),
@@ -145,8 +145,26 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn backends_must_match_the_data_identity_and_contract() {
-        assert_eq!(definition().validate(DataIdentity::default()), Ok(()));
+    fn backends_require_non_root_identities_and_the_ssh_contract() {
+        assert_eq!(definition().validate(), Ok(()));
+        for (uid, gid) in [(2000, 3000), (1, 4294967294), (4294967294, 1)] {
+            let mut other = definition();
+            other.uid = uid;
+            other.gid = gid;
+            assert_eq!(other.validate(), Ok(()));
+        }
+        for (uid, gid) in [(0, 1000), (1000, 0), (u32::MAX, 1000), (1000, u32::MAX)] {
+            let mut invalid = definition();
+            invalid.uid = uid;
+            invalid.gid = gid;
+            assert!(
+                invalid
+                    .validate()
+                    .unwrap_err()
+                    .iter()
+                    .all(|p| p.code == "out_of_range")
+            );
+        }
         let mut bad = definition();
         bad.uid = 0;
         bad.ssh_contract = "managed-ssh-v1".into();
@@ -159,7 +177,7 @@ pub(crate) mod tests {
             },
         );
         let codes: Vec<_> = bad
-            .validate(DataIdentity::default())
+            .validate()
             .unwrap_err()
             .into_iter()
             .map(|p| (p.pointer, p.code))
@@ -168,7 +186,7 @@ pub(crate) mod tests {
             codes,
             [
                 ("/sshContract".to_owned(), "unsupported_contract"),
-                ("/uid".to_owned(), "data_identity_mismatch"),
+                ("/uid".to_owned(), "out_of_range"),
                 ("/mounts/keys/mountPath".to_owned(), "reserved_path"),
             ]
         );

@@ -177,11 +177,10 @@ fn template_schema_and_rust_validation_agree() {
 #[test]
 fn terminal_backend_schema_and_rust_validation_agree() {
     use hermes_core::domain::backends::BackendDefinition;
-    use hermes_core::domain::storage::DataIdentity;
     let schema = definition_schema("terminal-backend-v1.json");
     let rust = |value: &Value| {
         serde_json::from_value::<BackendDefinition>(value.clone())
-            .is_ok_and(|definition| definition.validate(DataIdentity::default()).is_ok())
+            .is_ok_and(|definition| definition.validate().is_ok())
     };
     let valid = fixture("valid/terminal-backend.json");
     assert!(schema.is_valid(&valid));

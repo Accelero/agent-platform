@@ -895,6 +895,22 @@ ledger.
 **Done:** documented commands and schedules match CI, and each reported result
 identifies the executed profile, candidate, cases and coverage limitations.
 
+## G23 — Worker identity verification
+
+**P2 · Execute the identity scenarios · R13, R14.**
+
+Current: the specification and guides define administrator-selected backend
+UID/GID values from 1 through 4294967294 without an installation allow-list.
+Hermes keeps the data identity; shared volumes with differing identities follow
+Unix permissions without mapping or warnings. Backend validation, rendering,
+SSH readiness, worker/Hermes admission cases and a native backend-only volume
+scenario cover the rule. The fixture builds an alternate worker image and
+checks host ownership, the private Hermes home and a mismatched image failure.
+
+Remaining: execute and report the collected native identity case and full native
+run for the candidate. Remove this entry only after those checks pass, then update
+the R14 coverage evidence.
+
 ## Order of work and preservation rules
 
 1. The baseline case ledger exists (G03, partly). Keep it and the existing

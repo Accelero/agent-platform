@@ -594,7 +594,7 @@ async fn a_worker_starts_with_the_instance_keys_and_answers_ssh_as_the_data_iden
     let pod = hermes_render::worker::pod_name(environment.id);
 
     // The instance's client key logs in, the provisioned host key answers,
-    // and the shell runs as the data identity.
+    // and the shell runs as the backend-declared UID.
     let known = format!("[127.0.0.1]:2222 {host_public}");
     let script = format!(
         "umask 077; cat > /tmp/key; printf '%s\\n' '{known}' > /tmp/known; \

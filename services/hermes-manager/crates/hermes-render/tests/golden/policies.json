@@ -239,12 +239,12 @@
       },
       "validations": [
         {
-          "expression": "has(object.spec.securityContext) && object.spec.securityContext.runAsNonRoot == true && object.spec.securityContext.runAsUser == 1000 && object.spec.securityContext.runAsGroup == 1000",
-          "message": "Pods run as the installation's non-root data identity"
+          "expression": "has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true && has(object.spec.securityContext.runAsUser) && has(object.spec.securityContext.runAsGroup) && ((has(object.metadata.labels) && 'app.kubernetes.io/component' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/component'] == 'worker') ? (object.spec.securityContext.runAsUser > 0 && object.spec.securityContext.runAsGroup > 0) : (object.spec.securityContext.runAsUser == 1000 && object.spec.securityContext.runAsGroup == 1000))",
+          "message": "Hermes Pods use the data identity; worker Pods use non-root identities"
         },
         {
-          "expression": "(has(object.spec.initContainers) ? object.spec.containers + object.spec.initContainers : object.spec.containers).all(c, !has(c.securityContext) || ((!has(c.securityContext.runAsUser) || c.securityContext.runAsUser == 1000) && (!has(c.securityContext.runAsGroup) || c.securityContext.runAsGroup == 1000) && (!has(c.securityContext.runAsNonRoot) || c.securityContext.runAsNonRoot == true)))",
-          "message": "containers keep the Pod's data identity"
+          "expression": "(has(object.spec.initContainers) ? object.spec.containers + object.spec.initContainers : object.spec.containers).all(c, !has(c.securityContext) || ((!has(c.securityContext.runAsUser) || c.securityContext.runAsUser == object.spec.securityContext.runAsUser) && (!has(c.securityContext.runAsGroup) || c.securityContext.runAsGroup == object.spec.securityContext.runAsGroup) && (!has(c.securityContext.runAsNonRoot) || c.securityContext.runAsNonRoot == true)))",
+          "message": "containers keep the Pod's identity"
         },
         {
           "expression": "(has(object.spec.initContainers) ? object.spec.containers + object.spec.initContainers : object.spec.containers).all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false && (!has(c.securityContext.privileged) || c.securityContext.privileged == false) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop && (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0))",

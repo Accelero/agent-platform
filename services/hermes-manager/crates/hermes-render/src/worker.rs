@@ -1,5 +1,5 @@
 //! One terminal backend Pod per environment, implementing `managed-ssh-v2`:
-//! the image's `worker` user with the data identity, SSH on port 2222, the
+//! the image's `worker` user with the backend-declared identity, SSH on port 2222, the
 //! instance's client key as the only authorized key and the instance's host
 //! key. It mounts the backend's slots that the assignment binds and nothing
 //! else; the private Hermes home is never among them.
@@ -48,8 +48,8 @@ pub fn render(
     if definition.ssh_contract != SSH_CONTRACT
         || environment.view.backend.1 != backend.version
         || desired.namespace != config.installation.instance_namespace(desired.instance_id)
-        || definition.uid != config.data_identity.uid
-        || definition.gid != config.data_identity.gid
+        || !(1..u32::MAX).contains(&definition.uid)
+        || !(1..u32::MAX).contains(&definition.gid)
     {
         return Err(RenderError::Invalid);
     }

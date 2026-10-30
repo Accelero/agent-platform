@@ -244,16 +244,20 @@ pub async fn stale_revisions_and_unknown_versions_are_refused<S: Store + Inspect
             .code,
         "not_found"
     );
+    let mut other = backend_definition();
+    other.uid = 2000;
+    other.gid = 3000;
+    let other = draft(&store, "other-user-tools", other).await;
+    publish::<S, BackendDefinition>(&store, &other)
+        .await
+        .unwrap();
     let mut root = backend_definition();
     root.uid = 0;
     let rooted = draft(&store, "root-tools", root).await;
     let refused = publish::<S, BackendDefinition>(&store, &rooted)
         .await
         .unwrap_err();
-    assert_eq!(
-        problems(refused),
-        [("/uid".to_owned(), "data_identity_mismatch")]
-    );
+    assert_eq!(problems(refused), [("/uid".to_owned(), "out_of_range")]);
 }
 
 pub async fn publication_requires_referenced_secrets_of_the_right_kind<

@@ -80,7 +80,7 @@ taken from the installation values.
 | `Assignment` | identity, `access`, `template: (id, version)`, `volumes`, `backends: {default, allowed versions, lifetime mode}`, `admin_config` overrides, secret references, `version`, `execution_generation` | One per identity. Each change increments `version` and the instance's `desired_generation`. Changes to volumes or backends also increment `execution_generation`. Saving validates mount compatibility (see [Storage](#storage)) |
 | `Instance` | random `id`, assignment, derived `namespace`, `namespace_uid`, `desired_generation`, status | `namespace_uid` is set once, on first observation, and never changes; status is written only by the controller |
 | `TemplateVersion` | `id`, `version`, `state ∈ {Draft, Published, Withdrawn}`, definition | Published definitions are immutable; Withdrawn versions cannot be newly selected; rollout eligibility (no storage-class change, no shrink) |
-| `TerminalBackendVersion` | `id`, `version`, state, definition | Immutable when published; image digest pinned; `managed-ssh-v2`; UID/GID equal to the data identity |
+| `TerminalBackendVersion` | `id`, `version`, state, definition | Immutable when published; image digest pinned; `managed-ssh-v2`; UID/GID each in 1..=4294967294, chosen by the administrator |
 | `Volume` | instance, `name`, `source`, `path` or `size_gib`, `read_only` | Source must be approved; static paths are clean relative paths; volumes within or across assignments may share equal or nested static paths; size never shrinks |
 | `AdminSecret` | `name`, `kind ∈ {Env, File, Registry}`, `version`, sealed value | Value is write-only; each write creates a new version |
 | `Material` | instance, `purpose`, sealed value | Created once per `(instance, purpose)` |
@@ -298,7 +298,8 @@ pass as its instance:
 2. record its UID once it is observed;
 3. when it is ready, verify SSH in-process with `russh`: authenticate with the
    instance's client key, pin the provisioned host key and check that the
-   shell runs as the data identity.
+   shell runs as the backend version's declared UID. A missing `worker` user
+   or a different shell UID gives `contract_failed`, without fallback.
 
 A worker that cannot start is never retried with another image. A pull error
 (`image_unavailable`), a failed or crash-looping container (`start_failed`), a
@@ -342,14 +343,17 @@ hermesManager:
 - **Static volumes** (`localPath`, `nfs`) become one PersistentVolume and one
   PVC per volume. The PV's path is `root/path`, with node affinity for
   `localPath`, reclaim policy `Retain` and a `claimRef` to the PVC in the
-  owned namespace. The deployment must create the directory beforehand, owned
-  by the data identity.
+  owned namespace. The deployment must create the directory beforehand with
+  ownership and permissions suitable for its consuming identities.
 - **Static sharing.** Administrators may share equal or nested paths within or
   across assignments with independent read-only settings. Each volume has its
   own PV and PVC in its instance namespace;
   local paths use ReadWriteOnce and node affinity, NFS uses ReadWriteMany.
-  All containers use the data identity, so writable shared folders have no
-  per-user permission separation; workloads coordinate concurrent writers.
+  Hermes uses the data identity; workers use the backend identity. Containers
+  sharing an identity have no per-user permission separation on writable
+  shared folders. Different identities follow Unix permissions without mapping
+  or warnings; backend-only volumes support another identity. Workloads
+  coordinate concurrent writers.
   Operators keep provisioner roots and private instance data outside static
   source roots. Admission confines each PV to an approved root.
 - **Mount rendering.**
@@ -477,7 +481,7 @@ network peers are untrusted.
 | Administrator assigns a shared folder | Trusted administrators decide who shares each folder; assignment audit records include volume source, path, size and read-only settings |
 | Compromised or buggy API | No Kubernetes credentials; cannot read admin secrets or materials; what it writes is bounded by static admission when rendered |
 | Buggy controller | Static admission rejects privileged Pods, hostPath, unapproved PersistentVolume paths, foreign namespaces, unpinned images and token automount |
-| Compromised controller | Accepted (trusted). RBAC limits it to the namespace prefix, owned namespaces and PersistentVolume creation, without cluster-wide Secrets or role escalation |
+| Compromised controller | Accepted (trusted). The controller writes component labels and could label a Pod as worker to select any non-zero identity. RBAC limits it to the namespace prefix, owned namespaces and PersistentVolume creation, without cluster-wide Secrets or role escalation |
 | Compromised gateway | Accepted (trusted). Native owner pin still requires the real owner's native login |
 | Stale authorization after revoke | 5 s freshness bound; execution credential revoked in the same transaction |
 | Secret leakage | Sealed at rest; write-only API; no values in responses, audit, logs or errors. A delivered admin secret is readable by its owner's agent; give each person their own provider key, or use a model gateway that issues per-person keys, rather than sharing one |
@@ -498,7 +502,7 @@ integration tests install it and act as the controller's real ServiceAccount.
 | Namespaces | Only the controller may create them, only with the installation prefix and labels |
 | Owned namespaces | Only the controller may write objects. The cluster's own components are allowed: `kube-system` controller ServiceAccounts (ReplicaSets and Pods of owned Deployments, EndpointSlices, PV binding, the garbage collector, the root CA publisher), `system:kube-controller-manager`, `system:kube-scheduler` (claim binding), `system:apiserver` and nodes. Events are exempt. Cluster-scoped objects are out of scope; a `namespaceSelector` alone would match them |
 | Controller scope | The controller writes only namespaces, PersistentVolumes, objects inside instance namespaces and its leader Lease |
-| Pods | Non-root data identity at Pod level, and no container overrides it with another user, group or `runAsNonRoot: false`; no privilege escalation; capabilities dropped; no host namespaces or hostPath; volumes limited to PVC, Secret, ConfigMap, emptyDir and projected; digest-pinned images; `automountServiceAccountToken: false` |
+| Pods | Hermes Pods and Pods with missing or other component labels use the data identity. Worker-labelled Pods use non-zero user/group IDs, with `runAsNonRoot: true`. No container overrides its Pod identity or sets `runAsNonRoot: false`; no privilege escalation; capabilities dropped; no host namespaces or hostPath; volumes limited to PVC, Secret, ConfigMap, emptyDir and projected; digest-pinned images; `automountServiceAccountToken: false` |
 | PersistentVolumes | Created only by the controller; type `local` (under an approved root, with node affinity to the approved node) or `nfs` (approved server and root); `Retain`; `claimRef` into an owned namespace |
 | RoleBindings | Only the fixed instance role, bound to the controller ServiceAccount |
 | Services | ClusterIP only, without external IPs |

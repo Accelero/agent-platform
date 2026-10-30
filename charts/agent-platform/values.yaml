@@ -10,7 +10,7 @@ hermesManager:
   installation:
     id: ''
     issuer: ''
-  # UID/GID of every Hermes and terminal backend container.
+  # UID/GID of every Hermes container; workers default to these unless their backend declares otherwise.
   dataIdentity: {uid: 1000, gid: 1000}
   # Where volumes may live: {id, storageClass: {name}} | {id, localPath: {node, root}} | {id, nfs: {server, root}}.
   storageSources: []

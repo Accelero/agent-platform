@@ -29,8 +29,8 @@ const NAMESPACE_WRITER: &str = "only the manager controller writes instance name
 const NAMESPACE_LABELS: &str = "instance namespaces carry the installation's prefix and labels";
 const WRITERS: &str = "only the manager controller writes in instance namespaces";
 const SCOPE: &str = "the manager controller writes only in instance namespaces";
-const NON_ROOT: &str = "Pods run as the installation's non-root data identity";
-const CONTAINER_IDENTITY: &str = "containers keep the Pod's data identity";
+const NON_ROOT: &str = "Hermes Pods use the data identity; worker Pods use non-root identities";
+const CONTAINER_IDENTITY: &str = "containers keep the Pod's identity";
 const UNPRIVILEGED: &str = "containers are unprivileged and drop every capability";
 const PINNED: &str = "images are pinned by digest";
 const HOST: &str = "Pods use no host namespaces";
@@ -469,6 +469,84 @@ async fn a_compliant_pod_is_admitted_and_every_rule_refuses_its_own_violation() 
     pods.delete(&control, &DeleteParams::default())
         .await
         .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs HERMES_TEST_KUBECONFIG from the disposable Kubernetes fixture"]
+async fn worker_identities_are_non_root_and_hermes_keeps_the_data_identity() {
+    let fixture = Fixture::new().await;
+    let namespace = commissioned(&fixture).await;
+    let pods: Api<Pod> = Api::namespaced(fixture.controller.clone(), &namespace);
+    let post = PostParams::default();
+    for component in [Some("worker"), Some("hermes"), Some("other"), None] {
+        let mut candidate = pod(safe());
+        let spec = candidate.spec.as_mut().unwrap();
+        let security = spec.security_context.as_mut().unwrap();
+        security.run_as_user = Some(2000);
+        security.run_as_group = Some(3000);
+        if let Some(component) = component {
+            candidate.metadata.labels = Some(std::collections::BTreeMap::from([(
+                "app.kubernetes.io/component".into(),
+                component.into(),
+            )]));
+        }
+        if component != Some("worker") {
+            denied(
+                pods.create(&post, &candidate).await,
+                "non-worker identity",
+                &[NON_ROOT],
+            );
+            continue;
+        }
+        let created = pods
+            .create(&post, &candidate)
+            .await
+            .expect("a non-root worker is admitted");
+        pods.delete(
+            created.metadata.name.as_deref().unwrap(),
+            &DeleteParams::default(),
+        )
+        .await
+        .unwrap();
+        for mutation in 0..8 {
+            let mut invalid = candidate.clone();
+            invalid.metadata.name = Some(format!("probe-{}", suffix()));
+            let spec = invalid.spec.as_mut().unwrap();
+            match mutation {
+                0 => spec.security_context.as_mut().unwrap().run_as_user = Some(0),
+                1 => spec.security_context.as_mut().unwrap().run_as_group = Some(0),
+                2 => spec.security_context.as_mut().unwrap().run_as_non_root = Some(false),
+                3 => spec.security_context.as_mut().unwrap().run_as_user = None,
+                4 => spec.security_context.as_mut().unwrap().run_as_group = None,
+                5 => {
+                    spec.containers[0]
+                        .security_context
+                        .as_mut()
+                        .unwrap()
+                        .run_as_user = Some(1000)
+                }
+                6 => {
+                    spec.containers[0]
+                        .security_context
+                        .as_mut()
+                        .unwrap()
+                        .run_as_group = Some(1000)
+                }
+                _ => {
+                    let mut init = spec.containers[0].clone();
+                    init.name = "init".into();
+                    init.security_context.as_mut().unwrap().run_as_user = Some(1000);
+                    spec.init_containers = Some(vec![init]);
+                }
+            }
+            denied(
+                pods.create(&post, &invalid).await,
+                "worker identity violation",
+                &[NON_ROOT, CONTAINER_IDENTITY, POD_SECURITY],
+            );
+        }
+    }
+    settle();
 }
 
 async fn strategic(pods: &Api<Pod>, name: &str, value: Value) -> Result<Pod, kube::Error> {

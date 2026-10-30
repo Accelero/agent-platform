@@ -79,7 +79,7 @@ export function StoragePage() {
               ]}
             />
             <p>
-              Data identity for shared volumes: UID{" "}
+              Hermes data identity (workers use their backend identity): UID{" "}
               {sources.data.dataIdentity.uid}, GID{" "}
               {sources.data.dataIdentity.gid}.
             </p>

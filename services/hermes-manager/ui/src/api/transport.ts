@@ -84,8 +84,6 @@ const problemMessages: Record<string, string> = {
     "This volume needs a storage class source; static sources need a path.",
   storage_migration_required:
     "Changing a volume's source or shrinking it needs an explicit migration.",
-  data_identity_mismatch:
-    "The backend's UID and GID must match the installation's data identity.",
   reserved_path: "This path is reserved by the platform.",
   invalid_path: "Use a normalized path without '..' segments.",
   invalid_image: "Pin images by digest: registry/name@sha256:<64 hex digits>.",

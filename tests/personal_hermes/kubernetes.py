@@ -76,20 +76,27 @@ def import_image(identifier, tag, temporary, reuse=False):
     return pinned
 
 
-def import_worker_image(identifier, temporary):
-    """Builds runtimes/agent-runtime, imports it and returns a digest reference."""
+def import_worker_image(identifier, temporary, *, uid=1000, gid=1000):
+    """Builds the requested worker identity and imports a digest reference."""
+    tag = (
+        WORKER_TAG if (uid, gid) == (1000, 1000) else f"hermes-worker-{uid}-{gid}:test"
+    )
     command(
         [
             "docker",
             "build",
             "--quiet",
             "--tag",
-            WORKER_TAG,
+            tag,
+            "--build-arg",
+            f"HOST_UID={uid}",
+            "--build-arg",
+            f"HOST_GID={gid}",
             str(ROOT / "runtimes/agent-runtime"),
         ],
         timeout=600,
     )
-    return import_image(identifier, WORKER_TAG, temporary)
+    return import_image(identifier, tag, temporary)
 
 
 def start_k3s(network, name, run):

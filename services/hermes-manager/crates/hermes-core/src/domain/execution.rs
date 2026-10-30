@@ -248,7 +248,7 @@ pub enum WorkerFailure {
     /// The container cannot be created, exits or keeps crashing.
     StartFailed,
     /// The worker breaks `managed-ssh-v2`: another host key, the client key
-    /// refused, or a shell that does not run as the data identity.
+    /// refused, or a shell that does not run as the backend-declared UID.
     ContractFailed,
 }
 
@@ -275,7 +275,7 @@ impl WorkerFailure {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SshCheck {
     /// The client key logs in, the pinned host key matches and the shell runs
-    /// as the data identity.
+    /// as the backend-declared UID.
     Ready,
     /// Not reachable or not answering yet; checked again.
     NotYet,

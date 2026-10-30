@@ -587,7 +587,9 @@ fn worker_fixture() -> (DesiredInstance, WorkerEnvironment, AllowedBackend) {
 
 #[test]
 fn workers_mount_only_bound_slots_with_the_instance_keys() {
-    let (desired, environment, backend) = worker_fixture();
+    let (desired, environment, mut backend) = worker_fixture();
+    backend.definition.uid = 2000;
+    backend.definition.gid = 3000;
     let pod = worker::render(&config(), &desired, &environment, &backend).unwrap();
     assert_eq!(pod.name, format!("hw-{}", environment.id.simple()));
     let typed: Pod = serde_json::from_value(pod.body.clone()).unwrap();
@@ -639,8 +641,9 @@ fn workers_mount_only_bound_slots_with_the_instance_keys() {
     let security = spec.security_context.unwrap();
     assert_eq!(
         (security.run_as_user, security.run_as_group),
-        (Some(1000), Some(1000))
+        (Some(2000), Some(3000))
     );
+    assert_eq!(security.fs_group, Some(3000));
     assert_eq!(container.ports.as_ref().unwrap()[0].container_port, 2222);
 
     let objects = render(Workload::Run);
