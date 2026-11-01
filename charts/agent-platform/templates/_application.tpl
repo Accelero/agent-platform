@@ -99,6 +99,9 @@
 {{- $root := .root -}}
 {{- $api := .workloads.hindsight -}}
 {{- if $api.enabled -}}
+  {{- if not $root.Values.networkPolicy.enabled -}}
+    {{- fail "workloads.hindsight.enabled requires networkPolicy.enabled: true because the Hindsight API has no authentication" -}}
+  {{- end -}}
   {{- $settings := $root.Values.hindsight -}}
   {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" $api.image) -}}
     {{- fail "workloads.hindsight.image must be digest-pinned" -}}
@@ -127,6 +130,14 @@
     {{- end -}}
   {{- end -}}
   {{- $env := default list $api.env -}}
+  {{- $cache := index $root.Values.persistence "hindsight-cache" -}}
+  {{- $offlineConfigured := false -}}
+  {{- range concat $env (default list $api.secretEnv) -}}
+    {{- if eq .name "HF_HUB_OFFLINE" -}}{{- $offlineConfigured = true -}}{{- end -}}
+  {{- end -}}
+  {{- if and (not (or $cache.enabled $cache.existingClaim)) (not $offlineConfigured) -}}
+    {{- $env = append $env (dict "name" "HF_HUB_OFFLINE" "value" "1") -}}
+  {{- end -}}
   {{- range $name, $value := dict "HINDSIGHT_API_LLM_PROVIDER" $settings.llm.provider "HINDSIGHT_API_LLM_MODEL" $settings.llm.model "HINDSIGHT_API_WORKER_ENABLED" "true" "HINDSIGHT_API_WORKER_ID" "hindsight" -}}
     {{- $env = append $env (dict "name" $name "value" $value) -}}
   {{- end -}}
@@ -142,7 +153,6 @@
   {{- with $settings.database.caSecret -}}
     {{- $_ := set $api "volumes" (append (default list $api.volumes) (dict "name" "postgres-ca" "mountPath" "/etc/postgres" "source" (dict "secret" (dict "secretName" .)))) -}}
   {{- end -}}
-  {{- $cache := index $root.Values.persistence "hindsight-cache" -}}
   {{- if or $cache.enabled $cache.existingClaim -}}
     {{- $_ := set $api "persistence" (append (default list $api.persistence) (dict "name" "hindsight-cache" "mountPath" "/home/hindsight/.cache")) -}}
   {{- end -}}

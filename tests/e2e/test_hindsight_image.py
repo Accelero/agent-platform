@@ -112,21 +112,22 @@ def hermes_image(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
-def defaults_payload(tmp_path_factory):
+def rendered_chart(tmp_path_factory):
     path = tmp_path_factory.mktemp("hindsight-render")
     base = yaml.safe_load((ROOT / "examples/lightweight/values.yaml").read_text())
     overlay = yaml.safe_load((ROOT / "examples/hindsight/values.yaml").read_text())
     base["workloads"].update(overlay["workloads"])
     base["hindsight"] = overlay["hindsight"]
-    return json.loads(
-        render(path, base)["ConfigMap", "hermes-defaults"]["data"]["defaults.json"]
-    )
+    return render(path, base)
 
 
 class Stack:
-    def __init__(self, network, database, certs, image, defaults):
+    def __init__(self, network, database, certs, image, chart):
         self.network, self.database, self.certs = network, database, certs
-        self.image, self.defaults = image, defaults
+        self.image, self.chart = image, chart
+        self.defaults = json.loads(
+            chart["ConfigMap", "hermes-defaults"]["data"]["defaults.json"]
+        )
         self.api = ""
 
     def sql(self, sql, database="hindsight"):
@@ -147,16 +148,38 @@ class Stack:
             input=sql,
         ).stdout
 
+    def container(self, workload):
+        return self.chart["Deployment", workload]["spec"]["template"]["spec"][
+            "containers"
+        ][0]
+
+    def chart_env(self, workload, *, prefix=""):
+        # Resolve only the synthetic Secrets supplied by this fixture. Unexpected
+        # reference types or Secrets fail rather than silently dropping settings.
+        secrets = {
+            ("hindsight-database", "url"): (
+                f"postgresql://hindsight:{SYNTHETIC_PASSWORD}@postgres:5432/hindsight"
+                "?sslmode=verify-full&sslrootcert=/etc/postgres/ca.crt"
+            ),
+            ("hindsight-llm", "api-key"): SYNTHETIC_LLM_KEY,
+        }
+        env = {}
+        for entry in self.container(workload)["env"]:
+            if not entry["name"].startswith(prefix):
+                continue
+            if "value" in entry:
+                value = entry["value"]
+            else:
+                ref = entry["valueFrom"]["secretKeyRef"]
+                value = secrets[ref["name"], ref["key"]]
+            env[entry["name"]] = value
+        return env
+
     def api_env(self):
         return {
-            "HINDSIGHT_API_DATABASE_URL": f"postgresql://hindsight:{SYNTHETIC_PASSWORD}@postgres:5432/hindsight?sslmode=verify-full&sslrootcert=/etc/postgres/ca.crt",
+            **self.chart_env("hindsight"),
             "HINDSIGHT_API_LLM_PROVIDER": "mock",
             "HINDSIGHT_API_LLM_MODEL": "mock-model",
-            "HINDSIGHT_API_LLM_API_KEY": SYNTHETIC_LLM_KEY,
-            "HINDSIGHT_API_WORKER_ENABLED": "true",
-            "HINDSIGHT_API_WORKER_ID": "hindsight",
-            "HINDSIGHT_API_LOG_LEVEL": "info",
-            "HF_HUB_OFFLINE": "1",
         }
 
     @contextmanager
@@ -187,9 +210,9 @@ class Stack:
             args += ["--network-alias", alias]
         for key in env:
             args += ["--env", key]
-        chart = yaml.safe_load((ROOT / "charts/agent-platform/values.yaml").read_text())
-        command = chart["workloads"]["hindsight"]["command"]
-        args += ["--entrypoint", command[0], HINDSIGHT_IMAGE, *command[1:]]
+        container = self.container("hindsight")
+        command = container["command"]
+        args += ["--entrypoint", command[0], container["image"], *command[1:]]
         run(*args, env={**os.environ, **env})
         try:
             if egress:
@@ -197,8 +220,20 @@ class Stack:
                 # the default mock suite stays on its internal Docker network.
                 run("docker", "network", "connect", "bridge", name)
             if ready:
+
+                def healthy():
+                    state = json.loads(run("docker", "inspect", name).stdout)[0][
+                        "State"
+                    ]
+                    if not state["Running"]:
+                        pytest.fail(
+                            f"Hindsight exited {state['ExitCode']} "
+                            "before /health became healthy"
+                        )
+                    return request(endpoint(name), "/health")["status"] == "healthy"
+
                 eventually(
-                    lambda: request(endpoint(name), "/health")["status"] == "healthy",
+                    healthy,
                     timeout=310,
                 )
             yield name
@@ -207,11 +242,9 @@ class Stack:
 
     def probe(self, action, **data):
         env = {
+            **self.chart_env("hermes", prefix="HINDSIGHT_"),
             "HERMES_HOME": "/opt/data",
             "HOME": "/opt/data",
-            "HINDSIGHT_MODE": "local_external",
-            "HINDSIGHT_API_URL": "http://hindsight:8888",
-            "HINDSIGHT_BANK_ID": "default",
             "HERMES_DISABLE_LAZY_INSTALL": "1",
         }
         args = [
@@ -261,7 +294,7 @@ class Stack:
 
 
 @pytest.fixture(scope="module")
-def stack(tmp_path_factory, hermes_image, defaults_payload):
+def stack(tmp_path_factory, hermes_image, rendered_chart):
     suffix = uuid4().hex[:10]
     network, database = "hindsight-image-" + suffix, "hindsight-image-db-" + suffix
     certs = tmp_path_factory.mktemp("hindsight-tls")
@@ -349,7 +382,7 @@ def stack(tmp_path_factory, hermes_image, defaults_payload):
                 == 0
             )
         )
-        current = Stack(network, database, certs, hermes_image, defaults_payload)
+        current = Stack(network, database, certs, hermes_image, rendered_chart)
         current.sql(
             f"CREATE ROLE hindsight LOGIN PASSWORD '{SYNTHETIC_PASSWORD}' "
             "NOSUPERUSER NOCREATEDB NOCREATEROLE;\n"
@@ -389,6 +422,18 @@ def stack(tmp_path_factory, hermes_image, defaults_payload):
     finally:
         run("docker", "rm", "-fv", database, check=False)
         run("docker", "network", "rm", network, check=False)
+
+
+def test_h11_rendered_api_becomes_healthy_without_egress(stack):
+    # The stack starts the rendered API with only fixture Secrets and mock LLM
+    # substitutions. Inspect its actual networks before requiring real readiness.
+    networks = json.loads(run("docker", "inspect", stack.api).stdout)[0][
+        "NetworkSettings"
+    ]["Networks"]
+    assert set(networks) == {stack.network}
+    network = json.loads(run("docker", "network", "inspect", stack.network).stdout)[0]
+    assert network["Internal"] is True
+    assert request(endpoint(stack.api), "/health")["status"] == "healthy"
 
 
 @pytest.mark.parametrize("url", ["", "https://synthetic.invalid/database", "pg0"])
@@ -451,7 +496,8 @@ def test_h6_retain_creates_bank_and_survives_api_restart(stack):
 @pytest.mark.parametrize("status,delay", [(404, 0), (401, 0), (503, 0), (503, 120)])
 def test_h6_unavailable_api_does_not_break_a_turn(stack, status, delay):
     result = stack.probe("unavailable", status=status, delay=delay)
-    assert result["context"] == "" and result["elapsed"] < 10
+    assert result["elapsed"] < 10
+    assert result["calls"] > 0
 
 
 def test_h7_derived_home_makes_no_provider_calls(stack):

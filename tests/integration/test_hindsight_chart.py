@@ -269,6 +269,15 @@ def test_h9_only_hermes_gets_ingress(tmp_path, hindsight_values):
     )
 
 
+def test_h9_enabled_api_requires_network_policy(tmp_path, hindsight_values):
+    hindsight_values["networkPolicy"] = {"enabled": False}
+    error = render(tmp_path, hindsight_values, valid=False)
+    assert "workloads.hindsight.enabled requires networkPolicy.enabled: true" in error
+    assert "no authentication" in error
+    hindsight_values["workloads"]["hindsight"]["enabled"] = False
+    assert ("Deployment", "hindsight") not in render(tmp_path, hindsight_values)
+
+
 def test_h9_only_hindsight_gets_its_credentials(tmp_path, hindsight_values):
     objects = render(tmp_path, hindsight_values)
     for (kind, name), obj in objects.items():
@@ -315,6 +324,59 @@ def test_h11_default_has_no_persistent_volume(tmp_path, hindsight_values):
     }
     hindsight_values["hindsight"]["database"]["caSecret"] = ""
     assert not pod(render(tmp_path, hindsight_values)).get("volumes")
+
+
+@pytest.mark.parametrize(
+    "enabled,existing", [(False, ""), (True, ""), (False, "retained-cache")]
+)
+def test_h11_offline_models_only_without_cache_claim(
+    tmp_path, hindsight_values, enabled, existing
+):
+    hindsight_values["persistence"]["hindsight-cache"] = {
+        "enabled": enabled,
+        "existingClaim": existing,
+    }
+    entries = [
+        entry
+        for entry in container(render(tmp_path, hindsight_values))["env"]
+        if entry["name"] == "HF_HUB_OFFLINE"
+    ]
+    assert entries == (
+        [] if enabled or existing else [{"name": "HF_HUB_OFFLINE", "value": "1"}]
+    )
+
+
+@pytest.mark.parametrize(
+    "enabled,existing", [(False, ""), (True, ""), (False, "retained-cache")]
+)
+@pytest.mark.parametrize("value", ["0", ""])
+@pytest.mark.parametrize("field", ["env", "secretEnv"])
+def test_h11_operator_offline_setting_is_preserved(
+    tmp_path, hindsight_values, enabled, existing, value, field
+):
+    hindsight_values["persistence"]["hindsight-cache"] = {
+        "enabled": enabled,
+        "existingClaim": existing,
+    }
+    entry = {"name": "HF_HUB_OFFLINE", "value": value}
+    expected = entry
+    if field == "secretEnv":
+        entry = {
+            "name": "HF_HUB_OFFLINE",
+            "secretName": "offline-setting",
+            "key": "value",
+        }
+        expected = {
+            "name": "HF_HUB_OFFLINE",
+            "valueFrom": {"secretKeyRef": {"name": "offline-setting", "key": "value"}},
+        }
+    hindsight_values["workloads"]["hindsight"][field] = [entry]
+    entries = [
+        entry
+        for entry in container(render(tmp_path, hindsight_values))["env"]
+        if entry["name"] == "HF_HUB_OFFLINE"
+    ]
+    assert entries == [expected]
 
 
 @pytest.mark.parametrize("enabled,existing", [(True, ""), (False, "retained-cache")])

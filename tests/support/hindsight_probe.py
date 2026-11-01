@@ -263,7 +263,7 @@ def unavailable(data):
     assert result["completed"] and not result["failed"]
     assert elapsed < 10
     assert CountingHandler.calls > 0
-    return {"elapsed": elapsed, "calls": CountingHandler.calls, "context": ""}
+    return {"elapsed": elapsed, "calls": CountingHandler.calls}
 
 
 def existing_home(data):
@@ -291,20 +291,26 @@ def dashboard(data):
         assert r.status_code == 200, r.text
         fields = {item["key"]: item for item in r.json()["fields"]}
         assert "mode" in fields and "api_url" in fields and "bank_id" in fields
-        # Use exactly the panel values documented in the operator guide.
+        # The panel submits every field, including the displayed defaults.
+        values = {key: field["value"] for key, field in fields.items()}
+        values.update(
+            mode="local_external",
+            api_url="http://hindsight:8888",
+            bank_id=data["bank"],
+            api_key="",
+        )
         r = client.put(
             "/api/memory/providers/hindsight/config",
-            json={
-                "values": {
-                    "mode": "local_external",
-                    "api_url": "http://hindsight:8888",
-                    "bank_id": data["bank"],
-                    "api_key": "",
-                }
-            },
+            json={"values": values},
         )
         assert r.status_code == 200, r.text
-        assert load_config()["memory"]["provider"] == "hindsight"
+        expected = copy.deepcopy(before)
+        expected.setdefault("memory", {})["provider"] = "hindsight"
+        assert load_config() == expected
+        saved = json.loads((HOME / "hindsight/config.json").read_text())
+        assert len(saved) == 31
+        assert set(saved) <= fields.keys()
+        assert saved["recall_types"] == "observation"
         p = provider("new-session-after-dashboard-save")
         assert connection(p) == {
             "mode": "local_external",
@@ -312,8 +318,8 @@ def dashboard(data):
             "bank": data["bank"],
         }
         assert not p._api_key
-        # Stub consolidation is asynchronous. Widen only this probe's recall
-        # types so dashboard persistence remains exactly the documented fields.
+        # Stub consolidation is asynchronous. Widen only the initialized provider's
+        # recall types, leaving all saved panel defaults intact.
         p._apply_recall_settings({"recall_types": "observation,world,experience"})
         retain(p, data["content"])
         p.shutdown()

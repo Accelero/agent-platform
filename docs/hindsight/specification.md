@@ -15,12 +15,12 @@ native Hermes configuration owns existing homes and named profiles.
 | H6 | The first retain creates the bank and the memory survives an API restart. A missing bank or an unavailable or rejecting API does not stop ordinary chat. | `test_h6_retain_creates_bank_and_survives_api_restart`, `test_h6_unavailable_api_does_not_break_a_turn` |
 | H7 | Multica task processes hold no Hindsight variables, and a derived home initializes no provider and makes zero calls to the API. Built-in file memory keeps working. | `test_h7_multica_run_removes_hindsight_environment`, `test_h7_derived_home_makes_no_provider_calls` |
 | H8 | Database and LLM credentials appear only as Secret references. They are not in ConfigMaps, seed payloads, the seeded JSON, logs, chart defaults or receipts. LLM endpoint URLs contain no credential, query or fragment. | `test_h8_credentials_render_only_as_secret_references`, `test_h8_seed_rejects_credentials_in_hindsight_settings`, `test_h8_synthetic_credentials_are_absent_from_api_logs` |
-| H9 | Hindsight runs as non-root with no service-account token or RBAC. Only `hermes` has ingress. Sandbox workers, the manager and other workloads gain no access, and no workload but `hindsight` receives its database or LLM credentials. | `test_h9_pod_is_non_root_without_token_or_rbac`, `test_h9_only_hermes_gets_ingress`, `test_h9_only_hindsight_gets_its_credentials` |
+| H9 | Hindsight runs as non-root with no service-account token or RBAC. Enabling it requires `networkPolicy.enabled: true`; otherwise rendering fails because the API has no authentication. Only `hermes` has ingress. Sandbox workers, the manager and other workloads gain no access, and no workload but `hindsight` receives its database or LLM credentials. | `test_h9_pod_is_non_root_without_token_or_rbac`, `test_h9_only_hermes_gets_ingress`, `test_h9_enabled_api_requires_network_policy`, `test_h9_only_hindsight_gets_its_credentials` |
 | H10 | Startup, readiness, migration failure, database outage and queued-work recovery have bounded, documented behaviour. Probes carry no credential. | `test_h10_probes_are_unauthenticated_http`, `test_h10_failed_migration_exits_without_serving`, `test_h10_queued_retain_completes_after_restart`, `test_h10_database_outage_fails_readiness_and_recovers` |
-| H11 | No data PVC is needed and the cache is optional. Disabling deletes no bank, credential or retained claim. The guide covers deselecting the provider first. | `test_h11_default_has_no_persistent_volume`, `test_h11_cache_claim_mounts_only_when_selected`, `test_h11_retired_login_claim_is_not_rendered_or_deleted` |
+| H11 | No data PVC is needed and the cache is optional. Without an enabled or existing cache claim, the chart sets `HF_HUB_OFFLINE=1` and the rendered API becomes healthy without outbound access, using preloaded models. With either kind of cache claim, the chart adds no offline setting; an empty claim needs Hugging Face for the first download. An operator's `HF_HUB_OFFLINE` entry, including a Secret reference, is preserved without duplication. Disabling deletes no bank, credential or retained claim. The guide covers deselecting the provider first. | `test_h11_default_has_no_persistent_volume`, `test_h11_cache_claim_mounts_only_when_selected`, `test_h11_offline_models_only_without_cache_claim`, `test_h11_operator_offline_setting_is_preserved`, `test_h11_rendered_api_becomes_healthy_without_egress`, `test_h11_retired_login_claim_is_not_rendered_or_deleted` |
 | H12 | The packaged chart keeps the upstream digest and wiring, and the release allowlists stay complete. | `test_h12_packaged_chart_keeps_hindsight_digest_and_wiring` |
 | H13 | Seeded homes never select the public service. A root home with missing, empty or mode-less JSON stays on the internal URL, and a routed profile without settings makes no calls. Saved dashboard defaults (F2) are covered in the guide. | `test_h13_hermes_gets_internal_endpoint_fail_safe`, `test_h13_missing_json_never_selects_cloud`, `test_h13_routed_profile_without_settings_makes_no_calls` |
-| H14 | The dashboard routes and the documented commands each activate and deactivate an existing home, and change only the provider and connection settings. | `test_h14_dashboard_settings_reach_the_real_provider`, `test_h14_documented_activation_changes_only_memory_settings`, `test_h14_documented_commands_match_the_guide` |
+| H14 | The dashboard routes and the documented commands each activate and deactivate an existing home. A dashboard save writes the panel's full field set to `hindsight/config.json`, including defaults (31 stored keys for the qualified version), while `config.yaml` changes only the memory provider. The documented commands change only the provider and, when absent, the connection settings. | `test_h14_dashboard_settings_reach_the_real_provider`, `test_h14_documented_activation_changes_only_memory_settings`, `test_h14_documented_commands_match_the_guide` |
 
 The root seed accepts exactly `mode: local_external`,
 `api_url: http://hindsight:8888` and `bank_id: default`; extra fields or different
@@ -33,7 +33,8 @@ non-owned environment fields remain overridable.
 
 Qualified locally on 2026-11-01 with disposable Docker containers and synthetic
 credentials. These are compatibility and failure-behaviour checks; the mock LLM
-is not evidence of memory quality. No live Kubernetes cluster was available.
+is not evidence of memory quality. The initial qualification had no live Kubernetes
+cluster; the subsequent audit's k3s results are recorded separately below.
 
 | Check | Result |
 | --- | --- |
@@ -42,7 +43,7 @@ is not evidence of memory quality. No live Kubernetes cluster was available.
 | PostgreSQL | `pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8`; `vector` 0.8.7, `pg_trgm` 1.6 and `btree_gin` 1.3 in `public` (plus PostgreSQL's built-in `plpgsql`). A non-superuser database owner migrated a fresh database with all three extensions created first by the administrator; all 25 application tables belong to that owner. |
 | Health and authentication | `/health`, `/health/live`, `/version` and bank routes respond without an API key. First retain created bank `default`. |
 | Hermes probes | Repository Dockerfile built from `privacy.stage_contexts` inputs; plugin revision `176f8c2de1369f569c489b831d143b78128b5535`, client 0.10.1. F1/F2/F3 reproduced: missing or empty JSON uses environment, mode-less JSON selects cloud mode but uses the internal environment URL, configured routed profiles work without a key, unconfigured routed profiles are unavailable, saved public JSON overrides the environment. F15's private web URL is refused by `tools.url_safety.is_safe_url`; daemon environment inheritance is present in pinned Multica source. |
-| Retain and recall | Real plugin `sync_turn`, retain drain and recall succeeded against the server using `mock/mock-model` and `recall_types: observation,world,experience`. The retained synthetic telescope fact survived API restart. Use `HF_HUB_OFFLINE=1` in the image suite to suppress model metadata checks against Hugging Face; the image contains the models. |
+| Retain and recall | Real plugin `sync_turn`, retain drain and recall succeeded against the server using `mock/mock-model` and `recall_types: observation,world,experience`. The retained synthetic telescope fact survived API restart. The image contains the models; the chart now supplies `HF_HUB_OFFLINE=1` without a cache claim to suppress model metadata checks against Hugging Face. |
 | LLM outage | With `openai` pointing at an unreachable local endpoint, verification warned after three attempts and the API became healthy in 24.77 s. No `HINDSIGHT_API_SKIP_LLM_VERIFICATION` is needed. |
 | Queued restart | An accepted asynchronous batch of 24 documents completed in 19.79 s after SIGKILL/start with worker ID `hindsight`, with only one API worker using that database. |
 | TLS | `sslmode=verify-full&sslrootcert=/etc/postgres/ca.crt` succeeded for migrations and runtime; PostgreSQL reports TLSv1.3 for the owner's runtime connections. |
@@ -54,21 +55,39 @@ is not evidence of memory quality. No live Kubernetes cluster was available.
 The vendored `TestHermesDisablesExternalMemoryProvider` passed in
 `golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308`.
 Only the derived-home boundary is covered; no full Multica task or real model-backed
-conversation was run. Live NetworkPolicy enforcement must be checked before
-production use because it is the only API access control.
+conversation was run. NetworkPolicy is the only API access control; enforcement
+on the production cluster's CNI remains to be checked.
+
+### Audit of `28f1ae8`, 2026-11-01
+
+The following checks were run by the audit, not by this change's validation:
+
+| Check | Audit result |
+| --- | --- |
+| Startup without Hugging Face | The rendered API exited with code 3 after 20 s in Docker with no route to Hugging Face and entered `CrashLoopBackOff` on k3s with egress limited to DNS and PostgreSQL. Adding `HF_HUB_OFFLINE=1` made the Docker run healthy after 18 s, using the models already in the image. |
+| NetworkPolicy setup | k3s `v1.37.1-k3s1`, the chart's rendered Hindsight Deployment and Service, `agent-platform-default-deny-ingress` and `hindsight-ingress` policies, the mock LLM and non-TLS PostgreSQL. The rest of the platform was not deployed. |
+| Reached Hindsight | A Pod labelled as `hermes` in the same release and namespace. |
+| Blocked | Pods labelled `multica-web` and `runtime-manager`, an unlabelled Pod, a `hermes` label from another release, a sandbox-role Pod in the execution namespace, and a `hermes` label in another namespace. |
+| Control | With the policies deleted, the `multica-web` and sandbox-role Pods both reached Hindsight, demonstrating that the policies caused the blocks. |
+| Real Pod security | UID 1000, no effective capabilities, `NoNewPrivs` set and no service-account token. |
+| Dashboard save | Saving the panel's defaults wrote 31 keys to `hindsight/config.json`; `config.yaml` changed only the memory provider. |
+
+This audit proves NetworkPolicy enforcement on k3s only. Recheck enforcement on
+any other CNI, including the production cluster's CNI.
 
 ## Final validation
 
-Completed locally on 2026-11-01, after implementing the chart, seeding, Multica
-launcher boundary, operator guide and release checks:
+Completed locally on 2026-11-02 for the audit fixes, using disposable Docker
+containers and synthetic credentials:
 
 | Check | Result |
 | --- | --- |
 | Python and lock | Python 3.14.8; `uv sync --locked` passed. |
-| Ruff | Required lint and format checks passed. |
-| Default offline suite | `uv run pytest -q`: **1332 passed, 29 deselected**. |
-| Real-image suite | `uv run pytest -m image -q tests/e2e/test_hindsight_image.py`: **22 passed, 1 skipped** in 158.01 s. The skipped test requires explicit real-model LLM inputs. |
-| Multica source boundary | Pinned Go container regression passed, as recorded above. |
+| Ruff | `uv run ruff check agent_platform tests services/tools/platform_bootstrap` and format checks for both `agent_platform tests` and `agent_platform tests services/tools/platform_bootstrap` passed. The separately listed `services/tools/platform_bootstrap` command exited 126 because it is a directory; it was included in the successful format check. |
+| Default offline suite | `uv run pytest -q`: **1348 passed, 30 deselected** in 20.52 s. |
+| Real-image suite | `uv run pytest -m image -q tests/e2e/test_hindsight_image.py`: **23 passed, 1 skipped** in 154.26 s. The skipped test requires explicit real-model LLM inputs, which were absent. |
+| Offline startup regression | Temporarily removed only the helper's `HF_HUB_OFFLINE=1` append and ran `test_h11_rendered_api_becomes_healthy_without_egress`: **1 setup error** in 25.18 s, pytest exit 1, with `Hindsight exited 3 before /health became healthy`. Restored the helper and reran the same test: **1 passed** in 25.25 s. |
+| Multica source boundary | The pinned Go container regression passed in the earlier qualification above; it was not rerun for these audit fixes. The default suite reran the launcher environment boundary. |
 | Helm | Lint passed; the lightweight + Hindsight overlay rendered; a chart prepared and packaged by the release path retained the upstream digest and wiring. |
 | Privacy and diff | Release privacy preflight and `git diff --check` passed. No release allowlist changes were needed. |
 | Requirement mapping | H1–H14 each name existing proving tests; the separate Hindsight specification check passes without changing the runtime-manager mapping. All named proving tests passed in the suites above. |
@@ -81,11 +100,15 @@ TLS and database readiness recovery. Real `AIAgent.run_conversation` turns compl
 with a synthetic model response when memory returns 404/401/503 or is black-holed.
 The default Docker network has no internet route; the optional real-model test
 explicitly grants its API egress only when the requested LLM inputs exist.
+The API environment comes from the rendered Hindsight Deployment, with only
+synthetic Secret values, the verified-TLS database URL and mock LLM substituted.
+The probe's `HINDSIGHT_*` environment comes from the rendered Hermes Deployment.
 
-**Limits:** retain/recall used the upstream mock LLM, not a real model. No live
-Kubernetes or NetworkPolicy enforcement check ran because no cluster was available;
-that enforcement must be checked before production use because the API has no
-other authentication. Multica coverage is its pinned Go derived-home regression,
+**Limits:** retain/recall used the upstream mock LLM, not a real model. The audit
+ran live NetworkPolicy enforcement checks on k3s, as recorded above; this change's
+validation did not rerun them. Enforcement on the production cluster's CNI remains
+untested and must be checked because the API has no other authentication.
+Multica coverage is its pinned Go derived-home regression,
 the actual launcher environment boundary and Hermes's real `_init_memory` with
 zero counted requests and working built-in file memory; no full Multica task ran.
 No version, tag, release publication or deployment was performed.

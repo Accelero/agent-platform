@@ -499,6 +499,10 @@ memory provider, and save these fields in this order:
    uses `default`. Banks are created on first retain.
 4. Leave API key empty.
 
+Saving submits the panel's full field set, including defaults, to
+`hindsight/config.json` (31 stored keys with the qualified version's defaults).
+Only the selected memory provider changes in `config.yaml`.
+
 **Saving the dashboard's default Cloud mode and public URL sends conversations to
 the public service.** A saved JSON URL overrides the Pod's internal URL. Check both
 Mode and API URL whenever activating an existing home. Apply changes to a new
@@ -553,15 +557,21 @@ Disabling leaves banks, Secrets and retained claims intact. The old
 `hindsight-login` PVC is no longer mounted or created by default; an existing PVC
 remains because of its retention annotation. Delete it manually only after
 confirming it is unneeded. No data PVC is needed. The default uses the image's
-preloaded models without a cache mount. Set `persistence.hindsight-cache.enabled`
+preloaded models without a cache mount and sets `HF_HUB_OFFLINE=1`, so it needs
+no access to Hugging Face. An operator's `HF_HUB_OFFLINE` environment entry is
+preserved without a duplicate. Set `persistence.hindsight-cache.enabled`
 or `existingClaim` to mount the optional retained cache at
-`/home/hindsight/.cache`. An empty claim hides the image's preloaded models and
-requires model downloads; caches are replaceable.
+`/home/hindsight/.cache`. This mount hides the image's preloaded models. A cache
+claim needs access to Hugging Face for the first model download unless it is
+already populated. The chart does not add `HF_HUB_OFFLINE` when a cache claim is
+selected; caches are replaceable.
 
 **Access and memory behaviour:** the API has no authentication key. Only the Hermes
-Pod has ingress under the chart's NetworkPolicy. This depends on a CNI that enforces
-policies. Any process in that Pod can read every bank; bank IDs are logical
-partitions, not authorization per person. Sandbox workers, the manager and other
+Pod has ingress under the chart's NetworkPolicy. Rendering fails if Hindsight is
+enabled with `networkPolicy.enabled: false`, because those policies are its only
+access control. This depends on a CNI that enforces policies. Any process in that
+Pod can read every bank; bank IDs are logical partitions, not authorization per
+person. Sandbox workers, the manager and other
 workloads have no access. Multica tasks unset the Hindsight connection environment
 and use derived homes with the external provider disabled. Hermes's built-in file
 memory stays on. The plugin retains every turn and recalls observations by default;
@@ -591,6 +601,10 @@ so they keep their original bank IDs. If a deployment wants `hindsight` included
 `bootstrap.writers`, add it there explicitly only when its Deployment is enabled.
 
 ## Release and upgrade
+
+The first upgrade to a chart containing this Hindsight integration restarts all
+six core Deployments, even with Hindsight disabled, because `checksum/application`
+changes.
 
 The pipeline tests images, injects exact image digests into a staging chart, renders
 its lightweight deployment, and publishes that `.tgz` to GHCR and GitHub Releases.
