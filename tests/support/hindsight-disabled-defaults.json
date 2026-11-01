@@ -1,0 +1,4 @@
+{
+  "defaults": "{\"config\":{\"plugins\":{\"enabled\":[\"managed_execution\"],\"entries\":{\"managed_execution\":{\"settings\":{\"profile\":\"default\"}}}},\"terminal\":{\"backend\":\"managed_execution\",\"container_persistent\":false,\"cwd\":\"/workspace\"}},\"profiles\":{}}",
+  "checksum": "7d9d520e13d3967029664253af6d2974dfaa1545c98842b862e24661b7a8de80"
+}

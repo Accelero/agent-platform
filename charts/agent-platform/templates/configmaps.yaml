@@ -46,5 +46,5 @@ metadata:
   labels:
     {{- include "agent-platform.labels" . | nindent 4 }}
 data:
-  defaults.json: {{ dict "config" .Values.hermes.config "profiles" .Values.hermes.profiles | toJson | quote }}
+  defaults.json: {{ include "agent-platform.hermesDefaults" . | quote }}
 {{- end }}

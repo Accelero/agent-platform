@@ -1,6 +1,9 @@
 # Hindsight integration plan
 
-Status: audited and ready to implement; nothing here has been implemented yet.
+Status: implemented and validated locally on 2026-11-01. Requirements, upstream
+qualification, test results and remaining live-environment checks are recorded in
+[the specification](specification.md). The pre-implementation plan was committed
+and pushed as `2a44623` at the user's request.
 Audited on 2026-11-01 against commit `8441c76`, the pinned Hermes image and the
 pinned Hindsight plugin. Baseline before any change: `uv run pytest -q` gives
 1291 passed, 6 deselected, and `helm lint` is clean.
@@ -101,26 +104,9 @@ The rest follow directly from the facts above.
 
 ## Requirements
 
-Move this table into `docs/hindsight/specification.md` in WP0. If a test would pin
-behaviour the table doesn't state, change the specification in the same change rather
-than only adding the test.
-
-| ID | Required result | Proving tests |
-| --- | --- | --- |
-| H1 | With `workloads.hindsight.enabled: false`, there are no Hindsight objects or `HINDSIGHT_*` variables on `hermes`. `defaults.json` and `checksum/hermes-defaults` are byte-identical to today's. | `test_h1_disabled_chart_renders_no_hindsight_and_unchanged_defaults` |
-| H2 | When enabled, the API runs from a digest-pinned image with its database URL from an existing Secret. Missing inputs fail the render, and an empty or non-PostgreSQL URL stops the container. | `test_h2_enabled_chart_renders_pinned_api_without_placeholders`, `test_h2_missing_inputs_fail_the_render`, `test_h2_empty_database_url_stops_the_container` |
-| H3 | A fresh root home selects `hindsight`, `local_external` and bank `default`, as seen by the real provider, unless `hermes.config.memory.provider` says otherwise. | `test_h3_fresh_root_seed_writes_provider_and_connection`, `test_h3_seeded_home_initializes_the_real_provider`, `test_h3_explicit_root_provider_is_not_seeded` |
-| H4 | A named profile never inherits the root's provider from the chart. A profile configured natively keeps its own bank across restart and upgrade, and works on a routed turn with no credential. | `test_h4_chart_profile_does_not_inherit_the_root_provider`, `test_h4_explicit_profile_provider_is_preserved`, `test_h4_native_profile_settings_survive_restart`, `test_h4_routed_profile_uses_its_native_settings_without_a_key` |
-| H5 | Existing configuration, Hindsight JSON, credentials and explicit opt-outs are preserved, including `memory.provider: ""`. No file is added to a home whose `config.yaml` already exists. Unsafe paths are refused. | `test_h5_existing_home_is_not_changed_by_seeding`, `test_h5_explicit_empty_provider_is_preserved`, `test_h5_seed_refuses_symlinked_hindsight_parent`, `test_h5_interrupted_seed_converges` |
-| H6 | The first retain creates the bank and the memory survives an API restart. A missing bank or an unavailable or rejecting API does not stop ordinary chat. | `test_h6_retain_creates_bank_and_survives_api_restart`, `test_h6_unavailable_api_does_not_break_a_turn` |
-| H7 | Multica task processes hold no Hindsight variables, and a derived home initializes no provider and makes zero calls to the API. Built-in file memory keeps working. | `test_h7_multica_run_removes_hindsight_environment`, `test_h7_derived_home_makes_no_provider_calls` |
-| H8 | Database and LLM credentials appear only as Secret references. They are not in ConfigMaps, seed payloads, the seeded JSON, logs, chart defaults or receipts. | `test_h8_credentials_render_only_as_secret_references`, `test_h8_seed_rejects_credentials_in_hindsight_settings`, `test_h8_synthetic_credentials_are_absent_from_api_logs` |
-| H9 | Hindsight runs as non-root with no service-account token or RBAC. Only `hermes` has ingress. Sandbox workers, the manager and other workloads gain no access, and no workload but `hindsight` receives its database or LLM credentials. | `test_h9_pod_is_non_root_without_token_or_rbac`, `test_h9_only_hermes_gets_ingress`, `test_h9_only_hindsight_gets_its_credentials` |
-| H10 | Startup, readiness, migration failure, database outage and queued-work recovery have bounded, documented behaviour. Probes carry no credential. | `test_h10_probes_are_unauthenticated_http`, `test_h10_failed_migration_exits_without_serving`, `test_h10_queued_retain_completes_after_restart` |
-| H11 | No data PVC is needed and the cache is optional. Disabling deletes no bank, credential or retained claim. The guide covers deselecting the provider first. | `test_h11_default_has_no_persistent_volume`, `test_h11_cache_claim_mounts_only_when_selected`, `test_h11_retired_login_claim_is_not_rendered_or_deleted` |
-| H12 | The packaged chart keeps the upstream digest and wiring, and the release allowlists stay complete. | `test_h12_packaged_chart_keeps_hindsight_digest_and_wiring` |
-| H13 | Seeded homes never select the public service. A root home with missing, empty or mode-less JSON stays on the internal URL, and a routed profile without settings makes no calls. Saved dashboard defaults (F2) are covered in the guide. | `test_h13_hermes_gets_internal_endpoint_fail_safe`, `test_h13_missing_json_never_selects_cloud`, `test_h13_routed_profile_without_settings_makes_no_calls` |
-| H14 | The dashboard routes and the documented commands each activate and deactivate an existing home, and change only the provider and connection settings. | `test_h14_dashboard_settings_reach_the_real_provider`, `test_h14_documented_activation_changes_only_memory_settings`, `test_h14_documented_commands_match_the_guide` |
+The lasting requirements table and its proving tests now live in
+[specification.md](specification.md#requirements). If a test pins behaviour that
+table does not state, update the specification in the same change.
 
 ## Configuration interface
 

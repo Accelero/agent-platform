@@ -1,0 +1,12 @@
+# Overlay on examples/lightweight/values.yaml. Secrets are supplied separately.
+workloads:
+  hindsight:
+    enabled: true
+hindsight:
+  database:
+    urlSecretRef: {name: hindsight-database, key: url}
+    caSecret: hindsight-postgres-ca
+  llm:
+    provider: openai
+    model: operator-selected-model
+    apiKeySecretRef: {name: hindsight-llm, key: api-key}

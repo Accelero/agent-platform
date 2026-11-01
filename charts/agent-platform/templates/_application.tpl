@@ -67,5 +67,90 @@
     {{- end -}}
   {{- end -}}
 {{- end -}}
+{{- $_ := include "agent-platform.hindsight" (dict "root" . "workloads" $workloads) -}}
 {{- $workloads | toJson -}}
+{{- end -}}
+
+{{/* One canonical payload for both the ConfigMap and its checksum. */}}
+{{- define "agent-platform.hermesDefaults" -}}
+{{- $config := deepCopy .Values.hermes.config -}}
+{{- $profiles := deepCopy .Values.hermes.profiles -}}
+{{- $defaults := dict "config" $config "profiles" $profiles -}}
+{{- if .Values.workloads.hindsight.enabled -}}
+  {{- if not (hasKey (default dict $config.memory) "provider") -}}
+    {{- $memory := default dict $config.memory -}}
+    {{- $_ := set $memory "provider" "hindsight" -}}
+    {{- $_ := set $config "memory" $memory -}}
+    {{- $_ := set $defaults "hindsight" (dict "mode" "local_external" "api_url" "http://hindsight:8888" "bank_id" "default") -}}
+  {{- end -}}
+  {{- range $profiles -}}
+    {{- $memory := default dict .memory -}}
+    {{- if not (hasKey $memory "provider") -}}
+      {{- $_ := set $memory "provider" "" -}}
+      {{- $_ := set . "memory" $memory -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- $defaults | toJson -}}
+{{- end -}}
+
+{{/* Enabled-only checks and wiring for the optional, externally backed API. */}}
+{{- define "agent-platform.hindsight" -}}
+{{- $root := .root -}}
+{{- $api := .workloads.hindsight -}}
+{{- if $api.enabled -}}
+  {{- $settings := $root.Values.hindsight -}}
+  {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" $api.image) -}}
+    {{- fail "workloads.hindsight.image must be digest-pinned" -}}
+  {{- end -}}
+  {{- $_ := required "hindsight.database.urlSecretRef.name is required when enabled" (trim $settings.database.urlSecretRef.name) -}}
+  {{- $_ := required "hindsight.database.urlSecretRef.key is required when enabled" (trim $settings.database.urlSecretRef.key) -}}
+  {{- $_ := required "hindsight.llm.provider is required when enabled" (trim $settings.llm.provider) -}}
+  {{- $_ := required "hindsight.llm.model is required when enabled" (trim $settings.llm.model) -}}
+  {{- if and $settings.llm.apiKeySecretRef.name (not (trim $settings.llm.apiKeySecretRef.key)) -}}
+    {{- fail "hindsight.llm.apiKeySecretRef.key is required with a Secret name" -}}
+  {{- end -}}
+  {{- if and $settings.llm.baseUrl (not (regexMatch "^https?://[^/@?#]+(/[^@?#]*)?$" $settings.llm.baseUrl)) -}}
+    {{- fail "hindsight.llm.baseUrl must be an HTTP URL without credentials, query or fragment" -}}
+  {{- end -}}
+  {{- $reserved := list "HINDSIGHT_API_DATABASE_URL" "HINDSIGHT_API_LLM_PROVIDER" "HINDSIGHT_API_LLM_MODEL" "HINDSIGHT_API_LLM_BASE_URL" "HINDSIGHT_API_LLM_API_KEY" "HINDSIGHT_API_WORKER_ENABLED" "HINDSIGHT_API_WORKER_ID" -}}
+  {{- $hermesReserved := list "HINDSIGHT_MODE" "HINDSIGHT_BANK_ID" "HINDSIGHT_API_URL" -}}
+  {{- range $name, $workload := dict "hindsight" $api "hermes" .workloads.hermes -}}
+    {{- $names := $reserved -}}
+    {{- if eq $name "hermes" -}}{{- $names = $hermesReserved -}}{{- end -}}
+    {{- range $field := list "env" "secretEnv" -}}
+      {{- range (index $workload $field) -}}
+        {{- if has .name $names -}}
+          {{- fail "Configure Hindsight through hindsight settings, not chart-owned workload environment overrides" -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $env := default list $api.env -}}
+  {{- range $name, $value := dict "HINDSIGHT_API_LLM_PROVIDER" $settings.llm.provider "HINDSIGHT_API_LLM_MODEL" $settings.llm.model "HINDSIGHT_API_WORKER_ENABLED" "true" "HINDSIGHT_API_WORKER_ID" "hindsight" -}}
+    {{- $env = append $env (dict "name" $name "value" $value) -}}
+  {{- end -}}
+  {{- with $settings.llm.baseUrl -}}
+    {{- $env = append $env (dict "name" "HINDSIGHT_API_LLM_BASE_URL" "value" .) -}}
+  {{- end -}}
+  {{- $_ := set $api "env" $env -}}
+  {{- $secrets := append (default list $api.secretEnv) (dict "name" "HINDSIGHT_API_DATABASE_URL" "secretName" $settings.database.urlSecretRef.name "key" $settings.database.urlSecretRef.key) -}}
+  {{- with $settings.llm.apiKeySecretRef.name -}}
+    {{- $secrets = append $secrets (dict "name" "HINDSIGHT_API_LLM_API_KEY" "secretName" . "key" $settings.llm.apiKeySecretRef.key) -}}
+  {{- end -}}
+  {{- $_ := set $api "secretEnv" $secrets -}}
+  {{- with $settings.database.caSecret -}}
+    {{- $_ := set $api "volumes" (append (default list $api.volumes) (dict "name" "postgres-ca" "mountPath" "/etc/postgres" "source" (dict "secret" (dict "secretName" .)))) -}}
+  {{- end -}}
+  {{- $cache := index $root.Values.persistence "hindsight-cache" -}}
+  {{- if or $cache.enabled $cache.existingClaim -}}
+    {{- $_ := set $api "persistence" (append (default list $api.persistence) (dict "name" "hindsight-cache" "mountPath" "/home/hindsight/.cache")) -}}
+  {{- end -}}
+  {{- $hermes := .workloads.hermes -}}
+  {{- $env = default list $hermes.env -}}
+  {{- range $name, $value := dict "HINDSIGHT_MODE" "local_external" "HINDSIGHT_BANK_ID" "default" "HINDSIGHT_API_URL" "http://hindsight:8888" -}}
+    {{- $env = append $env (dict "name" $name "value" $value) -}}
+  {{- end -}}
+  {{- $_ := set $hermes "env" $env -}}
+{{- end -}}
 {{- end -}}

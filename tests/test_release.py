@@ -163,3 +163,57 @@ def test_reviewed_build_sources_are_complete_and_not_ignored():
         timeout=10,
     )
     assert result.returncode == 1, result.stdout.decode()
+
+
+def test_h12_packaged_chart_keeps_hindsight_digest_and_wiring(tmp_path):
+    import subprocess
+
+    from agent_platform.privacy import chart_files
+    from tests.integration.test_hindsight_chart import HINDSIGHT_IMAGE
+
+    images = {
+        name: release.REGISTRY + "/" + name + "@sha256:" + "a" * 64
+        for name in release.TARGETS
+    }
+    chart = release.prepare_chart(tmp_path, images, "0.4.1", "b" * 40)
+    assert set(chart_files(release.ROOT)) == {
+        str(path.relative_to(chart)) for path in chart.rglob("*") if path.is_file()
+    }
+    subprocess.run(
+        ["helm", "package", str(chart), "--destination", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            "agents",
+            str(tmp_path / "agent-platform-0.4.1.tgz"),
+            "-f",
+            str(release.ROOT / "examples/lightweight/values.yaml"),
+            "-f",
+            str(release.ROOT / "examples/hindsight/values.yaml"),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    objects = {
+        (obj["kind"], obj["metadata"]["name"]): obj
+        for obj in yaml.safe_load_all(result.stdout)
+        if obj
+    }
+    api = objects["Deployment", "hindsight"]["spec"]["template"]["spec"]["containers"][
+        0
+    ]
+    assert api["image"] == HINDSIGHT_IMAGE
+    assert "HINDSIGHT_API_DATABASE_URL" in {item["name"] for item in api["env"]}
+    assert "postgres://*|postgresql://*) exec /app/start-all.sh" in api["command"][2]
+    seed = json.loads(objects["ConfigMap", "hermes-defaults"]["data"]["defaults.json"])
+    assert seed["hindsight"]["bank_id"] == "default"
+    assert seed["config"]["memory"]["provider"] == "hindsight"
+    assert objects["NetworkPolicy", "hindsight-ingress"]["spec"]["ingress"]

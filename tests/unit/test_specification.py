@@ -84,3 +84,32 @@ def test_domain_and_adapters_keep_dependencies_pointing_inward():
             assert not any(
                 name == prefix or name.startswith(prefix + ".") for name in found
             ), filename
+
+
+def test_hindsight_requirements_name_existing_tests():
+    specification = (ROOT / "docs/hindsight/specification.md").read_text()
+    rows = {}
+    for line in specification.splitlines():
+        if re.match(r"\| H\d+ \|", line):
+            fields = [part.strip() for part in line.strip("|").split("|")]
+            assert fields[0] not in rows, f"duplicate requirement {fields[0]}"
+            rows[fields[0]] = re.findall(r"`(test_\w+)`", fields[-1])
+    tests, mentioned = set(), set()
+    for path in (ROOT / "tests").rglob("test_*.py"):
+        source = path.read_text()
+        tests.update(
+            node.name
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+        )
+        mentioned.update(re.findall(r"\bH\d+\b", source))
+    assert set(rows) == {f"H{number}" for number in range(1, 15)}
+    assert not mentioned - rows.keys(), (
+        f"undocumented requirements: {mentioned - rows.keys()}"
+    )
+    for requirement, names in rows.items():
+        assert names, f"{requirement} has no proving test"
+        assert not set(names) - tests, (
+            f"{requirement}: unknown tests {set(names) - tests}"
+        )

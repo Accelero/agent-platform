@@ -168,3 +168,203 @@ def test_profile_without_managed_backend_policy_is_refused(tmp_path: Path, initi
             managed=tmp_path / "absent.yaml",
         )
     assert not (profile / "plugins").exists()
+
+
+def hindsight_seed():
+    return {
+        "config": {"memory": {"provider": "hindsight"}},
+        "profiles": {"research": {"memory": {"provider": ""}}},
+        "hindsight": {
+            "mode": "local_external",
+            "api_url": "http://hindsight:8888",
+            "bank_id": "default",
+        },
+    }
+
+
+def test_h3_fresh_root_seed_writes_provider_and_connection(tmp_path, initializer):
+    seed = hindsight_seed()
+    initializer.seed_defaults(tmp_path, seed)
+    assert (
+        yaml.safe_load((tmp_path / "config.yaml").read_text())["memory"]["provider"]
+        == "hindsight"
+    )
+    path = tmp_path / "hindsight/config.json"
+    assert json.loads(path.read_text()) == seed["hindsight"]
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert not (tmp_path / "profiles/research/hindsight").exists()
+    config = yaml.safe_load((tmp_path / "profiles/research/config.yaml").read_text())
+    assert config["memory"]["provider"] == ""
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        None,
+        {},
+        {"mode": "cloud"},
+        {
+            "mode": "local_external",
+            "api_url": "http://hindsight:8888",
+            "bank_id": "default",
+            "api_key": "synthetic-private-value",
+        },
+        {
+            "mode": "local_external",
+            "api_url": "https://user:synthetic-private-value@example.org",
+            "bank_id": "default",
+        },
+    ],
+)
+def test_h8_seed_rejects_credentials_in_hindsight_settings(
+    tmp_path, initializer, settings
+):
+    seed = hindsight_seed()
+    seed["hindsight"] = settings
+    with pytest.raises(ValueError, match="Invalid Hindsight seed settings") as error:
+        initializer.seed_defaults(tmp_path, seed)
+    assert "synthetic-private-value" not in str(error.value)
+    assert not list(tmp_path.iterdir())
+
+
+def test_h5_existing_home_is_not_changed_by_seeding(tmp_path, initializer):
+    (tmp_path / "config.yaml").write_text(
+        "memory: {provider: chosen}\nmodel: selected\n"
+    )
+    (tmp_path / ".env").write_text("EXAMPLE_API_KEY=synthetic-credential\n")
+    seed = hindsight_seed()
+    seed["profiles"] = {}
+    before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    initializer.seed_defaults(tmp_path, seed)
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+    (tmp_path / "hindsight").mkdir()
+    path = tmp_path / "hindsight/config.json"
+    path.write_text('{"bank_id":"user-bank","api_key":"synthetic-credential"}')
+    before_json = path.read_bytes()
+    initializer.seed_defaults(tmp_path, seed)
+    assert path.read_bytes() == before_json
+
+
+def test_h5_explicit_empty_provider_is_preserved(tmp_path, initializer):
+    seed = hindsight_seed()
+    seed["config"]["memory"]["provider"] = ""
+    del seed["hindsight"]
+    initializer.seed_defaults(tmp_path, seed)
+    assert (
+        yaml.safe_load((tmp_path / "config.yaml").read_text())["memory"]["provider"]
+        == ""
+    )
+    assert not (tmp_path / "hindsight").exists()
+
+
+@pytest.mark.parametrize("existing_target", [False, True])
+def test_h5_seed_refuses_symlinked_hindsight_parent(
+    tmp_path, initializer, existing_target
+):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if existing_target:
+        (outside / "config.json").write_text('{"bank_id":"private-bank"}')
+    before = {path.name: path.read_bytes() for path in outside.iterdir()}
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "hindsight").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(RuntimeError, match="Hindsight"):
+        initializer.seed_defaults(home, hindsight_seed())
+    assert {path.name: path.read_bytes() for path in outside.iterdir()} == before
+    assert not (home / "config.yaml").exists()
+
+
+def test_h5_seed_refuses_symlinked_hindsight_file(tmp_path, initializer):
+    (tmp_path / "hindsight").mkdir()
+    outside = tmp_path / "user-settings.json"
+    outside.write_text("{}")
+    (tmp_path / "hindsight/config.json").symlink_to(outside)
+    with pytest.raises(RuntimeError, match="Hindsight"):
+        initializer.seed_defaults(tmp_path, hindsight_seed())
+    assert outside.read_text() == "{}"
+
+
+def test_h5_interrupted_seed_converges(tmp_path, initializer, monkeypatch):
+    real_write = initializer.atomic_file
+
+    def interrupted(path, *args, **kwargs):
+        if path.name == "config.yaml":
+            raise OSError("simulated interruption")
+        return real_write(path, *args, **kwargs)
+
+    monkeypatch.setattr(initializer, "atomic_file", interrupted)
+    with pytest.raises(OSError, match="interruption"):
+        initializer.seed_defaults(tmp_path, hindsight_seed())
+    settings = tmp_path / "hindsight/config.json"
+    before = settings.read_bytes()
+    assert not (tmp_path / "config.yaml").exists()
+    monkeypatch.setattr(initializer, "atomic_file", real_write)
+    initializer.seed_defaults(tmp_path, hindsight_seed())
+    assert settings.read_bytes() == before
+    assert (
+        yaml.safe_load((tmp_path / "config.yaml").read_text())["memory"]["provider"]
+        == "hindsight"
+    )
+
+
+def test_h4_native_profile_settings_survive_restart(tmp_path, initializer):
+    seed = hindsight_seed()
+    initializer.seed_defaults(tmp_path, seed)
+    profile = tmp_path / "profiles/research"
+    (profile / "config.yaml").write_text(
+        "memory: {provider: hindsight}\nmodel: chosen\n"
+    )
+    (profile / "hindsight").mkdir()
+    (profile / "hindsight/config.json").write_text(
+        '{"mode":"local_external","api_url":"http://hindsight:8888","bank_id":"chosen-bank"}'
+    )
+    before = {
+        path.relative_to(profile): path.read_bytes()
+        for path in profile.rglob("*")
+        if path.is_file()
+    }
+    for provider in ("hindsight", "other", ""):
+        seed["config"]["memory"]["provider"] = provider
+        initializer.seed_defaults(tmp_path, seed)
+    assert {
+        path.relative_to(profile): path.read_bytes()
+        for path in profile.rglob("*")
+        if path.is_file()
+    } == before
+
+
+@pytest.mark.integration
+def test_h7_multica_run_removes_hindsight_environment(tmp_path):
+    import os
+    import subprocess
+
+    home = tmp_path / "home"
+    (home / ".multica").mkdir(parents=True)
+    (home / ".multica/config.json").write_text("{}")
+    bin_path = tmp_path / "bin"
+    bin_path.mkdir()
+    (bin_path / "s6-setuidgid").write_text('#!/bin/sh\nshift\nexec "$@"\n')
+    (bin_path / "multica").write_text("#!/bin/sh\nenv\n")
+    for path in bin_path.iterdir():
+        path.chmod(0o755)
+    script = (
+        (ROOT / "runtimes/hermes/multica-run")
+        .read_text()
+        .replace("/opt/data", str(home))
+    )
+    result = subprocess.run(
+        ["/bin/sh", "-c", script],
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=True,
+        env={
+            "PATH": str(bin_path) + os.pathsep + "/usr/bin:/bin",
+            "HINDSIGHT_MODE": "local_external",
+            "HINDSIGHT_BANK_ID": "default",
+            "HINDSIGHT_API_URL": "http://hindsight:8888",
+        },
+    )
+    assert not any(line.startswith("HINDSIGHT_") for line in result.stdout.splitlines())
+    assert "HOME=" + str(home) in result.stdout

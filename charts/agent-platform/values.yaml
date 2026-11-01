@@ -44,12 +44,6 @@ persistence:
     size: 2Gi
     accessModes:
     - ReadWriteOnce
-  hindsight-login:
-    enabled: false
-    existingClaim: ''
-    size: 10Gi
-    accessModes:
-    - ReadWriteOnce
   hindsight-cache:
     enabled: false
     existingClaim: ''
@@ -480,52 +474,46 @@ workloads:
       failureThreshold: 60
   hindsight:
     enabled: false
-    image: hermes-stack-hindsight:dev
+    image: ghcr.io/vectorize-io/hindsight-api:0.10.3@sha256:f80f304db313cbc8775acd601fda7d094f5854ebf9bc252d8134eb9276d56b40
     env:
-    - name: HINDSIGHT_API_LLM_PROVIDER
-      value: openai-codex
-    - name: HINDSIGHT_API_LLM_MODEL
-      value: gpt-6-luna
-    - name: HINDSIGHT_API_LLM_REASONING_EFFORT
-      value: high
-    - name: CODEX_HOME
-      value: /home/hindsight/codex
-    - name: HINDSIGHT_API_DATABASE_URL
-      value: postgresql://hindsight:$(HINDSIGHT_POSTGRES_PASSWORD)@shared-postgres:5432/hindsight
-    - name: HINDSIGHT_API_WORKER_ID
-      value: hermes-hindsight-local
     - name: HINDSIGHT_API_LOG_LEVEL
       value: info
-    secretEnv:
-    - name: HINDSIGHT_POSTGRES_PASSWORD
-      key: HINDSIGHT_POSTGRES_PASSWORD
     ports:
     - name: http
       port: 8888
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+    securityContext:
+      capabilities:
+        drop: [ALL]
     resources:
       requests:
-        cpu: 100m
-        memory: 128Mi
+        cpu: 500m
+        memory: 1536Mi
       limits:
         memory: 4Gi
-    args:
+    command:
     - /bin/sh
-    - /opt/hindsight/start.sh
-    sharedMemory: 1Gi
+    - -c
+    - |
+      case "$HINDSIGHT_API_DATABASE_URL" in
+        postgres://*|postgresql://*) exec /app/start-all.sh ;;
+        *) echo 'HINDSIGHT_API_DATABASE_URL is not a PostgreSQL URL' >&2; exit 1 ;;
+      esac
     readinessProbe:
-      tcpSocket:
+      httpGet:
+        path: /health
         port: http
       periodSeconds: 5
     startupProbe:
-      tcpSocket:
+      httpGet:
+        path: /health/live
         port: http
       periodSeconds: 5
       failureThreshold: 60
-    persistence:
-    - name: hindsight-login
-      mountPath: /home/hindsight/codex
-    - name: hindsight-cache
-      mountPath: /home/hindsight/.cache
   hermes:
     enabled: false
     image: ''
@@ -1059,6 +1047,15 @@ multica:
   maintenanceFile: /app/data/uploads/.agent-platform-maintenance
   mailSecret: multica-mail
   mailKeys: []
+hindsight:
+  database:
+    urlSecretRef: {name: '', key: url}
+    caSecret: ''
+  llm:
+    provider: ''
+    model: ''
+    baseUrl: ''
+    apiKeySecretRef: {name: '', key: api-key}
 hermes:
   # Initial native config only. Existing config files are preserved on upgrades.
   config:

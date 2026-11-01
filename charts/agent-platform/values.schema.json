@@ -762,6 +762,84 @@
           }
         }
       }
+    },
+    "hindsight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "database",
+        "llm"
+      ],
+      "properties": {
+        "database": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "urlSecretRef",
+            "caSecret"
+          ],
+          "properties": {
+            "urlSecretRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "key"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "caSecret": {
+              "type": "string"
+            }
+          }
+        },
+        "llm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "model",
+            "baseUrl",
+            "apiKeySecretRef"
+          ],
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "baseUrl": {
+              "type": "string"
+            },
+            "apiKeySecretRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "key"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

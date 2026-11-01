@@ -26,7 +26,19 @@ def seed_defaults(root: Path, defaults: dict) -> None:
         if (not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', name)
                 or name in ('default', 'custom') or not isinstance(config, dict)):
             raise ValueError('Invalid native Hermes profile')
-    configs = [(root / 'config.yaml', defaults['config'])]
+    settings = defaults.get('hindsight')
+    if 'hindsight' in defaults and settings != {
+            'mode': 'local_external', 'api_url': 'http://hindsight:8888', 'bank_id': 'default'}:
+        raise ValueError('Invalid Hindsight seed settings')
+    config_path = root / 'config.yaml'
+    if settings is not None and not (config_path.exists() or config_path.is_symlink()):
+        path = root / 'hindsight' / 'config.json'
+        if path.is_symlink() or not safe_parent(path, root):
+            raise RuntimeError('Cannot initialize native Hindsight settings')
+        atomic_file(path, (json.dumps(settings) + '\n').encode(), root, 'missing')
+        if not path.is_file():
+            raise RuntimeError('Cannot initialize native Hindsight settings')
+    configs = [(config_path, defaults['config'])]
     for name, config in profiles.items():
         inherited = merge(deepcopy(defaults['config']), config)
         # A named profile needs its own execution identity even when its terminal

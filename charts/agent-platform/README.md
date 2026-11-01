@@ -76,6 +76,9 @@ Important values:
   operations tools references. Packaged releases populate these exact manifest digests.
 - `multica`: public URL, allowed owner, database connection/CA reference and outbound
   mail Secret/key names. Credentials are named references, not inline values.
+- `hindsight`: optional external PostgreSQL URL/CA Secret references and LLM provider,
+  model, endpoint and optional API-key Secret reference. Enable with
+  `workloads.hindsight.enabled`; see [Hindsight](#hindsight).
 - `hermes`: initial native root/profile configs, dashboard authentication, username and concurrency.
   `dashboardAuth.mode` selects `basic` or `oidc`.
 - `runtimeManager`: native templates/clients, non-root identity, token and TLS Secret
@@ -432,6 +435,160 @@ The [OIDC example](../../examples/oidc/values.yaml) is an overlay for the
 lightweight example. Upgrade by setting the OIDC values and applying the release;
 the resulting environment changes restart Hermes. Returning to `mode: basic`
 requires the configured Basic-auth Secret keys again.
+
+## Hindsight
+
+Enable `workloads.hindsight.enabled: true` to run the supported, digest-pinned
+Hindsight API with its in-process worker. Overlay
+[`examples/hindsight/values.yaml`](../../examples/hindsight/values.yaml) on the
+lightweight example. Choose the LLM provider/model and existing Secret names;
+the example's model name is a placeholder. No owned image or upstream subchart is
+needed. `shared-postgres` remains unsupported, disabled scaffolding.
+
+Prepare a dedicated PostgreSQL database and login, separate from Multica's.
+An administrator must create `vector`, `pg_trgm` and `btree_gin` in `public` before
+Hindsight's non-superuser database owner runs migrations. For example, using `psql`
+as the database administrator (choose the password at the prompt):
+
+```sql
+CREATE ROLE hindsight LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+\password hindsight
+CREATE DATABASE hindsight OWNER hindsight;
+\connect hindsight
+CREATE EXTENSION vector WITH SCHEMA public;
+CREATE EXTENSION pg_trgm WITH SCHEMA public;
+CREATE EXTENSION btree_gin WITH SCHEMA public;
+```
+
+Store the complete PostgreSQL URL in a mode-0600 file outside this checkout, then
+create the selected Secret without placing the URL in command arguments:
+
+```sh
+kubectl -n "$NAMESPACE" create secret generic hindsight-database \
+  --from-file=url=/secure/path/hindsight-url
+kubectl -n "$NAMESPACE" create secret generic hindsight-postgres-ca \
+  --from-file=ca.crt=/secure/path/postgres-ca.crt
+kubectl -n "$NAMESPACE" create secret generic hindsight-llm \
+  --from-file=api-key=/secure/path/llm-api-key
+helm template agents charts/agent-platform \
+  -f examples/lightweight/values.yaml -f examples/hindsight/values.yaml
+```
+
+Use a `postgres://` or `postgresql://` URL. For verified TLS, append
+`?sslmode=verify-full&sslrootcert=/etc/postgres/ca.crt` and set
+`hindsight.database.caSecret`; this works for migrations and runtime connections.
+The server certificate must cover the database hostname in the URL. The container
+rejects an empty or non-PostgreSQL URL without printing it. For a provider that needs
+no key, leave `hindsight.llm.apiKeySecretRef.name` empty. An optional
+`hindsight.llm.baseUrl` must contain no credential, query or fragment. Credentials
+belong only in existing Secrets. The database's NetworkPolicy, if present, must
+admit Pods labelled `app.kubernetes.io/name: hindsight` from the application namespace.
+
+A **fresh root home** automatically selects Hindsight in Local External mode with
+bank `default`. An explicit `hermes.config.memory.provider` (including `""`)
+preserves that choice and suppresses connection seeding. Named profiles never
+inherit the root provider automatically. Existing homes and every named profile
+are configured in Hermes; Helm upgrades preserve their files and credentials.
+
+**Dashboard activation:** select the intended profile, choose Hindsight as the
+memory provider, and save these fields in this order:
+
+1. Set Mode to **Local External**. The panel initially offers Cloud.
+2. Set API URL to `http://hindsight:8888`. The panel initially offers a public URL.
+3. Set Bank ID to the intended bank. The panel default is `hermes`; the root home
+   uses `default`. Banks are created on first retain.
+4. Leave API key empty.
+
+**Saving the dashboard's default Cloud mode and public URL sends conversations to
+the public service.** A saved JSON URL overrides the Pod's internal URL. Check both
+Mode and API URL whenever activating an existing home. Apply changes to a new
+session, or restart the Hermes gateway for existing sessions, because each session
+keeps its initialized memory provider. The image tests exercise a newly initialized
+provider after each change.
+
+For scripted activation, the following native command writes connection settings
+only if absent and changes the selected provider. If `hindsight/config.json`
+already exists, check its `mode`, `api_url` and bank first. An existing Cloud/public
+configuration is preserved by this command and can send conversations externally.
+
+<!-- hindsight-activate -->
+```sh
+kubectl -n "$NAMESPACE" exec deploy/hermes -c hermes -- \
+  /command/s6-setuidgid hermes sh -ceu '
+    export HOME=/opt/data HERMES_HOME=/opt/data
+    umask 077
+    mkdir -p "$HERMES_HOME/hindsight"
+    [ -e "$HERMES_HOME/hindsight/config.json" ] ||
+      printf "%s\n" "{\"mode\":\"local_external\",\"api_url\":\"http://hindsight:8888\",\"bank_id\":\"default\"}" \
+        > "$HERMES_HOME/hindsight/config.json"
+    /opt/hermes/.venv/bin/hermes config set memory.provider hindsight
+  '
+```
+
+For a named profile, use `HERMES_HOME=/opt/data/profiles/<name>` and replace the
+bank in the JSON with your chosen ID. Set `HERMES_HOME` explicitly; `-p` did not
+update the intended profile file in the qualification probe. New sessions or a
+gateway restart apply these changes too.
+
+**Profiles created later:** restart Hermes to sync the installed plugin into the
+new home, then activate it with the dashboard or the commands above. A profile
+created with `--clone` copies the provider selection but neither `hindsight/` nor
+`plugins/`. Until configured and restarted, it may use the root's default bank or
+trigger a plugin catalog install. Configure the bank explicitly.
+
+**Disable:** first run this command in every active home (change `HERMES_HOME` for
+named profiles), then set `workloads.hindsight.enabled: false`. Start a new session
+or restart the gateway to deselect the initialized provider.
+
+<!-- hindsight-deactivate -->
+```sh
+kubectl -n "$NAMESPACE" exec deploy/hermes -c hermes -- \
+  /command/s6-setuidgid hermes sh -ceu '
+    export HOME=/opt/data HERMES_HOME=/opt/data
+    /opt/hermes/.venv/bin/hermes config set memory.provider ""
+  '
+```
+
+Disabling leaves banks, Secrets and retained claims intact. The old
+`hindsight-login` PVC is no longer mounted or created by default; an existing PVC
+remains because of its retention annotation. Delete it manually only after
+confirming it is unneeded. No data PVC is needed. The default uses the image's
+preloaded models without a cache mount. Set `persistence.hindsight-cache.enabled`
+or `existingClaim` to mount the optional retained cache at
+`/home/hindsight/.cache`. An empty claim hides the image's preloaded models and
+requires model downloads; caches are replaceable.
+
+**Access and memory behaviour:** the API has no authentication key. Only the Hermes
+Pod has ingress under the chart's NetworkPolicy. This depends on a CNI that enforces
+policies. Any process in that Pod can read every bank; bank IDs are logical
+partitions, not authorization per person. Sandbox workers, the manager and other
+workloads have no access. Multica tasks unset the Hindsight connection environment
+and use derived homes with the external provider disabled. Hermes's built-in file
+memory stays on. The plugin retains every turn and recalls observations by default;
+cron and subagent contexts skip writes. Offline image tests use a mock LLM and
+explicit recall types; they do not prove real-model memory quality.
+
+**Operation:** the numeric UID/GID is 1000, the stable worker ID is `hindsight`, and
+updates use Recreate. Local qualification measured cold startup at 20.42 s, idle
+cgroup memory at 752 MiB and retain peak at 966 MiB (process RSS peak 1188 MiB).
+Defaults request 500m CPU / 1536Mi memory with a 4Gi limit; size for your workload.
+Startup probes allow 300 s, matching the wrapper's default startup deadline.
+Readiness uses `/health`, which fails when PostgreSQL is unavailable;
+`/health/live` is the unauthenticated startup endpoint. There is no liveness probe.
+Migration failure prevents serving requests. Unreachable LLM verification warns
+and permits startup; retain retries wait for recovery. Accepted queued retains
+survive restart with the stable worker ID (24-document qualification recovered in
+19.79 s). API/database calls have timeouts; default Hermes recall waits up to 3 s,
+and the memory manager caps a synchronous override at 8 s. A failed or missing bank
+lookup does not prevent ordinary chat. See the
+[qualification record](../../docs/hindsight/specification.md#qualified-upstream).
+
+**Backup and restore:** durable state is the Hindsight database, native Hermes homes
+and Secrets. Enabling Hindsight enrolls it in no backup schedule. Deployment tooling
+owns backup coverage and must honor the installation operation Lease. Stop
+`hindsight` and `hermes` before restoring the database, and restore native settings
+so they keep their original bank IDs. If a deployment wants `hindsight` included in
+`bootstrap.writers`, add it there explicitly only when its Deployment is enabled.
 
 ## Release and upgrade
 
