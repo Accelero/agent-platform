@@ -12,6 +12,8 @@ import pytest
 from agent_platform.build import ROOT
 from tests.test_chart import render
 
+pytestmark = pytest.mark.unit
+
 SOURCE = ROOT / "services/tools/platform_bootstrap/__main__.py"
 spec = importlib.util.spec_from_file_location("bootstrap", SOURCE)
 bootstrap = importlib.util.module_from_spec(spec)

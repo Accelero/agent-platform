@@ -205,6 +205,10 @@ Imported prototype revisions and original hashes remain in
 to `runtimes/agent-runtime`. The old policy adapter is replaced by chart templates.
 Agent runtimes use the `worker` Unix account and `/home/worker` home.
 Current settings use only the `runtime-manager` service, token and CA paths.
+The [runtime manager specification](docs/runtime-manager/specification.md) maps
+worker lifecycle and API requirements to tests; the
+[chart guide](charts/agent-platform/README.md#runtime-manager-lifecycle) describes
+timers, in-place state upgrades, orphan reporting and optional SSH host-key pinning.
 Old manager service aliases and credential mounts are intentionally unsupported.
 The Multica credential boundary, maintenance fence,
 non-root execution and serialized runtime handoff remain enforced.

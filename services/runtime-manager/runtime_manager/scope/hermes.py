@@ -3,7 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 import re
 
-from kubernetes_mounts import mount_directory
+from .mounts import mount_directory
 
 PROFILE_TOKEN = '{profile}'
 

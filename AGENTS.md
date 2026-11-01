@@ -11,12 +11,20 @@ mutable application state or deployment-specific backup scripts.
 - `containers/docker-bake.hcl`: the five supported release image targets.
 - `runtimes/`: Hermes adapters and agent-runtime build sources.
 - `services/`: runtime manager, patched Multica backend and generic operations tools.
+- `services/runtime-manager/runtime_manager/`: pure domain planner, SQLite and
+  Kubernetes adapters, use cases and TLS API.
+- `contracts/runtime-manager/`: versioned execution API contract.
+- `docs/runtime-manager/`: requirements and their proving tests.
 - `tools/platform/`: pinned command-line tools used by runtime images.
 - `charts/agent-platform/`: self-contained application chart and native configuration templates.
 - `examples/lightweight/`: nonsecret render fixture with optional services disabled.
 - `vendor/multica/`: pinned upstream server source and upstream license notices.
 - `provenance/`: origin revisions, original source hashes and extraction notes.
-- `tests/`: release invariants and offline runtime smoke payloads.
+- `tests/`: release invariants, offline smoke payloads and fast `unit`,
+  `integration` and `e2e` manager tests. Every collected test needs one level
+  marker; a function-level marker overrides the module level. The default run
+  excludes container builds. Use `uv run pytest -m image -q` to build and test
+  the real worker image with Docker, SSH and arbitrary non-root identities.
 
 ## Checks
 

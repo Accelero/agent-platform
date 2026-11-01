@@ -3,7 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 import re
 
-from kubernetes_mounts import mount_directory
+from .mounts import mount_directory
 
 IDENTIFIER = r'[A-Za-z0-9][A-Za-z0-9_.-]{0,255}'
 

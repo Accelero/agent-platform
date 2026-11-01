@@ -1,0 +1,317 @@
+openapi: 3.0.3
+info:
+  title: Runtime manager execution API
+  version: 1.0.0
+  description: >-
+    Leases on SSH worker Pods for Hermes (and, optionally, the Codex launcher).
+    All routes except /healthz require `Authorization: Bearer <client token>`.
+    A client sees only the environments, leases and request IDs of its own
+    deployment scope. Behaviour is specified in docs/runtime-manager/specification.md.
+servers:
+  - url: https://runtime-manager:8090
+paths:
+  /healthz:
+    get:
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: The manager is serving.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+  /v1/environments:
+    get:
+      operationId: listEnvironments
+      responses:
+        '200':
+          description: The caller's environments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Environment'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /v1/orphans:
+    get:
+      operationId: listOrphans
+      description: >-
+        Managed Pods older than the grace period that no environment record
+        names. Reported, never adopted.
+      responses:
+        '200':
+          description: The orphans seen by the latest scan.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Orphan'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /v1/leases/acquire:
+    post:
+      operationId: acquireLease
+      description: >-
+        Idempotent by `request` within the caller. A live request returns its
+        lease; a request whose lease ended is refused with `lease_not_live`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AcquireRequest'}
+      responses:
+        '200':
+          description: A lease on a Ready worker.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Lease'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409':
+          description: Not available now. Retry on `environment_pending`, `environment_draining` and `conflict`.
+          headers:
+            Retry-After:
+              description: Seconds to wait; sent with `environment_pending` and `environment_draining`.
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConflictError'}
+        '422':
+          description: The worker cannot start; do not retry before the backoff ends.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BackendFailedError'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/leases/heartbeat:
+    post:
+      operationId: heartbeatLease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LeaseReference'}
+      responses:
+        '200':
+          description: The lease was renewed, at most up to the maximum lease age.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Renewal'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: The lease is expired, ended or past its maximum age; stop using the worker.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConflictError'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/leases/release:
+    post:
+      operationId: releaseLease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LeaseReference'}
+      responses:
+        '200':
+          description: Released, or already ended.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Released'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/sessions/close:
+    post:
+      operationId: closeSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CloseRequest'}
+      responses:
+        '200':
+          description: The session's worker retires once its leases end.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Closed'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+components:
+  responses:
+    Invalid:
+      description: The request is malformed or refers to something that does not exist.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/InvalidError'}
+    Unauthorized:
+      description: Missing or unknown credential.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/UnauthorizedError'}
+    Forbidden:
+      description: The lease belongs to another client.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ForbiddenError'}
+    Unavailable:
+      description: A dependency failed; retry.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/UnavailableError'}
+  schemas:
+    Health:
+      type: object
+      required: [ok]
+      additionalProperties: false
+      properties:
+        ok: {type: boolean}
+    Mode:
+      type: string
+      enum: [per_session, per_profile_on_demand, per_profile_always_running]
+    Failure:
+      type: string
+      enum: [image_unavailable, start_failed, start_timeout]
+    Retire:
+      type: string
+      enum: [closed, config, schedule, idle, lease_lost, pod_lost]
+    AcquireRequest:
+      type: object
+      required: [profile, session, mode, request]
+      additionalProperties: false
+      properties:
+        profile: {type: string}
+        session: {type: string}
+        mode: {$ref: '#/components/schemas/Mode'}
+        request: {type: string, description: Idempotency key, scoped to the caller.}
+        template: {type: string, description: A configured template; the default when omitted.}
+        image: {type: string, description: Overrides the template's image.}
+        parent_lease: {type: string}
+        runtime: {type: object, description: Invocation scope validated by the template's mount policy.}
+    LeaseReference:
+      type: object
+      required: [lease]
+      additionalProperties: false
+      properties:
+        lease: {type: string}
+    CloseRequest:
+      type: object
+      required: [profile, session]
+      additionalProperties: false
+      properties:
+        profile: {type: string}
+        session: {type: string}
+        runtime: {type: object}
+    Endpoint:
+      type: object
+      required: [host, port, user]
+      additionalProperties: false
+      properties:
+        host: {type: string}
+        port: {type: integer}
+        user: {type: string}
+    Lease:
+      type: object
+      required: [environment, generation, lease, ttl, ssh]
+      additionalProperties: false
+      properties:
+        environment: {type: string}
+        generation: {type: string}
+        lease: {type: string}
+        ttl: {type: integer, minimum: 1}
+        ssh: {$ref: '#/components/schemas/Endpoint'}
+    Renewal:
+      type: object
+      required: [ttl]
+      additionalProperties: false
+      properties:
+        ttl: {type: integer, minimum: 1}
+    Released:
+      type: object
+      required: [released]
+      additionalProperties: false
+      properties:
+        released: {type: boolean}
+    Closed:
+      type: object
+      required: [closed]
+      additionalProperties: false
+      properties:
+        closed: {type: boolean}
+    Environment:
+      type: object
+      required: [id, deployment, profile, session, mode, generation, stale, retire, failure, phase, provisioned, leases, last_used]
+      additionalProperties: false
+      properties:
+        id: {type: string}
+        deployment: {type: string}
+        profile: {type: string}
+        session: {type: string}
+        mode: {$ref: '#/components/schemas/Mode'}
+        generation: {type: string}
+        stale: {type: boolean, description: A replacement is due.}
+        retire:
+          nullable: true
+          allOf: [{$ref: '#/components/schemas/Retire'}]
+        failure:
+          nullable: true
+          allOf: [{$ref: '#/components/schemas/Failure'}]
+        phase: {type: string, enum: [absent, provisioning, ready, retiring, failed]}
+        provisioned: {type: boolean}
+        leases: {type: integer, minimum: 0}
+        last_used: {type: number}
+    Orphan:
+      type: object
+      required: [name, created, first_seen]
+      additionalProperties: false
+      properties:
+        name: {type: string}
+        created: {type: number}
+        first_seen: {type: number}
+    InvalidError:
+      type: object
+      required: [error, code]
+      additionalProperties: false
+      properties:
+        error: {type: string}
+        code: {type: string, enum: [invalid_request, not_found]}
+    UnauthorizedError:
+      type: object
+      required: [error, code]
+      additionalProperties: false
+      properties:
+        error: {type: string}
+        code: {type: string, enum: [unauthorized]}
+    ForbiddenError:
+      type: object
+      required: [error, code]
+      additionalProperties: false
+      properties:
+        error: {type: string}
+        code: {type: string, enum: [forbidden]}
+    ConflictError:
+      type: object
+      required: [error, code]
+      additionalProperties: false
+      properties:
+        error: {type: string}
+        code:
+          type: string
+          enum: [conflict, environment_pending, environment_draining, lease_not_live, lease_expired]
+    BackendFailedError:
+      type: object
+      required: [error, code, reason]
+      additionalProperties: false
+      properties:
+        error: {type: string}
+        code: {type: string, enum: [backend_failed]}
+        reason: {$ref: '#/components/schemas/Failure'}
+    UnavailableError:
+      type: object
+      required: [error, code]
+      additionalProperties: false
+      properties:
+        error: {type: string}
+        code: {type: string, enum: [unavailable]}

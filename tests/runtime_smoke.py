@@ -1,59 +1,67 @@
-"""Check the real patched manager's single-profile handoff inside its image."""
+"""Check the manager's serialized worker handoff inside its release image."""
 
 import tempfile
 from pathlib import Path
 
-from manager import Conflict, Manager
+from runtime_manager.domain.errors import Conflict
+from runtime_manager.domain.model import Pod, PodState
+from runtime_manager.service import Service
+from runtime_manager.store import Store
 
 
-class Backend:
+class Cluster:
     """Model delayed deletion acknowledgement without starting any worker."""
 
     def __init__(self) -> None:
-        """Retain the number of live execution generations."""
-        self.resources: set[str] = set()
+        self.pods: dict[str, Pod] = {}
         self.deletion_complete = False
 
-    def ensure(
-        self,
-        name: str,
-        _generation: str,
-        _template: dict,
-        _resource: dict,
-    ) -> tuple:
-        """Record provisioning and return a ready dummy endpoint."""
-        self.resources.add(name)
-        if len(self.resources) > 1:
-            msg = "More than one worker generation was provisioned."
-            raise RuntimeError(msg)
-        return {"name": name}, {"host": "127.0.0.1", "port": 2222}
+    def create(self, name: str, environment: str, template: dict) -> None:
+        self.pods[name] = Pod(
+            name,
+            PodState.READY,
+            endpoint={
+                "host": "127.0.0.1",
+                "port": 2222,
+                "user": "worker",
+            },
+        )
+        if len(self.pods) > 1:
+            raise RuntimeError("More than one worker generation was provisioned.")
 
-    def remove(self, resource: dict) -> bool:
-        """Do not release a quota slot until the backend confirms deletion."""
-        if self.deletion_complete:
-            self.resources.discard(resource["name"])
-        return self.deletion_complete
+    def observe(self, name: str) -> Pod | None:
+        pod = self.pods.get(name)
+        if pod and pod.state is PodState.TERMINATING and self.deletion_complete:
+            del self.pods[name]
+            return None
+        return pod
+
+    def delete(self, name: str) -> None:
+        self.pods[name] = Pod(name, PodState.TERMINATING)
 
 
-def refused(manager: Manager, payload: dict) -> None:
-    """Require a concurrency conflict rather than silently granting another run."""
+def refused(service: Service, payload: dict) -> None:
+    """Require a conflict instead of silently granting another run."""
     try:
-        manager.acquire(payload)
+        service.acquire(payload)
     except Conflict:
         return
-    msg = "Manager granted a concurrent or not-yet-retired execution."
-    raise RuntimeError(msg)
+    raise RuntimeError("Manager granted a concurrent or not-yet-retired execution.")
 
 
 def main() -> None:
     """Exercise retries, live lease exclusion and idle worker replacement."""
     config = {
-        "templates": {"personal": {"serialize_profile": True, "exclusive": True}},
-        "deployments": {
-            "fixture": {"profiles": {"personal": {"templates": ["personal"]}}},
+        "templates": {
+            "personal": {
+                "image": "ghcr.io/example/worker:fixture",
+                "serialize_profile": True,
+                "exclusive": True,
+            }
         },
+        "deployments": {"fixture": {}},
     }
-    backend = Backend()
+    cluster = Cluster()
     first = {
         "deployment": "fixture",
         "profile": "personal",
@@ -64,20 +72,22 @@ def main() -> None:
     }
     second = {**first, "session": "second", "request": "second"}
     with tempfile.TemporaryDirectory() as root:
-        manager = Manager(config, backend, str(Path(root) / "manager.db"))
+        store = Store(str(Path(root) / "manager.db"))
+        service = Service(config, cluster, store)
         try:
-            lease = manager.acquire(first)
-            if manager.acquire(first)["lease"] != lease["lease"]:
-                msg = "A retry replaced the native lease identity."
-                raise RuntimeError(msg)
-            refused(manager, {**first, "request": "duplicate-run"})
-            refused(manager, second)
-            manager.release(lease["lease"], reconcile=False)
-            refused(manager, second)
-            backend.deletion_complete = True
-            manager.acquire(second)
+            lease = service.acquire(first)
+            if service.acquire(first)["lease"] != lease["lease"]:
+                raise RuntimeError("A retry replaced the native lease identity.")
+            refused(service, {**first, "request": "duplicate-run"})
+            refused(service, second)
+            service.release(lease["lease"], reconcile=False)
+            refused(service, second)
+            cluster.deletion_complete = True
+            fresh = service.acquire(second)
+            if fresh["environment"] == lease["environment"] or len(cluster.pods) != 1:
+                raise RuntimeError("The serialized worker handoff did not finish.")
         finally:
-            manager.db.close()
+            store.close()
 
 
 if __name__ == "__main__":

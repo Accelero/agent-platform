@@ -938,6 +938,13 @@ sandbox:
   managerServiceAccount: runtime-manager
   workerServiceAccount: sandbox-worker
   imagePullSecrets: []
+  # Optional worker SSH host key. With a Secret holding an ed25519 key pair, workers
+  # present that key and Hermes accepts only that key. Without it each worker's first
+  # key is trusted once. Needs worker images built on the agent-runtime of this release.
+  hostKey:
+    secretName: ''
+    privateKey: ssh_host_ed25519_key
+    publicKey: ssh_host_ed25519_key.pub
   # Registry-keyed username/password objects. Password may be a registry token.
   # Omit this when using externally managed imagePullSecrets instead.
   registryCredentials: {}
@@ -985,6 +992,16 @@ runtimeManager:
   config:
     lease_ttl_seconds: 120
     maintenance_interval_seconds: 10
+    # Lifecycle bounds (seconds). See docs/runtime-manager/specification.md.
+    start_timeout_seconds: 300
+    failure_backoff_seconds: 60
+    drain_deadline_seconds: 3600
+    max_lease_seconds: 86400
+    request_memory_seconds: 86400
+    orphan_grace_seconds: 300
+    orphan_scan_seconds: 60
+    # `report` lists Pods no record names (GET /v1/orphans); `delete` also removes them.
+    orphan_policy: report
     default_template: hermes
     deployments:
       hermes-stack: {}

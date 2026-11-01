@@ -56,12 +56,23 @@
       "root": "services/runtime-manager",
       "files": [
         "Dockerfile",
-        "api.py",
-        "manager.py",
-        "backends.py",
-        "kubernetes_mounts.py",
-        "hermes_policy.py",
-        "codex_policy.py"
+        "runtime_manager/__init__.py",
+        "runtime_manager/__main__.py",
+        "runtime_manager/api.py",
+        "runtime_manager/cluster.py",
+        "runtime_manager/config.py",
+        "runtime_manager/domain/__init__.py",
+        "runtime_manager/domain/admission.py",
+        "runtime_manager/domain/errors.py",
+        "runtime_manager/domain/model.py",
+        "runtime_manager/domain/planner.py",
+        "runtime_manager/scope/__init__.py",
+        "runtime_manager/scope/codex.py",
+        "runtime_manager/scope/hermes.py",
+        "runtime_manager/scope/mounts.py",
+        "runtime_manager/server.py",
+        "runtime_manager/service.py",
+        "runtime_manager/store.py"
       ]
     },
     "multica-backend": {

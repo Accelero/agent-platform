@@ -33,6 +33,10 @@
   {{- if hasKey $roles $role -}}{{- fail "Each runtime role must have exactly one template" -}}{{- end -}}
   {{- $image := default (index $.Values.images "agent-runtime") $template.image -}}
   {{- $_ := set $template "image" $image -}}
+  {{- with $.Values.sandbox.hostKey.secretName -}}
+    {{- $_ := set $spec "volumes" (append (default list $spec.volumes) (dict "name" "ssh-host" "secret" (dict "secretName" . "defaultMode" 292 "items" (list (dict "key" $.Values.sandbox.hostKey.privateKey "path" "ssh_host_ed25519_key"))))) -}}
+    {{- $_ := set $spec "volume_mounts" (append (default list $spec.volume_mounts) (dict "name" "ssh-host" "mountPath" "/etc/ssh/hostkeys/ssh_host_ed25519_key" "subPath" "ssh_host_ed25519_key" "readOnly" true)) -}}
+  {{- end -}}
   {{- $_ := set $spec "uid" $settings.uid -}}
   {{- $_ := set $spec "gid" $settings.gid -}}
   {{- $_ := set $spec "service_account" $.Values.sandbox.workerServiceAccount -}}

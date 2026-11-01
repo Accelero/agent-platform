@@ -10,6 +10,8 @@ import yaml
 from agent_platform.build import ROOT
 from tests.test_chart import render
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def initializer(monkeypatch: pytest.MonkeyPatch):

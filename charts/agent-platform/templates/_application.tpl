@@ -20,6 +20,10 @@
 {{- $hermes := index $workloads "hermes" -}}
 {{- $_ := set $hermes "volumes" (append (default list $hermes.volumes) (dict "name" "hermes-defaults" "mountPath" "/etc/hermes-defaults" "readOnly" true "source" (dict "configMap" (dict "name" "hermes-defaults")))) -}}
 
+{{- with .Values.sandbox.hostKey.secretName -}}
+  {{- $_ := set $hermes "volumes" (append (default list $hermes.volumes) (dict "name" "worker-host-key" "mountPath" "/opt/ssh-host" "readOnly" true "source" (dict "secret" (dict "secretName" . "defaultMode" 292 "items" (list (dict "key" $.Values.sandbox.hostKey.publicKey "path" "host-key.pub")))))) -}}
+{{- end -}}
+
 {{- $env = list -}}
 {{- range $hermes.env -}}
   {{- if not (has .name (list "MULTICA_APP_URL" "HERMES_DASHBOARD_BASIC_AUTH_USERNAME" "MULTICA_DAEMON_MAX_CONCURRENT_TASKS" "FIRECRAWL_API_URL" "SEARXNG_URL" "CAMOFOX_URL")) -}}{{- $env = append $env . -}}{{- end -}}

@@ -299,8 +299,82 @@ The [terminal-backends overlay](../../examples/terminal-backends/values.yaml)
 shows two native profiles, different images, separate PVC layouts and a registry
 Secret. Its registry references and claims are examples to replace before use.
 Apply it together with the lightweight example and your deployment values. The
-execution manager's SQLite schema targets fresh development installations; this
-change includes no migration of earlier manager state.
+runtime manager upgrades the previous SQLite schema in place at startup,
+preserving environment identities, live leases and worker Pod names. Surviving
+workers are reused after restart. Run only one manager process against its
+`manager-state` database; an unsupported newer schema is refused.
+
+## Runtime manager lifecycle
+
+The manager reconciles observed worker Pods with SQLite records through one
+lifecycle planner. Starting Pods never expire under the idle timers. Image and
+container failures are recorded and returned with their reason instead of being
+retried on every acquire. Changes to templates or images and the daily recycle
+wait for live leases, up to a bounded drain deadline.
+
+All timers below are seconds under `runtimeManager.config`:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `lease_ttl_seconds` | 120 | Lifetime of an unrenewed lease; minimum 30. |
+| `maintenance_interval_seconds` | 10 | Reconciliation interval. |
+| `start_timeout_seconds` | 300 | Maximum time for a requested Pod to become Ready. |
+| `failure_backoff_seconds` | 60 | How long a failed attempt is reported before a fresh attempt is allowed. A changed selection or template configuration ends it early. |
+| `drain_deadline_seconds` | 3600 | Maximum wait for live work before replacing a retiring worker. Remaining leases are revoked at the deadline. |
+| `max_lease_seconds` | 86400 | Maximum lease age even with heartbeats or acquire replays; must be at least the lease TTL. |
+| `request_memory_seconds` | 86400 | Retention after a lease ends for its acquire request ID. Replaying an ended request returns `lease_not_live`. |
+| `orphan_grace_seconds` | 300 | Minimum age of an unknown managed Pod before reporting or deletion. |
+| `orphan_scan_seconds` | 60 | Orphan scan interval, checked on maintenance ticks. |
+
+`runtimeManager.config.orphan_policy` defaults to `report`. The authenticated
+`GET /v1/orphans` endpoint lists managed Pods no environment record names, with
+`name`, `created` and `first_seen` timestamps. Each is logged once while present;
+none is adopted. Setting the policy to `delete` also removes them after the
+grace period. This helps recover quota after restoring an empty manager database.
+The namespace-scoped manager Role permits `get`, `list`, `create` and `delete`
+on Pods; it has no cluster-wide authority.
+
+The [API contract](../../contracts/runtime-manager/execution.openapi.yaml) defines
+responses and stable error codes. Pending and draining responses carry
+`Retry-After: 1`. The Hermes plugin retries temporary 409 and 503 responses until
+`acquire_timeout_seconds`, surfaces permanent worker failures with the manager's
+message, and stops using a worker immediately when a heartbeat says its lease
+ended. Heartbeats and releases do not wait for Kubernetes calls. Profiles still
+assert their own identity and may select any configured template or image.
+
+### Worker account and optional host key
+
+The generic worker binds its `worker` account at startup to the container's UID
+and GID using nss_wrapper. Keep its entrypoint and writable `/tmp`, `/home/worker`
+and `/workspace` mounts when extending it. SSH sessions use that account, including
+when `runtimeManager.uid` and `gid` differ from the image's build-time defaults.
+
+To pin the SSH server identity, create an ed25519 host-key Secret in both the
+application and execution namespaces (or one synchronized Secret per namespace),
+then set:
+
+```yaml
+sandbox:
+  hostKey:
+    secretName: worker-host-key
+    privateKey: ssh_host_ed25519_key
+    publicKey: ssh_host_ed25519_key.pub
+```
+
+The key names above are the defaults. Worker templates mount only the private
+key, read-only, at `/etc/ssh/hostkeys/ssh_host_ed25519_key`; the entrypoint copies
+it into a private mode-0600 file. Hermes receives only the public key at
+`/opt/ssh-host/host-key.pub`. The plugin uses a private known-hosts file and
+`StrictHostKeyChecking=yes`, rejecting every other host key. All workers sharing
+the private key share the same SSH server identity.
+
+The option is disabled by default. With no host-key Secret the plugin trusts the
+first key for each managed generation and rejects later changes. Enabling the
+option requires a worker built with the new entrypoint: older images still work
+with the manager but cannot present the provisioned key, so the plugin rejects
+them when pinning is enabled. The chart references Secrets; it does not generate
+or publish private keys. Deployment configuration and Secret creation belong in
+the private deployment repository.
 
 ## Hermes dashboard OIDC
 

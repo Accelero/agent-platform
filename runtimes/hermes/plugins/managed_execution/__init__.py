@@ -1,6 +1,7 @@
 """Native Hermes terminal image selection with deployment-owned mounts and scheduling."""
 import json
 import hashlib
+import ipaddress
 import logging
 import os
 import threading
@@ -10,6 +11,7 @@ import re
 import socket
 import shlex
 import ssl
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -80,6 +82,30 @@ def invocation_cwd(cwd, task_id):
     return cwd
 
 
+# Refusals that waiting cannot fix: the worker cannot start, or the request's lease ended.
+PERMANENT_REFUSALS = frozenset({'backend_failed', 'lease_not_live'})
+SSH_HOST_KEY = re.compile(r'ssh-ed25519 [A-Za-z0-9+/=]{20,200}')
+
+
+class ManagerRefusal(RuntimeError):
+    """The manager answered with an error status. `code` is its stable error code
+    (empty for managers that predate error codes)."""
+
+    def __init__(self, status, code, message):
+        super().__init__(message)
+        self.status, self.code, self.message = status, code, message
+
+
+def refusal(exc):
+    try:
+        body = json.load(exc)
+    except (ValueError, OSError):
+        body = {}
+    body = body if isinstance(body, dict) else {}
+    return ManagerRefusal(exc.code, str(body.get('code', '')),
+                          str(body.get('error') or exc.reason or 'no message')[:300])
+
+
 class Client:
     def __init__(self, settings, runtime=None):
         self.settings = settings
@@ -94,8 +120,11 @@ class Client:
         request = urllib.request.Request(url + path,
             data=json.dumps(body).encode() if body is not None else None,
             headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
-        with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
-            return json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            raise refusal(exc) from None
 
     def acquire(self, session, parent_lease=None):
         # Idempotent retry protects against a lost response after the manager grants a lease.
@@ -110,16 +139,24 @@ class Client:
         if parent_lease:
             payload['parent_lease'] = parent_lease
         deadline = time.monotonic() + self.settings["acquire_timeout_seconds"]
+        retry = self.settings.get('acquire_retry_seconds', 1)
+        last = ''
         while True:
             try:
                 return self.call("/v1/leases/acquire", payload, timeout=max(1, deadline - time.monotonic()))
-            except urllib.error.HTTPError as exc:
-                if exc.code not in (409, 503) or time.monotonic() >= deadline:
-                    raise RuntimeError(f"Execution manager rejected provisioning ({exc.code})") from None
+            except ManagerRefusal as exc:
+                # Pending, draining and unavailable answers resolve by waiting;
+                # a worker that cannot start or an ended lease does not.
+                last = exc.message
+                if (exc.status not in (409, 503) or exc.code in PERMANENT_REFUSALS
+                        or time.monotonic() >= deadline):
+                    raise RuntimeError(
+                        f"Execution manager rejected provisioning ({exc.status}): {exc.message}") from None
             except (urllib.error.URLError, TimeoutError):
                 if time.monotonic() >= deadline:
-                    raise RuntimeError("Execution manager provisioning timed out") from None
-            time.sleep(min(1, max(0, deadline - time.monotonic())))
+                    raise RuntimeError("Execution manager provisioning timed out"
+                                       + (f" ({last})" if last else "")) from None
+            time.sleep(min(retry, max(0, deadline - time.monotonic())))
 
 
 class ManagedSSHEnvironment(SSHEnvironment):
@@ -149,6 +186,7 @@ class ManagedSSHEnvironment(SSHEnvironment):
         self._initial_cwd, self._initial_timeout = self.multica_workdir or cwd, timeout
         self.managed_generation = None
         self._sync_manager = None
+        self._known_hosts = self._host_identity_dir = None
         with provider._guard:
             self._owners.update(token for token, (key, context, identity) in provider._turns.items()
                                 if key == task_id or (context and context == self.context_key))
@@ -171,6 +209,11 @@ class ManagedSSHEnvironment(SSHEnvironment):
         self.managed_generation = reply['generation']
         self.managed_environment = reply['environment']
         endpoint = reply['ssh']
+        # The manager names a Pod address; never let a reply steer SSH elsewhere.
+        if endpoint.get('port') != 2222 or endpoint.get('user') != 'worker':
+            raise RuntimeError('Invalid managed SSH endpoint')
+        ipaddress.ip_address(endpoint['host'])
+        self._pin_host_key()
         deadline = time.monotonic() + 30
         while True:
             try:
@@ -195,6 +238,31 @@ class ManagedSSHEnvironment(SSHEnvironment):
         # Hermes's native lifecycle keeps session environments between messages and
         # calls cleanup() on session close, process exit or its ordinary idle reaper.
         self._session_scoped = True
+
+    def _pin_host_key(self):
+        """Accept only the deployment's worker host key when one is provisioned.
+
+        The key file exists only when the chart's `sandbox.hostKey` is set. Without
+        it each generation's first key is trusted and a changed key is refused.
+        """
+        old = getattr(self, '_host_identity_dir', None)
+        if old is not None:
+            old.cleanup()
+        self._host_identity_dir = self._known_hosts = None
+        path = Path(self.settings.get('host_key_file', '/opt/ssh-host/host-key.pub'))
+        if not path.is_file():
+            return
+        fields = path.read_text().split()
+        key = ' '.join(fields[:2])
+        if not SSH_HOST_KEY.fullmatch(key):
+            raise RuntimeError('Invalid worker SSH host key')
+        self._host_identity_dir = tempfile.TemporaryDirectory(prefix='hermes-managed-ssh-')
+        self._known_hosts = Path(self._host_identity_dir.name) / 'known_hosts'
+        self._known_hosts.write_text(self._host_alias() + ' ' + key + '\n')
+        self._known_hosts.chmod(0o600)
+
+    def _host_alias(self):
+        return "hermes-managed-" + self.managed_environment + "-" + self.managed_generation
 
     def _sync_files(self):
         # Cleanup/reconnect may run outside the original turn's context. Native
@@ -240,6 +308,15 @@ class ManagedSSHEnvironment(SSHEnvironment):
             try:
                 self.client.call('/v1/leases/heartbeat', {'lease': reply['lease']}, timeout=min(10, ttl / 8))
                 last = time.monotonic()
+            except ManagerRefusal as exc:
+                if exc.status in (403, 409):  # expired, ended, capped or not ours: final
+                    self._lost = True
+                    log.error('Execution lease ended (%s); further commands are blocked', exc.message)
+                    return
+                if time.monotonic() - last >= ttl / 2:
+                    self._lost = True
+                    log.error('Execution lease heartbeat lost; further commands are blocked')
+                    return
             except Exception:
                 if time.monotonic() - last >= ttl / 2:
                     self._lost = True
@@ -285,8 +362,20 @@ class ManagedSSHEnvironment(SSHEnvironment):
     def _target_flags(self, port_flag):
         # IPs/NodePorts can be reused after recycle. Pin the lookup to this managed generation;
         # accept-new records the first key and rejects a changed key within that generation.
-        alias = "hermes-managed-" + self.managed_environment + "-" + self.managed_generation
-        return super()._target_flags(port_flag) + ["-o", "HostKeyAlias=" + alias]
+        flags = super()._target_flags(port_flag) + ["-o", "HostKeyAlias=" + self._host_alias()]
+        if self._known_hosts is not None:
+            # A provisioned worker host key: nothing else is trusted, not even once.
+            flags += ['-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + str(self._known_hosts),
+                      '-o', 'GlobalKnownHostsFile=/dev/null']
+        return flags
+
+    def _build_ssh_command(self, extra_args=None, send_env=()):
+        command = super()._build_ssh_command(extra_args, send_env)
+        if self._known_hosts is None:
+            return command
+        # OpenSSH takes the first value of an option: replace the native default too.
+        return ['StrictHostKeyChecking=yes' if arg == 'StrictHostKeyChecking=accept-new' else arg
+                for arg in command]
 
     def _snapshot_excluded_passthrough_names(self):
         # The built-in SSH transport only excludes these in multiplex mode. ACP and direct
@@ -329,6 +418,9 @@ class ManagedSSHEnvironment(SSHEnvironment):
                     super().cleanup()
             finally:
                 self._release_lease()
+                if self._host_identity_dir is not None:
+                    self._host_identity_dir.cleanup()
+                    self._host_identity_dir = self._known_hosts = None
                 if self.settings['mode'] == 'per_session':
                     try:
                         self.client.call('/v1/sessions/close', {

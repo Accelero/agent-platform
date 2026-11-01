@@ -11,6 +11,8 @@ import yaml
 
 from agent_platform.build import ROOT, TARGETS
 
+pytestmark = pytest.mark.integration
+
 CHART = ROOT / "charts/agent-platform"
 IMAGE = "ghcr.io/fixture/agent-runtime@sha256:" + "b" * 64
 
@@ -378,35 +380,34 @@ def test_only_current_manager_service_and_credential_paths_are_rendered(
 
 
 def test_native_backend_accepts_and_recognizes_chart_configured_runtime(
-    tmp_path, values, monkeypatch
+    tmp_path, values
 ):
-    """Use the real backend to prevent ownership, image and mount wiring drift."""
-    monkeypatch.syspath_prepend(str(ROOT / "services/runtime-manager"))
-    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
-    from backends import KubernetesBackend
+    """The real adapter accepts the chart's ownership, image and mount wiring."""
+    from runtime_manager.domain.model import PodState, pod_name
 
-    objects = render(tmp_path, values)
-    config = native(objects)
+    from tests.support.world import make_world
+
+    config = native(render(tmp_path, values))
     template = config["templates"]["hermes"]
-    backend = KubernetesBackend(config["kubernetes"])
-    recorded = {}
-
-    def kubectl(*args, body=None):
-        if args[0] == "create":
-            recorded["pod"] = deepcopy(body)
-        return recorded.get("pod", "")
-
-    monkeypatch.setattr(backend, "kubectl", kubectl)
-    resource, _endpoint = backend.ensure("a" * 24, "b" * 12, template, {})
-    pod = backend.get_pod(resource["name"])
-    assert (
-        pod["metadata"]["labels"]["app.kubernetes.io/managed-by"]
-        == "agent-platform-runtime-manager"
-    )
-    assert pod["spec"]["containers"][0]["image"] == values["images"]["agent-runtime"]
-    assert pod["spec"]["securityContext"]["runAsUser"] == 1000
-    assert not pod["spec"]["automountServiceAccountToken"]
-    assert pod["spec"]["volumes"] == template["kubernetes"]["volumes"]
+    world = make_world(tmp_path, config=config)
+    try:
+        name = pod_name("a" * 24, "b" * 12)
+        world.cluster.create(name, "a" * 24, template)
+        assert world.cluster.observe(name).state is PodState.READY
+        pod = world.kube.pods[name]["manifest"]
+        assert pod["metadata"]["labels"]["app.kubernetes.io/managed-by"] == (
+            "agent-platform-runtime-manager"
+        )
+        assert (
+            pod["spec"]["containers"][0]["image"] == values["images"]["agent-runtime"]
+        )
+        assert pod["spec"]["securityContext"]["runAsUser"] == 1000
+        assert not pod["spec"]["automountServiceAccountToken"]
+        assert pod["spec"]["volumes"] == template["kubernetes"]["volumes"]
+        world.cluster.create(name, "a" * 24, template)
+        assert len(world.kube.created()) == 1
+    finally:
+        world.close()
 
 
 def test_hermes_renders_without_chart_owned_model_credentials(

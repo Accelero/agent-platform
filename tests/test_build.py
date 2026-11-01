@@ -7,6 +7,8 @@ import yaml
 
 from agent_platform import build, release
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def github_runtime(monkeypatch):
@@ -95,7 +97,7 @@ def test_release_workflow_uses_the_shared_cache_configuration():
         ("services/tools/platform_bootstrap/*.py", (3, 11)),
         ("runtimes/hermes/*.py", (3, 13)),
         ("runtimes/hermes/plugins/managed_execution/*.py", (3, 13)),
-        ("services/runtime-manager/*.py", (3, 12)),
+        ("services/runtime-manager/**/*.py", (3, 12)),
     ],
 )
 def test_image_code_parses_on_its_image_python(pattern, version):

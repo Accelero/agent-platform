@@ -19,6 +19,8 @@ import yaml
 
 from agent_platform.build import ROOT
 
+pytestmark = pytest.mark.integration
+
 
 class Backend(BaseHTTPRequestHandler):
     """Expose transport probes without running a model or accepting real credentials."""

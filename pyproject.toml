@@ -13,7 +13,15 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", "services/runtime-manager"]
+# A plain run needs no container runtime; the `image` profile builds real images.
+addopts = "--strict-config --strict-markers -m 'not image'"
+markers = [
+    "unit: in process, no socket, subprocess or container",
+    "integration: a real protocol or process boundary (TLS, SQLite file, kubectl, helm)",
+    "e2e: the whole execution chain without a cluster",
+    "image: builds and runs a real container image (opt in with -m image)",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

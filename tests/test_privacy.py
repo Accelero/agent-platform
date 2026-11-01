@@ -10,6 +10,8 @@ import yaml
 
 from agent_platform import build, privacy, release
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def inputs(tmp_path):
