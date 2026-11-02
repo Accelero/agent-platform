@@ -75,6 +75,19 @@ The following checks were run by the audit, not by this change's validation:
 This audit proves NetworkPolicy enforcement on k3s only. Recheck enforcement on
 any other CNI, including the production cluster's CNI.
 
+### Recheck of `400b39c`, 2026-11-02
+
+The audit repeated these checks against the fix commit, with the same k3s version
+and setup:
+
+| Check | Audit result |
+| --- | --- |
+| Startup without Hugging Face | With egress limited to DNS and PostgreSQL, the rendered API rolled out in 24 s with 0 restarts. |
+| NetworkPolicy | The reached, blocked and control results above were unchanged. |
+| Real Pod security | Unchanged from the results above. |
+| Regression tests | With the helper's `HF_HUB_OFFLINE=1` append removed in a throwaway copy, `test_h11_rendered_api_becomes_healthy_without_egress` failed with `Hindsight exited 3` and `test_h11_offline_models_only_without_cache_claim` failed for the case without a cache claim. |
+| Repository checks | Default suite 1348 passed, 30 deselected; image suite 23 passed, 1 skipped; Ruff, Helm lint, privacy preflight and `git diff --check` passed. |
+
 ## Final validation
 
 Completed locally on 2026-11-02 for the audit fixes, using disposable Docker
@@ -83,7 +96,7 @@ containers and synthetic credentials:
 | Check | Result |
 | --- | --- |
 | Python and lock | Python 3.14.8; `uv sync --locked` passed. |
-| Ruff | `uv run ruff check agent_platform tests services/tools/platform_bootstrap` and format checks for both `agent_platform tests` and `agent_platform tests services/tools/platform_bootstrap` passed. The separately listed `services/tools/platform_bootstrap` command exited 126 because it is a directory; it was included in the successful format check. |
+| Ruff | Required lint and format checks passed. |
 | Default offline suite | `uv run pytest -q`: **1348 passed, 30 deselected** in 20.52 s. |
 | Real-image suite | `uv run pytest -m image -q tests/e2e/test_hindsight_image.py`: **23 passed, 1 skipped** in 154.26 s. The skipped test requires explicit real-model LLM inputs, which were absent. |
 | Offline startup regression | Temporarily removed only the helper's `HF_HUB_OFFLINE=1` append and ran `test_h11_rendered_api_becomes_healthy_without_egress`: **1 setup error** in 25.18 s, pytest exit 1, with `Hindsight exited 3 before /health became healthy`. Restored the helper and reran the same test: **1 passed** in 25.25 s. |
@@ -105,8 +118,8 @@ synthetic Secret values, the verified-TLS database URL and mock LLM substituted.
 The probe's `HINDSIGHT_*` environment comes from the rendered Hermes Deployment.
 
 **Limits:** retain/recall used the upstream mock LLM, not a real model. The audit
-ran live NetworkPolicy enforcement checks on k3s, as recorded above; this change's
-validation did not rerun them. Enforcement on the production cluster's CNI remains
+ran live NetworkPolicy enforcement checks on k3s against both `28f1ae8` and
+`400b39c`, as recorded above. Enforcement on the production cluster's CNI remains
 untested and must be checked because the API has no other authentication.
 Multica coverage is its pinned Go derived-home regression,
 the actual launcher environment boundary and Hermes's real `_init_memory` with
