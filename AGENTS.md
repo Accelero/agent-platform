@@ -22,9 +22,10 @@ mutable application state or deployment-specific backup scripts.
 - `provenance/`: origin revisions, original source hashes and extraction notes.
 - `tests/`: release invariants, offline smoke payloads and fast `unit`,
   `integration` and `e2e` manager tests. Every collected test needs one level
-  marker; a function-level marker overrides the module level. The default run
-  excludes container builds. Use `uv run pytest -m image -q` to build and test
-  the real worker image with Docker, SSH and arbitrary non-root identities.
+  marker; a function-level marker overrides the module level. Every run,
+  including CI, also builds and tests the real worker and Hindsight images with
+  Docker (`image` marker); without Docker they skip locally and fail in CI. Use
+  `-m 'not image'` for a quick local run without container builds.
 
 ## Checks
 

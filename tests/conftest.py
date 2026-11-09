@@ -2,8 +2,8 @@
 
 A test is `unit`, `integration` or `e2e` (see pyproject.toml). The closest marker
 wins, so a test may override its module's level. `image` tests build and run real
-container images and are excluded unless selected with `-m image`; they carry a
-level as well.
+container images and carry a level as well. Every run includes them. A missing
+container prerequisite skips them locally but fails them in CI, where `CI` is set.
 """
 
 import shutil

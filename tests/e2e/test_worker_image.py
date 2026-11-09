@@ -14,6 +14,7 @@ from contextlib import contextmanager
 import pytest
 
 from agent_platform.build import ROOT
+from tests.support.images import require_image_prerequisite
 from tests.support.plugin import load_plugin
 
 pytestmark = [pytest.mark.e2e, pytest.mark.image]
@@ -29,10 +30,14 @@ def run(*args, timeout=30, check=True, **kwargs):
 @pytest.fixture(scope="module")
 def worker_image():
     for executable in ("docker", "ssh", "sftp", "ssh-keygen"):
-        if not shutil.which(executable):
-            pytest.skip(f"{executable} is required for worker image tests")
-    if run("docker", "info", check=False).returncode:
-        pytest.skip("a running Docker daemon is required")
+        require_image_prerequisite(
+            bool(shutil.which(executable)),
+            f"{executable} is required for worker image tests",
+        )
+    require_image_prerequisite(
+        run("docker", "info", check=False).returncode == 0,
+        "a running Docker daemon is required",
+    )
     result = run(
         "docker",
         "build",

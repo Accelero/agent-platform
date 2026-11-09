@@ -78,10 +78,10 @@ Dependencies point inward, enforced by
 `test_domain_and_adapters_keep_dependencies_pointing_inward`.
 
 Every requirement names its proving tests. Tests have one of the `unit`,
-`integration` or `e2e` levels; the default run needs no cluster or container
-runtime. `uv run pytest -m image -q` builds the real worker and verifies SSH
-account binding, key pinning and graceful shutdown in Docker. Image tests are
-excluded from the default run. The TLS end-to-end tests use the shipped plugin,
+`integration` or `e2e` levels; no test needs a cluster. `image` tests build the
+real worker and verify SSH account binding, key pinning and graceful shutdown in
+Docker. Every run includes them, including CI; without Docker they skip locally
+and fail in CI. The TLS end-to-end tests use the shipped plugin,
 real server, SQLite, Kubernetes adapter and a simulated namespace with a fake
 clock. They do not establish behaviour on a live Kubernetes cluster.
 

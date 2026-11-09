@@ -22,6 +22,7 @@ import yaml
 from agent_platform.build import ROOT
 from agent_platform.privacy import stage_contexts
 from tests.integration.test_hindsight_chart import HINDSIGHT_IMAGE
+from tests.support.images import require_image_prerequisite
 from tests.test_chart import render
 
 pytestmark = [pytest.mark.e2e, pytest.mark.image]
@@ -92,10 +93,14 @@ def endpoint(name):
 @pytest.fixture(scope="module")
 def hermes_image(tmp_path_factory):
     for executable in ("docker", "openssl", "helm"):
-        if not shutil.which(executable):
-            pytest.skip(f"{executable} is required for Hindsight image tests")
-    if run("docker", "info", check=False).returncode:
-        pytest.skip("a running Docker daemon is required")
+        require_image_prerequisite(
+            bool(shutil.which(executable)),
+            f"{executable} is required for Hindsight image tests",
+        )
+    require_image_prerequisite(
+        run("docker", "info", check=False).returncode == 0,
+        "a running Docker daemon is required",
+    )
     stage = tmp_path_factory.mktemp("hindsight-build")
     contexts = stage_contexts(ROOT, stage / "inputs")
     run(

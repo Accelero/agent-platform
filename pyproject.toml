@@ -14,13 +14,14 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "services/runtime-manager"]
-# A plain run needs no container runtime; the `image` profile builds real images.
-addopts = "--strict-config --strict-markers -m 'not image'"
+# Every run includes `image` tests, which build and run real container images.
+# Without Docker they skip locally and fail in CI, where `CI` is set.
+addopts = "--strict-config --strict-markers"
 markers = [
     "unit: in process, no socket, subprocess or container",
     "integration: a real protocol or process boundary (TLS, SQLite file, kubectl, helm)",
     "e2e: the whole execution chain without a cluster",
-    "image: builds and runs a real container image (opt in with -m image)",
+    "image: builds and runs a real container image (deselect locally with -m 'not image')",
 ]
 
 [tool.ruff.lint]
