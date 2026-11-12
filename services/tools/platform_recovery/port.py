@@ -32,11 +32,15 @@ class Repository:
                     }
                 ).encode(),
                 timeout=1250,
+                cleanup_grace=35,
             )
         )
 
     def pointer(self) -> dict | None:
         return self.request("pointer")
+
+    def invalidate_cutoff(self) -> None:
+        self.request("invalidate_cutoff")
 
     def initialize_empty(self) -> None:
         self.request("initialize_empty")
@@ -45,7 +49,9 @@ class Repository:
         result = self.request("verify", record=record, target=str(target))
         from platform_recovery.contract import validate_payload
 
-        checkpoint = Path(result["checkpoint"])
+        checkpoint = Path(result["checkpoint"]).resolve(strict=True)
+        if not checkpoint.is_relative_to(target.resolve(strict=True)):
+            raise ValueError("Transport checkpoint escapes the requested target.")
         manifest = validate_payload(self.config, record, checkpoint)
         return checkpoint, manifest
 

@@ -124,7 +124,9 @@ class Cluster:
     def lock(self) -> AbstractContextManager[None]:
         from platform_recovery.lease import operation_lock
 
-        return operation_lock(self.leases, self.namespace, self.config["leaseName"])
+        return operation_lock(
+            self.leases, self.namespace, self.config["leaseName"], wait_seconds=180
+        )
 
     def replicas(self) -> dict:
         return {
@@ -255,6 +257,17 @@ def enroll(config: dict, cluster: Cluster, *, force: bool) -> str:
         raise ValueError("Invalid bootstrap profile")
     step("recovery gate")
     with cluster.lock():
+        try:
+            cluster.core.read_namespaced_config_map(
+                "agent-state-deleting", cluster.namespace, _request_timeout=TIMEOUT
+            )
+        except kube.ApiException as error:
+            if error.status != 404:
+                raise
+        else:
+            raise RuntimeError(
+                "Verified state deletion is in progress; bootstrap refused."
+            )
         fresh = cluster.recovery()
         deadline = time.monotonic() + 180
         while True:

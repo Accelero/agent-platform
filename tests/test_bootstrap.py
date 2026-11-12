@@ -43,6 +43,9 @@ def scenario(tmp_path):
     stored = {}
     cluster = Mock()
     cluster.lock.side_effect = nullcontext
+    cluster.core.read_namespaced_config_map.side_effect = bootstrap.kube.ApiException(
+        status=404
+    )
     cluster.recovery.return_value = True
     cluster.replicas.return_value = {"hermes": 1, "multica-backend": 1}
     cluster.secret.side_effect = lambda name: deepcopy(stored.get(name, {}))
@@ -468,3 +471,43 @@ def test_cluster_wait_has_a_deadline():
         pytest.raises(TimeoutError, match="reachable"),
     ):
         bootstrap.wait_for_cluster(cluster)
+
+
+def test_bootstrap_refuses_after_final_deletion_verification(scenario):
+    config, cluster, stored, command, board, hook = scenario
+    cluster.core.read_namespaced_config_map.side_effect = None
+    with pytest.raises(RuntimeError, match="deletion"):
+        bootstrap.enroll(config, cluster, force=False)
+    command.assert_not_called()
+    cluster.save.assert_not_called()
+
+
+@pytest.mark.integration
+def test_default_bootstrap_account_can_read_budget_and_deletion_identities(tmp_path):
+    from tests.test_chart import render
+
+    values = {
+        "bootstrap": {
+            "enabled": True,
+            "installation": "fixture",
+            "workspace": {"name": "Fixture", "slug": "fixture", "issuePrefix": "FIX"},
+            "lifecycle": {
+                name: ["fixture"] for name in ("before", "after", "checkpoint")
+            },
+        },
+        "multica": {"ownerEmail": "owner@example.org"},
+        "images": {"tools": "fixture-image"},
+    }
+    objects = render(tmp_path, values, include_namespaces=True)
+    rules = objects["Role", "agents", "agents-bootstrap"]["rules"]
+    assert any(
+        "batch" in rule["apiGroups"]
+        and "jobs" in rule["resources"]
+        and "get" in rule["verbs"]
+        for rule in rules
+    )
+    assert any(
+        "configmaps" in rule["resources"]
+        and "agent-state-deleting" in rule.get("resourceNames", [])
+        for rule in rules
+    )

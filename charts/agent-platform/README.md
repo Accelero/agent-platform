@@ -665,7 +665,7 @@ Deployment integration must provide:
   checkpoint including the native database, home and both enrollment Secrets.
   `before` and `after` run only for an explicit `--force` repair, which changes
   existing state: before mutation, create a verified checkpoint, fence dispatch,
-  force-stop writers and stop all native writers; after successful reconnection, restore
+  force-stop all native writers; after successful reconnection, restore
   dispatch and writers. First enrollment of a fresh installation changes no live
   state, so it neither stops nor scales writers: the Hermes daemon starts once its
   atomically written login file exists. Retries of a first enrollment keep that
@@ -714,3 +714,6 @@ auth writes or automatically resume restored task dispatch.
 
 The API 1 recovery inventory currently excludes Hindsight. A consumer using this
 contract must keep Hindsight disabled until its database joins the inventory.
+
+The backend maintenance path is derived from the recovery descriptor and its
+uploads mount. A conflicting explicit `multica.maintenanceFile` is rejected.

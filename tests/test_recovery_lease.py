@@ -39,3 +39,32 @@ def test_checkpoint_child_cannot_bypass_another_pods_lease() -> None:
     ):
         pass
     cluster.coordination.delete_namespaced_lease.assert_not_called()
+
+
+@pytest.mark.parametrize("race", [False, True])
+def test_waiting_bootstrap_retries_a_held_lease_or_create_race(race):
+    import kubernetes.client as kube
+
+    coordination = MagicMock()
+    held = MagicMock()
+    held.spec.holder_identity = "other"
+    held.spec.renew_time = datetime.now(UTC)
+    held.spec.lease_duration_seconds = 1500
+    missing = kube.ApiException(status=404)
+    if race:
+        coordination.read_namespaced_lease.side_effect = [missing, missing]
+        coordination.create_namespaced_lease.side_effect = [
+            kube.ApiException(status=409),
+            MagicMock(),
+        ]
+    else:
+        coordination.read_namespaced_lease.side_effect = [held, missing]
+    with (
+        patch.dict("os.environ", {"POD_UID": "pod"}),
+        patch("platform_recovery.lease.time.sleep") as sleep,
+        operation_lock(coordination, "agents", wait_seconds=180),
+    ):
+        pass
+    sleep.assert_called_once()
+    options = coordination.delete_namespaced_lease.call_args.kwargs["body"]
+    assert options.preconditions.resource_version is not None

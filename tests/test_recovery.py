@@ -38,6 +38,16 @@ def config():
         "worker_datasets": ["hermes-tasks", "hermes-workspaces"],
         "backup_selections": recovery["selections"],
         "artifacts": {"tools": "fixture-image"},
+        "secrets": [
+            {
+                "namespace": "agents"
+                if item["scope"] == "application"
+                else "agent-execution",
+                "name": item["name"],
+                "required": item["required"],
+            }
+            for item in recovery["secrets"]
+        ],
         "recovery": recovery,
         "inventory_sha256": "fixture-inventory",
         "writers": recovery["writers"],
@@ -275,6 +285,7 @@ def test_space_failure_is_reported_without_suppression(
         patch.object(sys, "argv", ["state", "backup", "--config", str(config_file)]),
         patch.object(state, "backup", side_effect=error),
         patch.object(state, "resolve", return_value={}),
+        patch.object(state.budget, "for_job", return_value={}),
     ):
         expect_equal(state.main(), 1)
     expect_equal("1.0 GiB is free" in capsys.readouterr().err, expected=True)
@@ -361,11 +372,11 @@ def test_live_backup_after_upgrade_releases_the_final_cutoff(
     )
 
 
-def test_failed_live_backup_still_releases_the_final_cutoff(
+def test_failed_live_backup_preserves_the_final_cutoff(
     config: dict,
     runtime: tuple[MagicMock, MagicMock],
 ) -> None:
-    """A failed post-upgrade checkpoint cannot leave the platform fenced."""
+    """A failed live checkpoint cannot release an existing final deletion cutoff."""
     cluster, repository = runtime
     replicas = dict.fromkeys(config["writers"], 1)
     cluster.read_record.return_value = {
@@ -379,22 +390,21 @@ def test_failed_live_backup_still_releases_the_final_cutoff(
     maintenance.write_text("paused\n")
     with pytest.raises(RuntimeError, match="upload failed"):
         state.backup(config, final=False)
-    cluster.scale.assert_called_once_with(replicas)
-    expect_equal(maintenance.exists(), expected=False)
+    cluster.scale.assert_not_called()
+    expect_equal(maintenance.exists(), expected=True)
 
 
-def test_retention_runs_before_and_after_the_new_snapshot(
+def test_retention_runs_only_after_the_new_snapshot(
     config: dict,
     runtime: tuple[MagicMock, MagicMock],
 ) -> None:
-    """Old snapshots go first; the latest complete one is protected throughout."""
+    """Retention cannot consume the capture/readback budget before publication."""
     _cluster, repository = runtime
     repository.pointer.return_value = {"snapshot": "b" * 64}
     state.backup(config, final=False)
     expect_equal(
         [entry for entry in repository.mock_calls if entry[0] != "pointer"],
         [
-            call.retain("b" * 64),
             call.checkpoint(ANY, ANY, ANY),
             call.retain("a" * 64),
         ],
@@ -466,3 +476,80 @@ def test_database_wait_has_a_deadline() -> None:
         pytest.raises(TimeoutError, match="did not accept"),
     ):
         state.wait_for_database()
+
+
+@pytest.mark.parametrize("final", [False, True])
+def test_retention_failure_does_not_roll_back_published_checkpoint(
+    config, runtime, final
+):
+    cluster, repository = runtime
+    repository.retain.side_effect = RuntimeError("prune timeout")
+    assert state.backup(config, final=final)["snapshot"] == "a" * 64
+    if final:
+        assert (state.DATASETS / config["recovery"]["fence"]).exists()
+        cluster.scale.assert_called_once_with(dict.fromkeys(config["writers"], 0))
+        assert cluster.record.call_args.args[1]["complete"] is True
+
+
+def test_failed_proof_withdrawal_keeps_final_writers_stopped(config, runtime):
+    cluster, repository = runtime
+    repository.checkpoint.side_effect = RuntimeError("publication uncertain")
+    repository.invalidate_cutoff.side_effect = RuntimeError("S3 unavailable")
+    with pytest.raises(RuntimeError):
+        state.backup(config, final=True)
+    cluster.scale.assert_called_once_with(dict.fromkeys(config["writers"], 0))
+
+
+@pytest.mark.parametrize("released", [False, True])
+def test_final_verification_marks_deletion_only_after_matching_readback(
+    config, runtime, released
+):
+    cluster, repository = runtime
+    record = {
+        key: config[key]
+        for key in ("namespace_uid", "database_uid", "configuration_sha256")
+    }
+    record.update(final=True, snapshot="snapshot", cutoff_released=released)
+    repository.pointer.return_value = record
+    if released:
+        with pytest.raises(RuntimeError, match="deletion refused"):
+            state.verify_checkpoint(config, final=True)
+        cluster.record.assert_not_called()
+        repository.verify.assert_not_called()
+    else:
+        state.verify_checkpoint(config, final=True)
+        cluster.record.assert_called_once_with("agent-state-deleting", record)
+        repository.verify.assert_called_once()
+    cluster.lock.assert_called_once_with(allow_deleting=True)
+
+
+def test_shared_operation_gate_refuses_after_deletion_intent(config):
+    from platform_recovery import lease
+
+    cluster = object.__new__(state.Cluster)
+    cluster.namespace, cluster.coordination = "agents", MagicMock()
+    with (
+        patch.object(lease, "operation_lock", return_value=nullcontext()),
+        patch.object(cluster, "read_record", return_value={"final": True}),
+        pytest.raises(RuntimeError, match="deletion"),
+    ):
+        with cluster.lock():
+            pytest.fail("Mutations must not start after deletion verification")
+
+
+@pytest.mark.parametrize(
+    "restored,paused", [(False, False), (True, True), (True, False)]
+)
+def test_database_restore_recreates_fence_for_live_snapshots(
+    config, runtime, restored, paused
+):
+    cluster, repository = runtime
+    cluster.read_record.return_value = {
+        "database_restored": restored,
+        "dispatch_paused": paused,
+    }
+    marker = state.DATASETS / config["recovery"]["fence"]
+    with patch.object(state, "_restore_database", return_value={}) as importer:
+        state.restore_database(config)
+        assert marker.exists() == (not restored or paused)
+    importer.assert_called_once_with(config)

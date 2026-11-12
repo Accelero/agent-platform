@@ -1044,7 +1044,7 @@ multica:
   ownerEmail: ''
   databaseUrl: postgres://multica:$(MULTICA_POSTGRES_PASSWORD)@shared-postgres:5432/multica?sslmode=disable
   databaseCASecret: ''
-  maintenanceFile: /app/data/uploads/.agent-platform-maintenance
+  maintenanceFile: '' # Derived from files/recovery.json and the uploads mount.
   mailSecret: multica-mail
   mailKeys: []
 hindsight:

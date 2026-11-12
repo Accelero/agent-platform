@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 from platform_recovery import runtime
-from platform_recovery.contract import descriptor, digest, resolve, validate_payload
+from platform_recovery.contract import (
+    descriptor,
+    digest,
+    logical_inventory,
+    resolve,
+    validate_payload,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -34,25 +40,11 @@ def config() -> dict:
             for x in recovery["secrets"]
         ],
     }
-    value["inventory_sha256"] = digest(
-        {
-            key: value[key]
-            for key in (
-                "recovery",
-                "datasets",
-                "writers",
-                "secrets",
-                "backup_selections",
-                "namespace",
-                "execution_namespace",
-            )
-        }
-    )
+    value["inventory_sha256"] = digest(logical_inventory(value))
     return value
 
 
-@pytest.mark.parametrize("schema", [1, 2, 3])
-def test_supported_payload_roundtrip_and_corruption(config, tmp_path, schema):
+def make_payload(config, tmp_path, schema):
     names = config["datasets"] if schema == 1 else config["backup_selections"]["1"]
     manifest = {
         "schema": schema,
@@ -65,6 +57,7 @@ def test_supported_payload_roundtrip_and_corruption(config, tmp_path, schema):
         "final": True,
         "recovery_api": 1,
         "inventory_sha256": config["inventory_sha256"],
+        "inventory": logical_inventory(config),
         "platform_version": "0.8.0",
         "datasets": {},
     }
@@ -81,7 +74,6 @@ def test_supported_payload_roundtrip_and_corruption(config, tmp_path, schema):
             "type": "Opaque",
         }
         for x in config["secrets"]
-        if x["required"]
     ]
     (tmp_path / "secrets.json").write_text(json.dumps(secrets))
     (tmp_path / "database.dump").write_bytes(b"synthetic-dump")
@@ -92,7 +84,17 @@ def test_supported_payload_roundtrip_and_corruption(config, tmp_path, schema):
         manifest[field] = hashlib.sha256((tmp_path / name).read_bytes()).hexdigest()
     raw = json.dumps(manifest).encode()
     (tmp_path / "manifest.json").write_bytes(raw)
-    record = {**manifest, "manifest_sha256": hashlib.sha256(raw).hexdigest()}
+    record = {
+        **manifest,
+        "snapshot": "a" * 64,
+        "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+    }
+    return manifest, record
+
+
+@pytest.mark.parametrize("schema", [1, 2, 3])
+def test_supported_payload_roundtrip_and_corruption(config, tmp_path, schema):
+    manifest, record = make_payload(config, tmp_path, schema)
     assert validate_payload(config, record, tmp_path) == manifest
     with pytest.raises(ValueError, match="metadata"):
         validate_payload(config, {**record, "database_uid": "wrong"}, tmp_path)
@@ -162,3 +164,68 @@ def test_database_identity_uses_deployment_binding(config, database_uid):
             "databases",
             "external-database",
         )
+
+
+@pytest.mark.parametrize("extra_selection", [False, True])
+@pytest.mark.parametrize("change_extension", [False, True])
+def test_previous_release_snapshot_is_verified_by_next_reader(
+    config, tmp_path, change_extension, extra_selection
+):
+    from unittest.mock import patch
+
+    from platform_recovery import contract
+
+    config["secrets"].append(
+        {"namespace": "tailscale", "name": "old-cert", "required": False}
+    )
+    config["inventory_sha256"] = digest(logical_inventory(config))
+    manifest, record = make_payload(config, tmp_path, 3)
+    reader = deepcopy(config)
+    reader["recovery"]["platformVersion"] = "0.8.1"
+    reader["recovery"]["compatibleReleases"].append("0.8.1")
+    reader["recovery"]["payloadSchemas"].append(4)
+    if extra_selection:
+        reader["recovery"]["selections"]["2"] = list(
+            reader["recovery"]["selections"]["1"]
+        )
+        reader["backup_selections"] = reader["recovery"]["selections"]
+    if change_extension:
+        reader["secrets"][-1]["name"] = "new-cert"
+    reader["inventory_sha256"] = digest(logical_inventory(reader))
+    with patch.object(contract, "descriptor", return_value=reader["recovery"]):
+        assert validate_payload(reader, record, tmp_path) == manifest
+    if not change_extension and not extra_selection:
+        assert reader["inventory_sha256"] == config["inventory_sha256"]
+
+
+def test_obsolete_optional_secret_is_verified_then_skipped_on_restore(config, tmp_path):
+    from unittest.mock import MagicMock, patch
+
+    config["secrets"].append(
+        {"namespace": "tailscale", "name": "old-cert", "required": False}
+    )
+    config["inventory_sha256"] = digest(logical_inventory(config))
+    manifest, record = make_payload(config, tmp_path / "payload", 3)
+    config["secrets"][-1]["name"] = "new-cert"
+    config["inventory_sha256"] = digest(logical_inventory(config))
+    validate_payload(config, record, tmp_path / "payload")
+    datasets = tmp_path / "target"
+    for name in config["datasets"]:
+        (datasets / name).mkdir(parents=True)
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    config["namespace_uid"] = "target-namespace"
+    cluster, repository = MagicMock(), MagicMock()
+    cluster.read_record.return_value = None
+    repository.pointer.return_value = record
+    repository.verify.return_value = (tmp_path / "payload", manifest)
+    with (
+        patch.object(runtime, "Cluster", return_value=cluster),
+        patch.object(runtime, "Repository", return_value=repository),
+        patch.object(runtime, "STAGING", staging),
+        patch.object(runtime, "DATASETS", datasets),
+    ):
+        runtime.restore_files(config)
+    restored = cluster.restore_secrets.call_args.args[0]
+    assert not any(item["name"] == "old-cert" for item in restored)
+    assert any(item["name"] == "agent-platform-secrets" for item in restored)

@@ -22,6 +22,9 @@ spec:
       command: [python, -m, platform_bootstrap]
       args: []
       env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef: {fieldPath: metadata.name}
         - name: POD_UID
           valueFrom:
             fieldRef: {fieldPath: metadata.uid}

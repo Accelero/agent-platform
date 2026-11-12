@@ -26,7 +26,13 @@ def values():
     return value
 
 
-def render(tmp_path, values, *, valid=True):
+def render(
+    tmp_path: Path,
+    values: dict,
+    *,
+    valid: bool = True,
+    include_namespaces: bool = False,
+) -> dict | str:
     path = tmp_path / "values.yaml"
     path.write_text(yaml.safe_dump(values))
     result = subprocess.run(
@@ -49,6 +55,15 @@ def render(tmp_path, values, *, valid=True):
         return result.stderr
     assert result.returncode == 0, result.stderr
     documents = [item for item in yaml.safe_load_all(result.stdout) if item]
+    if include_namespaces:
+        return {
+            (
+                item["kind"],
+                item["metadata"].get("namespace"),
+                item["metadata"]["name"],
+            ): item
+            for item in documents
+        }
     return {(item["kind"], item["metadata"]["name"]): item for item in documents}
 
 
@@ -429,3 +444,20 @@ def test_hermes_renders_without_chart_owned_model_credentials(
         item["name"] == "hermes-home" and item["mountPath"] == "/opt/data"
         for item in container["volumeMounts"]
     )
+
+
+def test_recovery_fence_matches_rendered_backend_path(tmp_path, values):
+    from platform_recovery.contract import descriptor
+
+    objects = render(tmp_path, values)
+    backend = objects["Deployment", "multica-backend"]["spec"]["template"]["spec"][
+        "containers"
+    ][0]
+    dataset, marker = descriptor()["fence"].split("/", 1)
+    mounts = backend["volumeMounts"]
+    volume = next(item for item in mounts if item["name"] == dataset)
+    environment = {item["name"]: item.get("value") for item in backend["env"]}
+    assert environment["MULTICA_MAINTENANCE_FILE"] == volume["mountPath"] + "/" + marker
+    assert marker == ".altiera-maintenance"
+    values["multica"]["maintenanceFile"] = "/app/data/uploads/wrong-marker"
+    assert "recovery descriptor fence" in render(tmp_path, values, valid=False)

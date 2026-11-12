@@ -161,6 +161,9 @@ def test_database_restore_runs_as_application_role(
     _seed_application_database(postgres_sql.name, role, source)
     staging = tmp_path / "staging"
     staging.mkdir()
+    datasets = tmp_path / "datasets"
+    (datasets / "multica-uploads").mkdir(parents=True)
+    recovery_config = {"recovery": {"fence": "multica-uploads/.altiera-maintenance"}}
     (staging / "database.dump").write_bytes(
         _as_role(postgres_sql.name, role, source, ["pg_dump", "-Fc"]),
     )
@@ -193,12 +196,13 @@ def test_database_restore_runs_as_application_role(
     cluster.read_record.return_value = {"snapshot": "fixture"}
     with (
         patch.object(state, "STAGING", staging),
+        patch.object(state, "DATASETS", datasets),
         patch.object(state, "Cluster", return_value=cluster),
         patch.object(state, "run", side_effect=job_command),
     ):
         if sanitize_failure:
             with pytest.raises(subprocess.CalledProcessError):
-                state.restore_database({})
+                state.restore_database(recovery_config)
             assert (
                 postgres_sql.query(
                     "SELECT count(*) FROM pg_tables WHERE schemaname='public'",
@@ -207,7 +211,7 @@ def test_database_restore_runs_as_application_role(
                 == "0"
             )
             inject_failure = False
-        result = state.restore_database({})
+        result = state.restore_database(recovery_config)
     restored = postgres_sql.query(
         "SELECT concat_ws('|', "
         "(SELECT string_agg(status, ',' ORDER BY status) FROM agent_task_queue), "

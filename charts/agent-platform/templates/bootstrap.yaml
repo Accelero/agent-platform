@@ -38,13 +38,16 @@ rules:
     resourceNames: [{{ if eq $namespace $.Release.Namespace }}{{ $b.onboardingSecret }}{{ else }}{{ $b.profileSecret }}{{ end }}]
     verbs: [get, patch]
   {{- if eq $namespace $.Release.Namespace }}
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get]
   - apiGroups: ['']
     resources: [configmaps]
-    resourceNames: [{{ $b.recoveryGate }}]
+    resourceNames: [{{ $b.recoveryGate }}, agent-state-deleting]
     verbs: [get]
   - apiGroups: ['']
     resources: [pods]
-    verbs: [list]
+    verbs: [get, list]
   - apiGroups: [apps]
     resources: [deployments, deployments/scale]
     resourceNames: {{ toJson $b.writers }}

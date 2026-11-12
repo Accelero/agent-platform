@@ -114,7 +114,8 @@
         "services/tools/platform_recovery/runtime.py",
         "services/tools/platform_recovery/commands.py",
         "services/tools/platform_recovery/__init__.py",
-        "charts/agent-platform/files/recovery.json"
+        "charts/agent-platform/files/recovery.json",
+        "services/tools/platform_recovery/budget.py"
       ]
     }
   }

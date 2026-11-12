@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from platform_recovery.budget import remaining
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
@@ -47,11 +49,18 @@ def run(
     timeout: float = 60,
     cwd: Path | None = None,
     include_stderr: bool = False,
+    cleanup_grace: float = 0,
 ) -> bytes:
     """Return private output in memory; never echo arguments, stdin or stderr."""
     try:
         return asyncio.run(
-            _run(args, data, timeout, cwd, include_stderr=include_stderr),
+            _run(
+                args,
+                data,
+                remaining(timeout) + cleanup_grace,
+                cwd,
+                include_stderr=include_stderr,
+            ),
         )
     except _COMMAND_ERRORS:
         msg = "Operational command could not run or exceeded its deadline."

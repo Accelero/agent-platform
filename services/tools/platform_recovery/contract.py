@@ -6,6 +6,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from platform_recovery.budget import file_sha256
+
 
 def descriptor() -> dict:
     path = Path(__file__).with_name("contract.json")
@@ -21,6 +23,23 @@ def digest(value: object) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def logical_inventory(config: dict) -> dict:
+    """Stable logical inventory, excluding release version, capabilities and sizes."""
+    return {
+        "datasets": sorted(config["datasets"]),
+        "backup_selections": {
+            key: sorted(value)
+            for key, value in sorted(config["backup_selections"].items())
+        },
+        "writers": sorted(config["writers"]),
+        "secrets": sorted(
+            config["secrets"], key=lambda item: (item["namespace"], item["name"])
+        ),
+        "namespace": config["namespace"],
+        "execution_namespace": config["execution_namespace"],
+    }
 
 
 def resolve(config: dict) -> dict:
@@ -54,19 +73,7 @@ def resolve(config: dict) -> dict:
     keys = [(item["namespace"], item["name"]) for item in config["secrets"]]
     if len(set(keys)) != len(keys):
         raise ValueError("Duplicate recovery Secret binding.")
-    inventory = {
-        key: config[key]
-        for key in (
-            "recovery",
-            "datasets",
-            "writers",
-            "secrets",
-            "backup_selections",
-            "namespace",
-            "execution_namespace",
-        )
-    }
-    if config.get("inventory_sha256") != digest(inventory):
+    if config.get("inventory_sha256") != digest(logical_inventory(config)):
         raise ValueError("Resolved recovery inventory digest is invalid.")
     return config
 
@@ -88,9 +95,46 @@ def validate_payload(config: dict, record: dict, checkpoint: Path) -> dict:
             manifest.get("recovery_api") != 1
             or manifest.get("platform_version")
             not in descriptor()["compatibleReleases"]
-            or manifest.get("inventory_sha256") != config["inventory_sha256"]
+            or manifest.get("inventory_sha256") != digest(manifest.get("inventory"))
         ):
             raise ValueError("Unsupported application recovery version.")
+    source_inventory = (
+        manifest.get("inventory")
+        if manifest.get("schema") == 3
+        else logical_inventory(config)
+    )
+    if not isinstance(source_inventory, dict):
+        raise ValueError("Source recovery inventory is invalid.")
+    target_inventory = logical_inventory(config)
+    for field in (
+        "datasets",
+        "writers",
+        "namespace",
+        "execution_namespace",
+    ):
+        if source_inventory.get(field) != target_inventory[field]:
+            raise ValueError(
+                "Source recovery inventory requires an explicit migration."
+            )
+    if any(
+        target_inventory["backup_selections"].get(version) != names
+        for version, names in source_inventory["backup_selections"].items()
+    ):
+        raise ValueError("Recorded recovery selections were changed or removed.")
+    target_secrets = {(item["namespace"], item["name"]) for item in config["secrets"]}
+    source_secrets = {
+        (item["namespace"], item["name"]) for item in source_inventory["secrets"]
+    }
+    if any(
+        (item["namespace"], item["name"]) not in source_secrets
+        for item in config["secrets"]
+        if item["required"]
+    ) or any(
+        (item["namespace"], item["name"]) not in target_secrets
+        for item in source_inventory["secrets"]
+        if item["required"]
+    ):
+        raise ValueError("Required recovery Secret bindings changed.")
     if (
         manifest.get("installation") != config["installation"]
         or manifest.get("database_major") != config["database_major"]
@@ -120,14 +164,15 @@ def validate_payload(config: dict, record: dict, checkpoint: Path) -> dict:
         ("database.dump", "database_sha256"),
         ("secrets.json", "secrets_sha256"),
     ):
-        with (checkpoint / name).open("rb") as data:
-            if hashlib.file_digest(data, "sha256").hexdigest() != manifest[field]:
-                raise ValueError("Recovered payload checksum verification failed.")
+        if file_sha256(checkpoint / name) != manifest[field]:
+            raise ValueError("Recovered payload checksum verification failed.")
     values = json.loads((checkpoint / "secrets.json").read_text())
-    allowed = {(item["namespace"], item["name"]) for item in config["secrets"]}
+    allowed = {
+        (item["namespace"], item["name"]) for item in source_inventory["secrets"]
+    }
     required = {
         (item["namespace"], item["name"])
-        for item in config["secrets"]
+        for item in source_inventory["secrets"]
         if item["required"]
     }
     actual = {(item["namespace"], item["name"]) for item in values}

@@ -3,11 +3,23 @@
 {{- $workloads := deepCopy .Values.workloads -}}
 {{- $multica := .Values.multica -}}
 {{- $backend := index $workloads "multica-backend" -}}
+{{- $recovery := .Files.Get "files/recovery.json" | fromJson -}}
+{{- $parts := splitList "/" $recovery.fence -}}
+{{- $maintenance := "" -}}
+{{- range $backend.persistence -}}
+  {{- if eq .name (first $parts) -}}
+    {{- $maintenance = printf "%s/%s" (trimSuffix "/" .mountPath) (join "/" (rest $parts)) -}}
+  {{- end -}}
+{{- end -}}
+{{- if not $maintenance -}}{{ fail "recovery fence requires its dataset mount" }}{{- end -}}
+{{- if and $multica.maintenanceFile (ne $multica.maintenanceFile $maintenance) -}}
+  {{- fail "multica.maintenanceFile must match the recovery descriptor fence" -}}
+{{- end -}}
 {{- $env := list -}}
 {{- range $backend.env -}}
   {{- if not (has .name (list "DATABASE_URL" "FRONTEND_ORIGIN" "CORS_ALLOWED_ORIGINS" "MULTICA_APP_URL" "ALLOWED_EMAILS" "ALLOW_SIGNUP" "MULTICA_MAINTENANCE_FILE")) -}}{{- $env = append $env . -}}{{- end -}}
 {{- end -}}
-{{- range $name, $value := dict "DATABASE_URL" $multica.databaseUrl "FRONTEND_ORIGIN" $multica.publicUrl "CORS_ALLOWED_ORIGINS" $multica.publicUrl "MULTICA_APP_URL" $multica.publicUrl "ALLOWED_EMAILS" $multica.ownerEmail "ALLOW_SIGNUP" "false" "MULTICA_MAINTENANCE_FILE" $multica.maintenanceFile -}}
+{{- range $name, $value := dict "DATABASE_URL" $multica.databaseUrl "FRONTEND_ORIGIN" $multica.publicUrl "CORS_ALLOWED_ORIGINS" $multica.publicUrl "MULTICA_APP_URL" $multica.publicUrl "ALLOWED_EMAILS" $multica.ownerEmail "ALLOW_SIGNUP" "false" "MULTICA_MAINTENANCE_FILE" $maintenance -}}
   {{- $env = append $env (dict "name" $name "value" $value) -}}
 {{- end -}}
 {{- $_ := set $backend "env" $env -}}

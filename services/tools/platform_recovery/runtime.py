@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import hashlib
 import json
 import os
 import shutil
@@ -13,7 +12,8 @@ import stat
 import sys
 import time
 import uuid
-from contextlib import AbstractContextManager, closing
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,8 +21,9 @@ import kubernetes.client as kube
 import kubernetes.config
 import yaml
 
+from platform_recovery import budget
 from platform_recovery.commands import run
-from platform_recovery.contract import resolve, validate_payload
+from platform_recovery.contract import logical_inventory, resolve, validate_payload
 from platform_recovery.port import Repository
 
 if TYPE_CHECKING:
@@ -40,6 +41,7 @@ SQLITE_HEADER = b"SQLite format 3\x00"
 SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
 # Checkpoints record their dataset selection version; schema 1 held every dataset.
 MANIFEST_SCHEMA = 3
+_RETENTION_ERRORS = (RuntimeError, OSError, ValueError)
 # A checkpoint holds the copied payload and its decrypted readback at once.
 HEADROOM_FACTOR = 1.1
 HEADROOM_RESERVE = 512 * 1024**2
@@ -78,11 +80,7 @@ def inventory(root: Path, allowed_links: tuple[Path, ...] = ()) -> dict[str, dic
                     msg = "A durable dataset contains an external symlink."
                     raise ValueError(msg)
             elif path.is_file():
-                with path.open("rb") as data:
-                    entry.update(
-                        kind="file",
-                        sha256=hashlib.file_digest(data, "sha256").hexdigest(),
-                    )
+                entry.update(kind="file", sha256=budget.file_sha256(path))
             elif path.is_dir():
                 entry.update(kind="directory")
             else:
@@ -316,11 +314,17 @@ class Cluster:
                 msg = "The database identity changed; checkpoint refused."
                 raise RuntimeError(msg)
 
-    def lock(self) -> AbstractContextManager[None]:
-        """Share the exact bootstrap operation lease across the full checkpoint."""
+    @contextmanager
+    def lock(self, *, allow_deleting: bool = False) -> Iterator[None]:
+        """Refuse new mutations after verified deletion intent."""
         from platform_recovery.lease import operation_lock
 
-        return operation_lock(self.coordination, self.namespace)
+        with operation_lock(self.coordination, self.namespace):
+            if not allow_deleting and self.read_record("agent-state-deleting"):
+                raise RuntimeError(
+                    "Verified state deletion is in progress; operation refused."
+                )
+            yield
 
     def record(self, name: str, value: dict) -> None:
         """Store only nonsecret lifecycle progress in the installation namespace."""
@@ -524,6 +528,7 @@ def publish(
         "schema": MANIFEST_SCHEMA,
         "recovery_api": 1,
         "inventory_sha256": config["inventory_sha256"],
+        "inventory": logical_inventory(config),
         "platform_version": config["recovery"]["platformVersion"],
         "selection": selection(config)[0],
         "installation": config["installation"],
@@ -541,14 +546,15 @@ def publish(
         ("database.dump", "database_sha256"),
         ("secrets.json", "secrets_sha256"),
     ):
-        with (root / name).open("rb") as data:
-            manifest[field] = hashlib.file_digest(data, "sha256").hexdigest()
-    # Retention runs before adding the new snapshot and again once it is verified.
-    previous = repository.pointer()
-    repository.retain(previous["snapshot"] if previous else None)
+        manifest[field] = budget.file_sha256(root / name)
     record = repository.checkpoint(root, manifest, verify)
     cluster.record("agent-state-checkpoint", {**record, "final": final})
-    repository.retain(record["snapshot"])
+    try:
+        repository.retain(record["snapshot"])
+    except _RETENTION_ERRORS:
+        sys.stderr.write(
+            "Checkpoint verified; retention deferred for a later backup.\n"
+        )
     return record
 
 
@@ -587,24 +593,22 @@ def live_backup(config: dict) -> dict:
     maintenance = DATASETS / config["recovery"]["fence"]
     names = selection(config)[1]
     with cluster.lock():
-        try:
-            paths = staging()
-            require_headroom(names)
-            datasets = {}
-            for name in names:
-                target = paths[0] / "datasets" / name
-                copy_live(DATASETS / name, target)
-                datasets[name] = inventory(
-                    target,
-                    link_roots(paths[0] / "datasets", names),
-                )
-            record = publish(cluster, repository, paths, datasets, final=False)
-            # No plaintext state remains after a successful checkpoint.
-            for directory in paths:
-                shutil.rmtree(directory)
-            return record
-        finally:
-            release_cutoff(cluster, maintenance)
+        paths = staging()
+        require_headroom(names)
+        datasets = {}
+        for name in names:
+            target = paths[0] / "datasets" / name
+            copy_live(DATASETS / name, target)
+            datasets[name] = inventory(
+                target,
+                link_roots(paths[0] / "datasets", names),
+            )
+        record = publish(cluster, repository, paths, datasets, final=False)
+        # No plaintext state remains after a successful checkpoint.
+        for directory in paths:
+            shutil.rmtree(directory)
+        release_cutoff(cluster, maintenance)
+        return record
 
 
 def backup(config: dict, *, final: bool) -> dict:
@@ -661,6 +665,7 @@ def backup(config: dict, *, final: bool) -> dict:
             return record
         finally:
             if not completed:
+                repository.invalidate_cutoff()
                 if not previous_pause:
                     fence(maintenance, pause=False)
                 cluster.scale(prior)
@@ -713,7 +718,15 @@ def restore_files(config: dict) -> dict:
         target.mkdir(parents=True)
         checkpoint, manifest = repository.verify(record, target)
         cluster.record("agent-state-restoring", record)
-        cluster.restore_secrets(json.loads((checkpoint / "secrets.json").read_text()))
+        allowed = {(item["namespace"], item["name"]) for item in config["secrets"]}
+        # Verified obsolete optional deployment entries, such as old TLS caches,
+        # are omitted; required bindings were checked before any restore writes.
+        selected_secrets = [
+            item
+            for item in json.loads((checkpoint / "secrets.json").read_text())
+            if (item["namespace"], item["name"]) in allowed
+        ]
+        cluster.restore_secrets(selected_secrets)
         copy_restored_files(config, checkpoint, manifest)
         shutil.copyfile(checkpoint / "database.dump", STAGING / "database.dump")
         cluster.record("agent-state-restored", {**record, "database_restored": False})
@@ -861,25 +874,44 @@ def _restore_database(config: dict) -> dict:
 
 def restore_database(config: dict) -> dict:
     """Serialize database import with every administrator operation."""
-    with Cluster(config).lock():
+    cluster = Cluster(config)
+    with cluster.lock():
+        restored = cluster.read_record("agent-state-restored")
+        if restored and (
+            not restored.get("database_restored") or restored.get("dispatch_paused")
+        ):
+            # Live snapshots do not contain a maintenance marker. Recreate it
+            # before import/startup, independently of the archived file state.
+            fence(DATASETS / config["recovery"]["fence"], pause=True)
         return _restore_database(config)
 
 
-def verify_checkpoint(config: dict) -> dict:
+def verify_checkpoint(config: dict, *, final: bool = False) -> dict:
     """Read back the selected complete payload without changing live datasets."""
     cluster = Cluster(config)
     repository = Repository(config)
-    with cluster.lock():
+    with cluster.lock(allow_deleting=final):
         record = repository.pointer()
         if record is None:
             msg = "No completed recovery checkpoint exists."
             raise RuntimeError(msg)
+        if final and (
+            record.get("final") is not True
+            or record.get("cutoff_released") is True
+            or any(
+                record.get(key) != config[key]
+                for key in ("namespace_uid", "database_uid", "configuration_sha256")
+            )
+        ):
+            raise RuntimeError("No matching final checkpoint exists; deletion refused.")
         target = STAGING / "verification"
         if target.exists():
             shutil.rmtree(target)
         target.mkdir(parents=True)
         try:
             repository.verify(record, target)
+            if final:
+                cluster.record("agent-state-deleting", record)
         finally:
             shutil.rmtree(target)
     return {"verified": True, "snapshot": record["snapshot"]}
@@ -893,6 +925,7 @@ def resume(config: dict) -> dict:
         if restored and not restored.get("database_restored"):
             msg = "Database recovery has not completed; dispatch stays paused."
             raise RuntimeError(msg)
+        Repository(config).invalidate_cutoff()
         fence(DATASETS / config["recovery"]["fence"], pause=False)
         pending = cluster.read_record("agent-state-pending")
         if pending:
@@ -917,6 +950,7 @@ def main() -> int:
             "restore-files",
             "restore-database",
             "verify",
+            "verify-final",
             "resume",
             "verify-payload",
             "inventory",
@@ -931,6 +965,7 @@ def main() -> int:
     try:
         if args.operation == "verify-payload":
             request = json.loads(sys.stdin.read(4 * 1024 * 1024))
+            budget.configure(request["config"].get("_operation_deadline"))
             validate_payload(
                 request["config"], request["record"], Path(request["checkpoint"])
             )
@@ -945,12 +980,13 @@ def main() -> int:
                 + "\n"
             )
             return 0
+        config = budget.for_job(config)
         if args.operation in {"backup", "final"}:
             result = backup(config, final=args.operation == "final")
         elif args.operation == "restore-files":
             result = restore_files(config)
-        elif args.operation == "verify":
-            result = verify_checkpoint(config)
+        elif args.operation in {"verify", "verify-final"}:
+            result = verify_checkpoint(config, final=args.operation == "verify-final")
         elif args.operation == "resume":
             result = resume(config)
         else:
@@ -961,6 +997,8 @@ def main() -> int:
     except RUNTIME_ERRORS:
         sys.stderr.write("Agent state operation failed; private details suppressed.\n")
         return 1
+    finally:
+        budget.configure(None)
     sys.stdout.write(json.dumps(result) + "\n")
     return 0
 
