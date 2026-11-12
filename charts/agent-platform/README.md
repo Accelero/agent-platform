@@ -124,7 +124,9 @@ Secrets need their own backup policy; environment variables alone are not a
 backup of native state.
 
 The chart does not generate or seed credentials. Seed/export, database provisioning,
-backups, bucket credentials, PVC backing and VPN ingress are infrastructure duties.
+backup transport/policy, bucket credentials, PVC backing and VPN ingress are infrastructure duties.
+Application recovery mechanics and their `files/recovery.json` inventory ship
+with the tools image; see the [recovery contract](../../docs/recovery.md).
 Mutable native settings live in retained storage. Helm supplies initial config
 values and execution policy, while existing native config files are preserved. Claims and a
 chart-created sandbox namespace are retained on uninstall; losing the node disk
@@ -663,7 +665,7 @@ Deployment integration must provide:
   checkpoint including the native database, home and both enrollment Secrets.
   `before` and `after` run only for an explicit `--force` repair, which changes
   existing state: before mutation, create a verified checkpoint, fence dispatch,
-  drain work and stop all native writers; after successful reconnection, restore
+  force-stop writers and stop all native writers; after successful reconnection, restore
   dispatch and writers. First enrollment of a fresh installation changes no live
   state, so it neither stops nor scales writers: the Hermes daemon starts once its
   atomically written login file exists. Retries of a first enrollment keep that
@@ -709,3 +711,6 @@ database, changes S3 keys or the backup encryption password, or overrides pendin
 recovery. Failures retain progress and state for retry. A completed mutation with
 an interrupted checkpoint retries only checkpoint publication; it does not replay
 auth writes or automatically resume restored task dispatch.
+
+The API 1 recovery inventory currently excludes Hindsight. A consumer using this
+contract must keep Hindsight disabled until its database joins the inventory.

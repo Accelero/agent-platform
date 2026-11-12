@@ -13,8 +13,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from contextlib import contextmanager
-from datetime import UTC, datetime
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 import kubernetes.client as kube
@@ -122,69 +121,10 @@ class Cluster:
             raise RuntimeError("Recovery prerequisite is incomplete.")
         return record["fresh"] is True
 
-    @contextmanager
-    def lock(self):
-        """Share the installation lease with backup/restore administrator Jobs."""
-        now = datetime.now(UTC)
-        name = self.config["leaseName"]
-        body = kube.V1Lease(
-            metadata=kube.V1ObjectMeta(name=name),
-            spec=kube.V1LeaseSpec(
-                holder_identity=os.environ["POD_UID"],
-                acquire_time=now,
-                renew_time=now,
-                lease_duration_seconds=1500,
-            ),
-        )
-        deadline = time.monotonic() + 180
-        while True:
-            try:
-                old = self.leases.read_namespaced_lease(
-                    name, self.namespace, _request_timeout=TIMEOUT
-                )
-            except kube.ApiException as error:
-                if error.status != 404:
-                    raise
-                old = None
-            if old:
-                start = old.spec.renew_time or old.spec.acquire_time
-                if (
-                    start is None
-                    or (now - start).total_seconds() <= old.spec.lease_duration_seconds
-                ):
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError(
-                            "Another installation operation holds the lease."
-                        )
-                    time.sleep(2)
-                    now = datetime.now(UTC)
-                    continue
-                body.metadata.resource_version = old.metadata.resource_version
-            try:
-                lease = (
-                    self.leases.replace_namespaced_lease(
-                        name, self.namespace, body, _request_timeout=TIMEOUT
-                    )
-                    if old
-                    else self.leases.create_namespaced_lease(
-                        self.namespace, body, _request_timeout=TIMEOUT
-                    )
-                )
-                break
-            except kube.ApiException as error:
-                if error.status != 409 or time.monotonic() >= deadline:
-                    raise
-        try:
-            yield
-        finally:
-            self.leases.delete_namespaced_lease(
-                name,
-                self.namespace,
-                body=kube.V1DeleteOptions(
-                    preconditions=kube.V1Preconditions(uid=lease.metadata.uid)
-                ),
-                _request_timeout=TIMEOUT,
-            )
+    def lock(self) -> AbstractContextManager[None]:
+        from platform_recovery.lease import operation_lock
+
+        return operation_lock(self.leases, self.namespace, self.config["leaseName"])
 
     def replicas(self) -> dict:
         return {
@@ -216,7 +156,7 @@ class Cluster:
 def hook(config: dict, name: str) -> None:
     step(name + " hook")
     command = config["lifecycle"][name]
-    result = subprocess.run(command, capture_output=True, timeout=600)
+    result = subprocess.run(command, capture_output=True, timeout=1250)
     if result.returncode:
         step(f"{name} hook (exit {result.returncode})")
         raise RuntimeError("Recovery lifecycle command failed; state retained.")

@@ -4,3 +4,11 @@
 !services/tools/Dockerfile
 !services/tools/platform_bootstrap/
 !services/tools/platform_bootstrap/**
+!services/tools/platform_recovery/
+!services/tools/platform_recovery/**
+!charts/
+!charts/agent-platform/
+!charts/agent-platform/files/
+!charts/agent-platform/files/recovery.json
+**/__pycache__/
+**/*.pyc

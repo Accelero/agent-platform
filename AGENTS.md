@@ -13,6 +13,7 @@ mutable application state or deployment-specific backup scripts.
 - `services/`: runtime manager, patched Multica backend and generic operations tools.
 - `services/runtime-manager/runtime_manager/`: pure domain planner, SQLite and
   Kubernetes adapters, use cases and TLS API.
+- `services/tools/platform_recovery/`: generic application capture/restore, payload validation and the shared administrator lease; see `docs/recovery.md`.
 - `contracts/runtime-manager/`: versioned execution API contract.
 - `docs/runtime-manager/`: requirements and their proving tests.
 - `tools/platform/`: pinned command-line tools used by runtime images.
@@ -32,8 +33,8 @@ mutable application state or deployment-specific backup scripts.
 Use Python 3.14 and `uv sync --locked`. After edits run:
 
 ```bash
-uv run ruff check agent_platform tests services/tools/platform_bootstrap
-uv run ruff format --check agent_platform tests services/tools/platform_bootstrap
+uv run ruff check agent_platform tests services/tools
+uv run ruff format --check agent_platform tests services/tools
 uv run pytest -q
 helm lint charts/agent-platform
 ```

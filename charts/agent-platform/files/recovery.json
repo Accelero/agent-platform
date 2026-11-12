@@ -1,0 +1,89 @@
+{
+  "apiVersion": 1,
+  "payloadSchemas": [
+    1,
+    2,
+    3
+  ],
+  "writeSchema": 3,
+  "databaseMajor": 17,
+  "compatibleReleases": [
+    "0.7.0",
+    "0.8.0"
+  ],
+  "datasets": [
+    "hermes-home",
+    "hermes-tasks",
+    "hermes-workspaces",
+    "multica-uploads",
+    "manager-state"
+  ],
+  "selections": {
+    "1": [
+      "hermes-home",
+      "hermes-tasks",
+      "hermes-workspaces",
+      "multica-uploads"
+    ]
+  },
+  "writers": [
+    "multica-gateway",
+    "hermes-gateway",
+    "multica-web",
+    "multica-backend",
+    "hermes",
+    "runtime-manager"
+  ],
+  "fence": "multica-uploads/.altiera-maintenance",
+  "secrets": [
+    {
+      "scope": "application",
+      "name": "agents-postgres-credentials",
+      "required": true
+    },
+    {
+      "scope": "application",
+      "name": "agent-platform-secrets",
+      "required": true
+    },
+    {
+      "scope": "application",
+      "name": "runtime-manager-auth",
+      "required": true
+    },
+    {
+      "scope": "application",
+      "name": "runtime-manager-tls",
+      "required": false
+    },
+    {
+      "scope": "application",
+      "name": "execution-controller-ssh",
+      "required": true
+    },
+    {
+      "scope": "application",
+      "name": "multica-mail",
+      "required": true
+    },
+    {
+      "scope": "application",
+      "name": "agent-onboarding",
+      "required": false
+    },
+    {
+      "scope": "execution",
+      "name": "execution-ssh-public",
+      "required": true
+    },
+    {
+      "scope": "execution",
+      "name": "hermes-task-login",
+      "required": false
+    }
+  ],
+  "unsupportedServices": [
+    "hindsight"
+  ],
+  "platformVersion": "0.8.0"
+}

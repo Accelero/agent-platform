@@ -21,7 +21,8 @@
     "values.yaml",
     "templates/bootstrap.yaml",
     "templates/_bootstrap.tpl",
-    "templates/sandbox/registry.yaml"
+    "templates/sandbox/registry.yaml",
+    "files/recovery.json"
   ],
   "contexts": {
     "hermes": {
@@ -105,7 +106,15 @@
         "services/tools/Dockerfile",
         "services/tools/Dockerfile.dockerignore",
         "services/tools/platform_bootstrap/__init__.py",
-        "services/tools/platform_bootstrap/__main__.py"
+        "services/tools/platform_bootstrap/__main__.py",
+        "services/tools/platform_recovery/lease.py",
+        "services/tools/platform_recovery/port.py",
+        "services/tools/platform_recovery/contract.py",
+        "services/tools/platform_recovery/__main__.py",
+        "services/tools/platform_recovery/runtime.py",
+        "services/tools/platform_recovery/commands.py",
+        "services/tools/platform_recovery/__init__.py",
+        "charts/agent-platform/files/recovery.json"
       ]
     }
   }

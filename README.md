@@ -86,7 +86,7 @@ import Python from an artifact, or build/push images. Provider logins, SMTP keys
 personal seed files, backup orchestration and live state stay outside this repo.
 The `tools` image supplies Restic, PostgreSQL 17 command-line tools, Python and
 Kubernetes/S3/YAML libraries for short-lived administrator Jobs. Deployments
-project their own reviewed backup/seed/restore scripts and mount persistent data.
+project their own reviewed transport/seed scripts and mount persistent data.
 An alternative tools image can provide these dependencies; publishing them once
 keeps backup and recovery independent of package installation at runtime.
 
@@ -215,3 +215,6 @@ timers, in-place state upgrades, orphan reporting and optional SSH host-key pinn
 Old manager service aliases and credential mounts are intentionally unsupported.
 The Multica credential boundary, maintenance fence,
 non-root execution and serialized runtime handoff remain enforced.
+
+Application-aware backup and restore are packaged in the tools image. See the
+[recovery contract](docs/recovery.md) for ownership, transport and compatibility.

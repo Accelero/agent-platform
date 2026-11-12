@@ -1,6 +1,6 @@
 [project]
 name = "agent-platform"
-version = "0.7.0"
+version = "0.8.0"
 requires-python = ">=3.14"
 dependencies = ["PyYAML==6.0.2"]
 
@@ -13,7 +13,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "services/runtime-manager"]
+pythonpath = [".", "services/runtime-manager", "services/tools"]
 # Every run includes `image` tests, which build and run real container images.
 # Without Docker they skip locally and fail in CI, where `CI` is set.
 addopts = "--strict-config --strict-markers"
