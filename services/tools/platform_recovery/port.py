@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from platform_recovery import budget
 from platform_recovery.commands import run
 
 
@@ -13,6 +14,12 @@ class Repository:
         self.config = config
 
     def request(self, action: str, **values: object) -> object:
+        config = self.config
+        if budget.in_cleanup():
+            if action != "invalidate_cutoff":
+                raise RuntimeError("Cleanup only permits withdrawing final proof.")
+            if budget.deadline() is not None:
+                config = {**config, "_operation_deadline": budget.deadline()}
         command = self.config.get("transport_command")
         if (
             not isinstance(command, list)
@@ -26,13 +33,13 @@ class Repository:
                 data=json.dumps(
                     {
                         "apiVersion": 1,
-                        "config": self.config,
+                        "config": config,
                         "action": action,
                         "values": values,
                     }
                 ).encode(),
                 timeout=1250,
-                cleanup_grace=35,
+                cleanup_grace=budget.RPC_GRACE_SECONDS,
             )
         )
 

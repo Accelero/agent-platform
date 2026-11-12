@@ -24,9 +24,17 @@ required binding compatibility, allowing optional deployment extensions to chang
 bindings against its embedded descriptor. The descriptor and tools image must
 come from the same digest-pinned release.
 
+Both repositories pin the same fully specified
+`tests/fixtures/recovery-inventory-golden.json` in their unit suites. It includes
+dataset capacities, writers, selections, application/execution namespace Secret
+bindings and an optional deployment certificate. Its inventory SHA-256 is
+`69c2d8c96ac21be4106450d5fcc1855950674a1d122da9ea14863ec5e2f142c5`.
+Keep these fixtures identical when deliberately extending the shared contract.
+
 Run `python -m platform_recovery OPERATION --config PATH`. Supported operations
-are `inventory`, `backup`, `final`, `restore-files`, `restore-database`, `verify`, `verify-final`
-and `resume`. Configuration includes the descriptor as `recovery`, resolved
+are `inventory`, `backup`, `final`, `restore-files`, `restore-database`, `verify`,
+`verify-final`, `invalidate-cutoff` and `resume`. Configuration includes the
+descriptor as `recovery`, resolved
 bindings, installation/current namespace/database UIDs, image/release references,
 configuration/seed checksums, the Helm `release_name`, a `database_resource`
 reference (`group`, `version`, `plural`, `name`) for its current UID check,
@@ -66,6 +74,15 @@ supervisor allows 35 extra seconds for a killed/reaped child's safe unlock,
 still inside the Job deadline. Oversized work fails closed before an unfinished
 snapshot can become complete. Keep credentials through verification/deletion.
 
+Only failure recovery may use `budget.cleanup()` to withdraw final proof after
+the normal deadline. It adds at most 45 seconds to that original absolute
+deadline, leaving the RPC supervisor's 35-second grace and a 10-second safety
+margin inside the 90-second reserve. Nested contexts and retries cannot renew
+the allowance. The adjusted deadline crosses the withdrawal RPC without changing
+the normal configuration. Other transport actions cannot use this allowance;
+ordinary backup, restore and resume work stays within the operation budget.
+If withdrawal times out or fails, the fence and stopped writers remain in place.
+
 Retention runs only after publication and is best effort. A timeout reports a
 redacted warning and defers remaining work to a later backup, preserving final
 writer state. Pruning's upper bound is 1800 seconds but the shared remaining
@@ -88,6 +105,15 @@ claim fence even when restoring a live snapshot with no archived marker. Restore
 sanitization run in the same PostgreSQL transaction. Restore stays paused until
 explicit resume. Missing-only seeding and the existing bootstrap recovery gate
 and lifecycle hooks remain consumer integration points.
+
+Before returning control to Helm during an update, consumers must run `verify`
+with the candidate tools/configuration, then `invalidate-cutoff`. Helm may
+restart desired replicas immediately afterwards. The withdrawal operation holds
+the shared lease, honors the deletion-intent gate and uses the existing transport
+`invalidate_cutoff` action. It changes no fences or replicas. It needs the same
+namespace, Job identity, lease and ConfigMap permissions as `verify`; no additional
+RBAC permissions are required. Failed withdrawal must block the update. A later
+teardown still requires a fresh final checkpoint from the late deletion guard.
 
 | Payload | Reader behavior |
 | --- | --- |
@@ -117,8 +143,38 @@ API 1 `verify-final` rechecks final/current identities and full payload while
 holding the lease, then records `agent-state-deleting`. Other administrator
 operations and bootstrap refuse that namespace after the marker, closing the
 verification/deletion race. A retry of final verification remains allowed.
-An interrupted deletion must be inspected explicitly; do not clear this marker
-to resume an installation that infrastructure teardown may already be removing.
+No operation clears the marker automatically.
+
+### Abandoning a verified teardown
+
+1. Stop the infrastructure teardown and any retry automation. Keep scheduled
+   backups suspended, bootstrap disabled and every application writer stopped.
+   Do not remove leases or alter completion metadata to bypass verification.
+2. Inspect both application and execution namespaces, their UIDs and
+   `metadata.deletionTimestamp`. Inventory remaining PVCs/PVs, their claim and
+   installation ownership, the database and its UID. Compare those resources
+   with the infrastructure tool's current state and deletion history. An absent
+   namespace, a deletion timestamp, missing volumes/database, or a resource
+   already removed from infrastructure state requires explicit recovery. Retained
+   PVs alone do not prove an installation is safe to resume.
+3. Confirm the matching final checkpoint before removing the marker. A pointer
+   alone is insufficient: rerun `verify-final` in the usual bounded administrator
+   Job with the retained, digest-pinned tools, configuration, credentials and
+   storage mounts. It is permitted while the marker exists. Require successful
+   full decrypt/readback validation, matching installation/current UIDs and
+   configuration, `final: true`, and no `cutoff_released: true`. Keep the verified
+   snapshot and repository credentials available.
+4. Remove `agent-state-deleting` manually only when teardown is confirmed
+   stopped, neither namespace is terminating, all required data and ownership
+   bindings remain intact, infrastructure state has been reconciled, and the
+   final checkpoint has passed verification. This must happen before any writer
+   restarts. If any check is uncertain, keep the marker and recover explicitly.
+5. With writers still stopped and the marker removed, run `invalidate-cutoff`
+   through the platform API before Helm or another controller can restart them.
+   A failed withdrawal keeps the installation stopped. Reconcile missing
+   application resources under a reviewed recovery procedure, then explicitly
+   `resume` when ready and take a new live backup before enabling its schedule.
+   If continuing teardown instead, leave the marker in place and retry deletion.
 
 Database recovery temporarily holds both the custom-format dump and full
 plaintext `restore.sql` on the protected staging PVC. Failed import or ambiguous

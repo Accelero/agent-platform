@@ -1,8 +1,13 @@
 # Personal Hermes architecture
 
-Status: proposed implementation architecture, based on release 0.6.1. None of
-the new manager/router services or chart settings below exist in that release.
-See the [specification](specification.md) and [delivery plan](plan.md).
+Status: proposed implementation architecture, separate from the singleton 0.8.0
+source. None of the new manager/router services or chart settings below exist
+in that source.
+See the [specification](specification.md) for required behavior and acceptance.
+Keep the existing singleton available until explicit, verified adoption preserves
+the original owner, storage and board enrollment. Shared/team instances, automatic
+Multica enrollment, cross-owner impersonation and a separately deployed admin
+panel remain deferred.
 
 ## Ownership and sources of truth
 

@@ -1,8 +1,8 @@
 # Personal Hermes specification
 
-Status: proposed requirements for a future release. Release 0.6.1 does not
+Status: proposed requirements for a future release. Release 0.8.0 does not
 implement these services, APIs or values. The [architecture](architecture.md)
-selects the component design; the [plan](plan.md) defines delivery gates.
+selects the component design; the acceptance matrix below defines release gates.
 
 ## Scope and terminology
 

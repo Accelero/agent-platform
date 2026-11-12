@@ -6,8 +6,9 @@ service wiring, gateway configuration and runtime isolation. Images and charts
 are built on GitHub-hosted runners independently of deployment tooling.
 
 The application chart is the deployment artifact. **0.7.0** is the current
-release. GHCR deployment packages support anonymous public pulls once their
-package visibility is public. Source and package visibility are managed separately.
+published release. Source prepares **0.8.0**, which remains unpublished until
+its hosted validation, including e2e checks, passes. GHCR deployment packages
+support anonymous public pulls once their package visibility is public. Source and package visibility are managed separately.
 
 ## Artifacts
 
@@ -33,7 +34,12 @@ release architecture. Obsolete `execution-manager`, `worker` and `release`
 packages are retired.
 Earlier releases that reference those package names are no longer deployable.
 Superseded agent-runtime 0.2.0 through 0.4.0 and tools 0.4.0 images were also
-retired after the [0.4.1 release qualification](docs/releases/0.4.1.md).
+retired with the corrections described in the [0.4.1 release notes](docs/releases/0.4.1.md).
+Candidate 0.8.0 adds versioned application recovery API 1 in the tools image and
+chart, with schema 3 source inventories, bounded failure cleanup and verified
+final-proof withdrawal. See [recovery](docs/recovery.md) and
+[release notes](docs/releases/0.8.0.md) before upgrading a consumer. Hindsight
+remains outside this singleton recovery inventory.
 Release 0.7.0 adds optional Hindsight memory backed by external PostgreSQL,
 redesigns the runtime manager lifecycle and binds the worker account to the Pod's
 identity. The first upgrade to it restarts all six core Deployments.
@@ -83,12 +89,13 @@ services remain disabled unless deliberately configured with supported images.
 An infrastructure tool such as Pulumi provisions that environment, supplies
 values and deploys the chart. It does not generate the manager's native policy,
 import Python from an artifact, or build/push images. Provider logins, SMTP keys,
-personal seed files, backup orchestration and live state stay outside this repo.
+personal seed files, backup transport/policy and live state stay outside this repo.
 The `tools` image supplies Restic, PostgreSQL 17 command-line tools, Python and
-Kubernetes/S3/YAML libraries for short-lived administrator Jobs. Deployments
-project their own reviewed transport/seed scripts and mount persistent data.
-An alternative tools image can provide these dependencies; publishing them once
-keeps backup and recovery independent of package installation at runtime.
+Kubernetes/S3/YAML libraries and `platform_recovery` for administrator Jobs.
+Deployments project their reviewed transport/seed scripts and mount persistent
+data. Compatible alternatives must include the versioned recovery package.
+Publishing tools once keeps backup and recovery independent of package
+installation at runtime.
 
 Release 0.6.3 removes the personal-assistant execution preset. Profiles
 select any Helm-defined terminal template by name and may override its image
@@ -118,10 +125,9 @@ Enabled Hermes gateways stay running for native cron/background work; terminal
 workers have independent, configurable lifetimes.
 The manager resumes interrupted lifecycle operations from durable PostgreSQL
 step records and verified Kubernetes state after a crash.
-Read the [implementation plan](docs/personal-hermes/plan.md),
-[specification](docs/personal-hermes/specification.md) and
+Read the [specification](docs/personal-hermes/specification.md) and
 [architecture](docs/personal-hermes/architecture.md). These describe future work;
-release 0.6.3 does not implement the manager, router or their proposed APIs.
+release 0.8.0 does not implement the manager, router or their proposed APIs.
 
 ## Development
 
@@ -129,8 +135,8 @@ Use Python 3.14, uv, Docker Buildx and Helm 3:
 
 ```bash
 uv sync --locked
-uv run ruff check agent_platform tests services/tools/platform_bootstrap
-uv run ruff format --check agent_platform tests services/tools/platform_bootstrap
+uv run ruff check agent_platform tests services/tools
+uv run ruff format --check agent_platform tests services/tools
 uv run pytest -q
 helm lint charts/agent-platform
 ```

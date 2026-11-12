@@ -1,5 +1,6 @@
 """Budget all nested work against the actual owning Job and validate transport paths."""
 
+import json
 import os
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -27,6 +28,52 @@ def test_nested_commands_share_one_deadline():
         pytest.raises(RuntimeError, match="deadline"),
     ):
         run(["a-command-that-must-not-start"])
+
+
+def test_cleanup_cannot_extend_past_the_reserved_time():
+    budget.configure(100)
+    with patch.object(budget.time, "monotonic", return_value=101), budget.cleanup():
+        end = budget.deadline()
+        assert end == 145
+        assert end + budget.RPC_GRACE_SECONDS == 180
+        assert end + budget.RPC_GRACE_SECONDS + budget.CLEANUP_SAFETY_SECONDS == 190
+        assert budget.remaining() == 44
+        with budget.cleanup():
+            assert budget.deadline() == end
+    with (
+        patch.object(budget.time, "monotonic", return_value=146),
+        budget.cleanup(),
+        pytest.raises(TimeoutError),
+    ):
+        budget.remaining()
+
+
+def test_normal_operations_cannot_use_cleanup():
+    from platform_recovery.commands import run
+
+    budget.configure(100)
+    with patch.object(budget.time, "monotonic", return_value=101):
+        with budget.cleanup():
+            with pytest.raises(RuntimeError, match="only permits"):
+                Repository({"transport_command": ["unused"]}).pointer()
+        with pytest.raises(RuntimeError, match="deadline"):
+            run(["a-command-that-must-not-start"])
+        assert budget.deadline() == 100
+
+
+def test_cleanup_propagates_its_deadline_without_mutating_config():
+    config = {"transport_command": ["transport"], "_operation_deadline": 100}
+    budget.configure(100)
+    with (
+        patch.object(budget.time, "monotonic", return_value=101),
+        patch("platform_recovery.commands._run", return_value=b"null") as command,
+        budget.cleanup(),
+    ):
+        Repository(config).invalidate_cutoff()
+    request = json.loads(command.call_args.args[1])
+    assert request["config"]["_operation_deadline"] == 145
+    assert command.call_args.args[2] == 79
+    assert config["_operation_deadline"] == 100
 
 
 def test_hashing_observes_deadline_between_chunks(tmp_path):

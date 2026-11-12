@@ -18,6 +18,26 @@ from platform_recovery.contract import (
 pytestmark = pytest.mark.unit
 
 
+def test_shared_inventory_golden_digest():
+    """Pin the same fully specified contract fixture in both repositories."""
+    golden = json.loads(
+        (Path(__file__).parent / "fixtures/recovery-inventory-golden.json").read_text()
+    )
+    expected = "69c2d8c96ac21be4106450d5fcc1855950674a1d122da9ea14863ec5e2f142c5"
+    config = {
+        **golden["config"],
+        "recovery": descriptor(),
+        "database_major": 17,
+        "inventory_sha256": expected,
+    }
+    assert golden["inventory_sha256"] == expected
+    assert digest(logical_inventory(resolve(config))) == expected
+    config["writers"] = list(reversed(config["writers"]))
+    config["secrets"].reverse()
+    config["backup_selections"]["1"].reverse()
+    assert digest(logical_inventory(config)) == expected
+
+
 @pytest.fixture
 def config() -> dict:
     recovery = descriptor()

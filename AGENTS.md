@@ -28,6 +28,9 @@ mutable application state or deployment-specific backup scripts.
   Docker (`image` marker); without Docker they skip locally and fail in CI. Use
   `-m 'not image'` for a quick local run without container builds.
 
+Keep lasting behavior, limitations and operator procedures in the general docs.
+Do not create separate plan or audit documents.
+
 ## Checks
 
 Use Python 3.14 and `uv sync --locked`. After edits run:

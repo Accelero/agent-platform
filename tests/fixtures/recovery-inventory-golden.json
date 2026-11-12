@@ -1,0 +1,82 @@
+{
+  "config": {
+    "datasets": {
+      "multica-uploads": "6Gi",
+      "hermes-workspaces": "5Gi",
+      "hermes-tasks": "4Gi",
+      "hermes-home": "3Gi",
+      "manager-state": "1Gi"
+    },
+    "writers": [
+      "multica-gateway",
+      "hermes-gateway",
+      "multica-web",
+      "multica-backend",
+      "hermes",
+      "runtime-manager"
+    ],
+    "secrets": [
+      {
+        "namespace": "agents",
+        "name": "agents-postgres-credentials",
+        "required": true
+      },
+      {
+        "namespace": "agents",
+        "name": "agent-platform-secrets",
+        "required": true
+      },
+      {
+        "namespace": "agents",
+        "name": "runtime-manager-auth",
+        "required": true
+      },
+      {
+        "namespace": "agents",
+        "name": "runtime-manager-tls",
+        "required": false
+      },
+      {
+        "namespace": "agents",
+        "name": "execution-controller-ssh",
+        "required": true
+      },
+      {
+        "namespace": "agents",
+        "name": "multica-mail",
+        "required": true
+      },
+      {
+        "namespace": "agents",
+        "name": "agent-onboarding",
+        "required": false
+      },
+      {
+        "namespace": "agent-execution",
+        "name": "execution-ssh-public",
+        "required": true
+      },
+      {
+        "namespace": "agent-execution",
+        "name": "hermes-task-login",
+        "required": false
+      },
+      {
+        "namespace": "tailscale",
+        "name": "fixture-certificate",
+        "required": false
+      }
+    ],
+    "backup_selections": {
+      "1": [
+        "hermes-home",
+        "hermes-tasks",
+        "hermes-workspaces",
+        "multica-uploads"
+      ]
+    },
+    "namespace": "agents",
+    "execution_namespace": "agent-execution"
+  },
+  "inventory_sha256": "69c2d8c96ac21be4106450d5fcc1855950674a1d122da9ea14863ec5e2f142c5"
+}

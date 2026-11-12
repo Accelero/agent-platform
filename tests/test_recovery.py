@@ -10,8 +10,10 @@ from pathlib import Path
 from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
+from platform_recovery import budget
 from platform_recovery import runtime as state
 from platform_recovery.contract import descriptor
+from platform_recovery.port import Repository
 
 pytestmark = pytest.mark.unit
 PRIVATE = "fixture-private-credential"
@@ -498,6 +500,52 @@ def test_failed_proof_withdrawal_keeps_final_writers_stopped(config, runtime):
     with pytest.raises(RuntimeError):
         state.backup(config, final=True)
     cluster.scale.assert_called_once_with(dict.fromkeys(config["writers"], 0))
+
+
+@pytest.mark.parametrize("was_paused", [False, True])
+def test_exhausted_final_withdraws_proof_before_restoring_writers(
+    config, runtime, *, was_paused
+):
+    cluster, repository = runtime
+    maintenance = state.DATASETS / config["recovery"]["fence"]
+    if was_paused:
+        maintenance.write_text("paused\n")
+    config.update(transport_command=["transport"], _operation_deadline=100)
+    repository.invalidate_cutoff.side_effect = Repository(config).invalidate_cutoff
+
+    def timed_out(*_args, **_kwargs):
+        budget.configure(100)
+        raise TimeoutError("checkpoint exhausted its budget")
+
+    repository.checkpoint.side_effect = timed_out
+    try:
+        with (
+            patch.object(budget.time, "monotonic", return_value=101),
+            patch("platform_recovery.commands._run", return_value=b"null") as command,
+            pytest.raises(TimeoutError, match="checkpoint exhausted"),
+        ):
+            state.backup(config, final=True)
+        command.assert_called_once()
+        assert cluster.scale.call_args_list == [
+            call(dict.fromkeys(config["writers"], 0)),
+            call(dict.fromkeys(config["writers"], 1)),
+        ]
+        assert maintenance.exists() is was_paused
+        assert budget.deadline() == 100
+    finally:
+        budget.configure(None)
+
+
+def test_withdrawal_operation_keeps_writers_and_fence_unchanged(config, runtime):
+    cluster, repository = runtime
+    maintenance = state.DATASETS / config["recovery"]["fence"]
+    maintenance.write_text("paused\n")
+    assert state.invalidate_cutoff(config) == {"cutoff_released": True}
+    cluster.lock.assert_called_once_with()
+    repository.invalidate_cutoff.assert_called_once_with()
+    cluster.scale.assert_not_called()
+    cluster.record.assert_not_called()
+    assert maintenance.exists()
 
 
 @pytest.mark.parametrize("released", [False, True])

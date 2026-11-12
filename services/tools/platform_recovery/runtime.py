@@ -665,7 +665,8 @@ def backup(config: dict, *, final: bool) -> dict:
             return record
         finally:
             if not completed:
-                repository.invalidate_cutoff()
+                with budget.cleanup():
+                    repository.invalidate_cutoff()
                 if not previous_pause:
                     fence(maintenance, pause=False)
                 cluster.scale(prior)
@@ -917,6 +918,13 @@ def verify_checkpoint(config: dict, *, final: bool = False) -> dict:
     return {"verified": True, "snapshot": record["snapshot"]}
 
 
+def invalidate_cutoff(config: dict) -> dict:
+    """Withdraw deletion proof before a consumer can restart application writers."""
+    with Cluster(config).lock():
+        Repository(config).invalidate_cutoff()
+    return {"cutoff_released": True}
+
+
 def resume(config: dict) -> dict:
     """Resume dispatch only through an explicit administrator operation."""
     cluster = Cluster(config)
@@ -951,6 +959,7 @@ def main() -> int:
             "restore-database",
             "verify",
             "verify-final",
+            "invalidate-cutoff",
             "resume",
             "verify-payload",
             "inventory",
@@ -989,6 +998,8 @@ def main() -> int:
             result = verify_checkpoint(config, final=args.operation == "verify-final")
         elif args.operation == "resume":
             result = resume(config)
+        elif args.operation == "invalidate-cutoff":
+            result = invalidate_cutoff(config)
         else:
             result = restore_database(config)
     except InsufficientSpaceError as error:

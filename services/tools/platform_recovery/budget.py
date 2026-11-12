@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,18 +17,46 @@ import urllib3
 _NETWORK_ERRORS = (urllib3.exceptions.HTTPError, OSError)
 
 _DEADLINE: float | None = None
+_CLEANUP = False
 OPERATION_SECONDS = 1080
 JOB_SECONDS = 1200
 CLEANUP_SECONDS = 90
+RPC_GRACE_SECONDS = 35
+CLEANUP_SAFETY_SECONDS = 10
 
 
 def configure(deadline: float | None) -> None:
-    global _DEADLINE
+    global _DEADLINE, _CLEANUP
     _DEADLINE = deadline
+    _CLEANUP = False
+
+
+def deadline() -> float | None:
+    """Keep cleanup anchored to the original deadline, including nested retries."""
+    if _DEADLINE is None or not _CLEANUP:
+        return _DEADLINE
+    return _DEADLINE + CLEANUP_SECONDS - RPC_GRACE_SECONDS - CLEANUP_SAFETY_SECONDS
+
+
+def in_cleanup() -> bool:
+    return _CLEANUP
+
+
+@contextmanager
+def cleanup() -> Iterator[None]:
+    """Allow failure recovery to withdraw proof within the reserved Job time."""
+    global _CLEANUP
+    previous = _CLEANUP
+    _CLEANUP = True
+    try:
+        yield
+    finally:
+        _CLEANUP = previous
 
 
 def remaining(limit: float = OPERATION_SECONDS) -> float:
-    seconds = limit if _DEADLINE is None else min(limit, _DEADLINE - time.monotonic())
+    end = deadline()
+    seconds = limit if end is None else min(limit, end - time.monotonic())
     if seconds <= 0:
         raise TimeoutError("Recovery operation exhausted its time budget.")
     return seconds
