@@ -1,5 +1,8 @@
 name: Checks
 
+# Static checks only. Tests run on version tags through tests.yml; to add some
+# suites here later, add a job that calls tests.yml with a `suites` selection.
+
 'on':
   push:
     branches: [main]
@@ -11,7 +14,7 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -24,10 +27,11 @@ jobs:
         with:
           version: 'v3.22.1'
       - run: uv sync --locked
-      - run: uv run ruff check agent_platform tests services/tools
-      - run: uv run ruff format --check agent_platform tests services/tools
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
       - run: uv run python -m agent_platform.privacy
-      - run: uv run pytest -q
+      - name: Collect every test and require a registered suite for each
+        run: uv run pytest --collect-only -q --check-suites
       - run: helm lint charts/agent-platform
       - name: Render lightweight deployment
         run: |

@@ -10,8 +10,6 @@ from tests.support.http import serve
 from tests.support.plugin import Ticks, client_settings, load_plugin
 from tests.support.world import DEFAULT_IMAGE
 
-pytestmark = pytest.mark.e2e
-
 
 @contextmanager
 def ticking(world):

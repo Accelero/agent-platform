@@ -14,19 +14,22 @@ and JWT issuance. Task and cloud-machine credentials receive 403; normal human
 PAT/JWT behavior remains available. The auth middleware's server-set actor
 classification also defeats client-supplied actor headers.
 
-The local `multica-backend` Bake target tests the actual Auth and handlers, then
-compiles the patched server. Its focused Go package avoids upstream test runners
-that exit successfully without running tests when PostgreSQL is absent. Only
-the SQL boundary is a test fixture. The final image replaces `/app/server` in
-the matching pinned runtime; migrations, entrypoint, CLI and notices remain.
+The Dockerfile's `test` target runs `go test -json` on the actual Auth and
+handlers and on the bootstrap command; the `multica-unit` pytest suite builds it
+and reports every Go test separately (see [testing](../../docs/testing.md)). Its
+focused Go packages avoid upstream test runners that exit successfully without
+running tests when PostgreSQL is absent. Only the SQL boundary is a test fixture.
+The image build compiles the patched server without rerunning those tests; the
+release workflow publishes only after the `multica-unit` and
+`multica-integration` suites pass. The final image replaces `/app/server` in the
+matching pinned runtime; migrations, entrypoint, CLI and notices remain.
 The application HTTP credential endpoints retain their native authorization.
+Native login files and agent configuration are separate state.
 
-The independent release workflow builds and tests this target with the other
-runtime images, then pins its digest in the application chart. Native login files and agent configuration are separate state.
-
-The build runs the focused auth and maintenance Go tests without live service
-credentials. Application login, email delivery and model dispatch are separate
-deployment acceptance checks.
+The Go tests need no live service credentials. `multica-integration` runs native
+bootstrap against the built image and a disposable PostgreSQL. Application
+login, email delivery and model dispatch are separate deployment acceptance
+checks.
 
 ## Offline service bootstrap
 

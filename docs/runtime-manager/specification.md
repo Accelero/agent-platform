@@ -58,7 +58,7 @@ is the authority for requests, responses and error codes.
 | R1 | A client selects a configured template by name and may select an image; an invalid image, an unknown template or deployment, or client-supplied mount or claim specifications never reach the cluster. | `test_requests_the_manager_does_not_approve_never_reach_the_cluster`, `test_any_profile_can_select_any_configured_template_and_image`, `test_a_client_cannot_introduce_namespaces_claims_or_mount_specifications` |
 | R2 | A profile mode shares one Pod among all sessions of the profile; `per_session` gives each session its own Pod and the same session reuses it. | `test_a_profile_worker_serves_all_sessions_and_each_session_gets_its_own`, `test_plugin_defaults_to_profile_scoped_on_demand_workers` |
 | R3 | A changed template, image, invocation scope or mode waits for active work (409) and then replaces the Pod under a new generation. A changed template configuration in the chart replaces idle Pods the same way. | `test_a_changed_image_waits_for_active_work_then_replaces_the_pod`, `test_a_changed_template_waits_for_active_work`, `test_a_changed_template_configuration_replaces_an_idle_worker`, `test_configuration_drift_replaces_an_idle_worker`, `test_a_changed_profile_mode_waits_for_live_work_even_on_replay` |
-| R4 | `serialize_profile` allows one profile worker at a time and `exclusive` allows one run per environment. | `test_serialized_exclusive_templates_allow_one_run_per_profile`, `test_serialization_retires_an_idle_sibling_before_starting_another`, `test_the_runtime_manager_release_smoke_payload_uses_the_current_package` |
+| R4 | `serialize_profile` allows one profile worker at a time and `exclusive` allows one run per environment. | `test_serialized_exclusive_templates_allow_one_run_per_profile`, `test_serialization_retires_an_idle_sibling_before_starting_another`, `test_the_handoff_payload_passes_with_the_current_package`, `test_the_manager_image_serializes_the_worker_handoff` |
 | R5 | A daily recycle (`recycle.at`, `recycle.timezone`) replaces a profile Pod once per calendar day; a Pod created after the boundary is not recycled for it. | `test_the_daily_recycle_replaces_a_profile_worker_once_per_day`, `test_the_daily_recycle_runs_once_per_day_and_not_for_a_new_pod` |
 | R6 | `per_session` Pods are retired after `session_idle_seconds`, on-demand Pods after `on_demand_idle_seconds`, an always-running Pod is restarted when lost while its profile was used within `recycle.inactive_after_seconds`, and closing a session retires its Pod. When close includes `runtime`, only environments with that exact invocation scope retire. | `test_idle_workers_are_retired_and_closing_a_session_retires_its_pod`, `test_an_always_running_profile_is_restarted_when_its_pod_is_lost`, `test_idle_workers_retire_by_mode`, `test_closing_a_session_can_filter_by_invocation_scope` |
 | R7 | Credentials are distinct, at least 32 characters and bound to one deployment; leases, sessions and request IDs of one client are invisible to another. | `test_each_client_sees_only_its_own_leases_environments_and_request_ids`, `test_credentials_must_be_distinct_long_and_bound_to_one_deployment`, `test_another_clients_lease_is_forbidden` |
@@ -78,12 +78,12 @@ Dependencies point inward, enforced by
 `test_domain_and_adapters_keep_dependencies_pointing_inward`.
 
 Every requirement names its proving tests. Tests have one of the `unit`,
-`integration` or `e2e` levels; no test needs a cluster. `image` tests build the
-real worker and verify SSH account binding, key pinning and graceful shutdown in
-Docker. Every run includes them, including CI; without Docker they skip locally
-and fail in CI. The TLS end-to-end tests use the shipped plugin,
-real server, SQLite, Kubernetes adapter and a simulated namespace with a fake
-clock. They do not establish behaviour on a live Kubernetes cluster.
+`integration` or `e2e` levels ([testing](../testing.md)); no test needs a cluster.
+The `worker-integration` suite builds the real worker and verifies SSH account
+binding, key pinning and graceful shutdown in Docker. The TLS end-to-end tests use
+the shipped plugin, real server, SQLite, Kubernetes adapter and a simulated
+namespace with a fake clock. They do not establish behaviour on a live Kubernetes
+cluster.
 
 Manager state upgrades in place from the previous schema at startup, preserving
 environment IDs, generations and live leases so surviving workers are adopted.

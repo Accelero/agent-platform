@@ -28,16 +28,23 @@ def _context_arguments(contexts: dict[str, Path]) -> list[str]:
 
 
 def bake_arguments(
-    *, github_cache: bool = False, contexts: dict[str, Path] | None = None
+    *,
+    github_cache: bool = False,
+    contexts: dict[str, Path] | None = None,
+    targets: tuple[str, ...] = TARGETS,
+    cache_write: bool = True,
 ) -> list[str]:
-    """Keep cache credentials in the runner environment and isolate image scopes."""
+    """Keep cache credentials in the runner environment and isolate image scopes.
+
+    Test builds read the main-branch cache without writing to it.
+    """
     args = [
         "docker",
         "buildx",
         "bake",
         "--file",
         "containers/docker-bake.hcl",
-        *TARGETS,
+        *targets,
         "--progress",
         "plain",
         "--provenance=mode=min",
@@ -54,14 +61,9 @@ def bake_arguments(
         raise ValueError("GitHub Actions cache requires the exported runner runtime.")
     for name in TARGETS:
         cache = f"type=gha,version=2,scope=agent-platform-{name}-amd64"
-        args.extend(
-            [
-                "--set",
-                f"{name}.cache-from={cache}",
-                "--set",
-                f"{name}.cache-to={cache},mode=max",
-            ]
-        )
+        args.extend(["--set", f"{name}.cache-from={cache}"])
+        if cache_write:
+            args.extend(["--set", f"{name}.cache-to={cache},mode=max"])
     return args
 
 

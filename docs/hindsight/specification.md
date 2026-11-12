@@ -66,7 +66,7 @@ egress. Local k3s checks allowed only the same-release Hermes workload to reach
 the unauthenticated API and confirmed nonroot execution without API credentials.
 Recheck enforcement on the production CNI before enabling Hindsight.
 
-The real-image tests cover native seeding, routed profiles, dashboard settings,
+The real-image tests (the `e2e` suite, see [testing](../testing.md)) cover native seeding, routed profiles, dashboard settings,
 persistence, queued-work recovery, verified PostgreSQL TLS and memory API failure
 responses using a synthetic model. No real-model memory-quality guarantee or full
 Multica task follows from those checks. Deployment chooses LLM/database Secret

@@ -21,12 +21,19 @@ mutable application state or deployment-specific backup scripts.
 - `examples/lightweight/`: nonsecret render fixture with optional services disabled.
 - `vendor/multica/`: pinned upstream server source and upstream license notices.
 - `provenance/`: origin revisions, original source hashes and extraction notes.
-- `tests/`: release invariants, offline smoke payloads and fast `unit`,
-  `integration` and `e2e` manager tests. Every collected test needs one level
-  marker; a function-level marker overrides the module level. Every run,
-  including CI, also builds and tests the real worker and Hindsight images with
-  Docker (`image` marker); without Docker they skip locally and fail in CI. Use
-  `-m 'not image'` for a quick local run without container builds.
+- `tests/`: the global `e2e/` suite and shared `support/` fixtures; component
+  tests live in `<component>/tests/{unit,integration}/` (`charts/tests/` for the
+  chart). See `docs/testing.md`.
+
+Tests follow `docs/testing.md`. The directory sets each test's level (`unit`,
+`integration` or `e2e`); do not write level markers. A suite is one component at
+one level, named `<component>-<level>` (for example `manager-integration`), plus
+the global `e2e`; register a new suite in `tests/support/suites.py`. Every test
+runs through pytest; wrap other tool chains (such as `go test`) in a pytest test
+instead of adding scripts. Python unit tests start no process and open no socket.
+Tests do not import other test modules; share helpers through `tests/support/`.
+CI runs the tests only on version tags, one runner per suite, and a skip in CI
+fails. Use `-m 'not image'` for a quick local run without container builds.
 
 Keep lasting behavior, limitations and operator procedures in the general docs.
 Do not create separate plan or audit documents.
@@ -36,11 +43,13 @@ Do not create separate plan or audit documents.
 Use Python 3.14 and `uv sync --locked`. After edits run:
 
 ```bash
-uv run ruff check agent_platform tests services/tools
-uv run ruff format --check agent_platform tests services/tools
+uv run ruff check .
+uv run ruff format --check .
 uv run pytest -q
 helm lint charts/agent-platform
 ```
+
+Run single suites with `uv run pytest --suite <name>` while iterating.
 
 Keep imported runtime/vendor code changes focused and review their Docker build
 compatibility. Generic code must not import a deployment repository. Preserve

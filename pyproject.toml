@@ -12,16 +12,31 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# Suites, levels, shards and markers: tests/support/suites.py and docs/testing.md.
+testpaths = [
+    "agent_platform/tests",
+    "charts/tests",
+    "services/runtime-manager/tests",
+    "services/tools/tests",
+    "services/multica/tests",
+    "runtimes/hermes/tests",
+    "runtimes/agent-runtime/tests",
+    "tests/e2e",
+]
 pythonpath = [".", "services/runtime-manager", "services/tools"]
-# Every run includes `image` tests, which build and run real container images.
-# Without Docker they skip locally and fail in CI, where `CI` is set.
-addopts = "--strict-config --strict-markers"
-markers = [
-    "unit: in process, no socket, subprocess or container",
-    "integration: a real protocol or process boundary (TLS, SQLite file, kubectl, helm)",
-    "e2e: the whole execution chain without a cluster",
-    "image: builds and runs a real container image (deselect locally with -m 'not image')",
+addopts = "--strict-config --strict-markers --import-mode=importlib"
+
+[tool.ruff]
+# Image sources keep their reviewed formatting; lint covers tooling and tests.
+extend-exclude = [
+    "vendor",
+    "tools/platform",
+    "runtimes/agent-runtime/multica-checkout-proxy.py",
+    "runtimes/hermes/native_files.py",
+    "runtimes/hermes/patch-terminal-scope.py",
+    "runtimes/hermes/runtime-init.py",
+    "runtimes/hermes/plugins",
+    "services/runtime-manager/runtime_manager",
 ]
 
 [tool.ruff.lint]

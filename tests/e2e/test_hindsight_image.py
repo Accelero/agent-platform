@@ -1,14 +1,13 @@
-"""Opt-in real Hindsight, pgvector and repository-built Hermes qualification.
+"""Real Hindsight, pgvector and the repository-built Hermes image together.
 
 Uses synthetic credentials, a mock LLM and an isolated disposable Docker network.
-A plain pytest run excludes this module via the image marker.
+Only the `manual` real-model case needs external credentials.
 """
 
 import json
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import time
 import urllib.error
@@ -20,17 +19,14 @@ import pytest
 import yaml
 
 from agent_platform.build import ROOT
-from agent_platform.privacy import stage_contexts
-from tests.integration.test_hindsight_chart import HINDSIGHT_IMAGE
-from tests.support.images import require_image_prerequisite
-from tests.test_chart import render
+from tests.support.chart import HINDSIGHT_IMAGE, render
+from tests.support.images import require_docker
 
-pytestmark = [pytest.mark.e2e, pytest.mark.image]
+pytestmark = pytest.mark.image
 POSTGRES_IMAGE = (
     "pgvector/pgvector:pg17@sha256:"
     "7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8"
 )
-HERMES_IMAGE = "agent-platform-hermes:hindsight-image-test"
 SYNTHETIC_PASSWORD = "hindsight-image-owner-fixture"
 SYNTHETIC_LLM_KEY = "hindsight-image-llm-fixture"
 
@@ -91,29 +87,9 @@ def endpoint(name):
 
 
 @pytest.fixture(scope="module")
-def hermes_image(tmp_path_factory):
-    for executable in ("docker", "openssl", "helm"):
-        require_image_prerequisite(
-            bool(shutil.which(executable)),
-            f"{executable} is required for Hindsight image tests",
-        )
-    require_image_prerequisite(
-        run("docker", "info", check=False).returncode == 0,
-        "a running Docker daemon is required",
-    )
-    stage = tmp_path_factory.mktemp("hindsight-build")
-    contexts = stage_contexts(ROOT, stage / "inputs")
-    run(
-        "docker",
-        "build",
-        "-f",
-        "runtimes/hermes/Dockerfile",
-        "-t",
-        HERMES_IMAGE,
-        str(contexts["hermes"]),
-        timeout=1200,
-    )
-    return HERMES_IMAGE
+def hermes_image(platform_image):
+    require_docker("openssl", "helm")
+    return platform_image("hermes")
 
 
 @pytest.fixture(scope="module")
@@ -635,6 +611,7 @@ def test_h14_documented_activation_changes_only_memory_settings(stack):
     assert result["disabled"] is True
 
 
+@pytest.mark.manual
 def test_optional_real_model_retain_and_recall(stack):
     names = (
         "HINDSIGHT_TEST_LLM_PROVIDER",

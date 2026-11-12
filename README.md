@@ -134,11 +134,15 @@ Use Python 3.14, uv, Docker Buildx and Helm 3:
 
 ```bash
 uv sync --locked
-uv run ruff check agent_platform tests services/tools
-uv run ruff format --check agent_platform tests services/tools
+uv run ruff check .
+uv run ruff format --check .
 uv run pytest -q
 helm lint charts/agent-platform
 ```
+
+Tests are organized into `unit`, `integration` and `e2e` levels and run as one
+suite per component and level, such as `manager-integration`. CI runs every suite
+on version tags only. See [testing](docs/testing.md).
 
 For an explicit local build without publishing:
 

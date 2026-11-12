@@ -6,7 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
 _COMMAND_ERRORS = (OSError, TimeoutError)
@@ -20,10 +20,12 @@ async def _run(
     *,
     include_stderr: bool,
     diagnostics: Path | None,
+    env: Mapping[str, str] | None,
 ) -> bytes:
     process = await asyncio.create_subprocess_exec(
         *args,
         cwd=cwd,
+        env=env,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -51,6 +53,7 @@ def run(
     cwd: Path | None = None,
     include_stderr: bool = False,
     diagnostics: Path | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> bytes:
     """Return private output in memory; never echo arguments, stdin or stderr."""
     try:
@@ -62,6 +65,7 @@ def run(
                 cwd,
                 include_stderr=include_stderr,
                 diagnostics=diagnostics,
+                env=env,
             ),
         )
     except _COMMAND_ERRORS:

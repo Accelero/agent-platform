@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -103,6 +104,28 @@ def render_chart(target: Path, chart: Path) -> None:
     (target / "reviewed-manifests.yaml").write_bytes(output)
 
 
+def verify_artifacts(images: dict[str, str], target: Path) -> None:
+    """Run the `artifact` tests against exactly these images (docs/testing.md)."""
+    run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-m",
+            "artifact",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "--junitxml",
+            str(target / "artifact-tests.xml"),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "AGENT_PLATFORM_TEST_IMAGES": json.dumps(images)},
+        timeout=1800,
+        diagnostics=target / "artifact-tests.log",
+    )
+
+
 def build(
     version: str,
     revision: str,
@@ -145,92 +168,7 @@ def build(
     )
     sys.stdout.write("Verifying built runtime images.\n")
     sys.stdout.flush()
-    for role, interpreter in (("tools", "python"), ("agent-runtime", "python3")):
-        run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "--network",
-                "none",
-                "--read-only",
-                "--user",
-                "0:0",
-                "--entrypoint",
-                interpreter,
-                images[role],
-                "-c",
-                (
-                    "from pathlib import Path; "
-                    "assert not list(Path('/etc/ssh').glob('ssh_host_*_key')); "
-                    "assert not Path('/etc/ssl/private/ssl-cert-snakeoil.key').exists()"
-                ),
-            ],
-            timeout=60,
-        )
-    run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "--interactive",
-            "--entrypoint",
-            "/opt/hermes/.venv/bin/python",
-            images["hermes"],
-            "-",
-        ],
-        data=(ROOT / "tests/hermes_execution_smoke.py").read_bytes(),
-        timeout=180,
-    )
-    run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "--interactive",
-            "--entrypoint",
-            "python",
-            images["runtime-manager"],
-            "-",
-        ],
-        data=(ROOT / "tests/runtime_smoke.py").read_bytes(),
-        timeout=180,
-    )
-    run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "--entrypoint",
-            "python",
-            images["tools"],
-            "-c",
-            (
-                "import boto3,kubernetes,yaml,platform_bootstrap.__main__; "
-                "import subprocess; "
-                'subprocess.run(["pg_dump","--version"],check=True); '
-                'subprocess.run(["restic","version"],check=True)'
-            ),
-        ],
-        timeout=180,
-    )
-    run(
-        [
-            sys.executable,
-            "-m",
-            "agent_platform.bootstrap_check",
-            "--backend",
-            images["multica-backend"],
-        ],
-        cwd=ROOT,
-        timeout=420,
-    )
+    verify_artifacts(images, target)
     sys.stdout.write("Validating chart.\n")
     sys.stdout.flush()
     chart = prepare_chart(target, images, version, revision)

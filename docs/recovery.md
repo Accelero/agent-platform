@@ -24,8 +24,9 @@ required binding compatibility, allowing optional deployment extensions to chang
 bindings against its embedded descriptor. The descriptor and tools image must
 come from the same digest-pinned release.
 
-Both repositories pin the same fully specified
-`tests/fixtures/recovery-inventory-golden.json` in their unit suites. It includes
+Both repositories pin the same fully specified recovery inventory golden file in
+their unit suites; here it is
+`services/tools/tests/fixtures/recovery-inventory-golden.json`. It includes
 dataset capacities, writers, selections, application/execution namespace Secret
 bindings and an optional deployment certificate. Its inventory SHA-256 is
 `69c2d8c96ac21be4106450d5fcc1855950674a1d122da9ea14863ec5e2f142c5`.
