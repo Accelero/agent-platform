@@ -6,7 +6,7 @@ dependencies = ["PyYAML==6.0.3"]
 
 [dependency-groups]
 dev = [
-    "kubernetes==37.0.2",
+    "kubernetes==37.0.1",
     "pytest>=9.2,<10",
     "ruff>=0.17.5",
 ]
@@ -33,7 +33,6 @@ extend-exclude = [
     "tools/platform",
     "runtimes/agent-runtime/multica-checkout-proxy.py",
     "runtimes/hermes/native_files.py",
-    "runtimes/hermes/patch-terminal-scope.py",
     "runtimes/hermes/runtime-init.py",
     "runtimes/hermes/plugins",
     "services/runtime-manager/runtime_manager",

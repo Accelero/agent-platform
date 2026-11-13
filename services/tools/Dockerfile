@@ -3,7 +3,7 @@ FROM postgres:17.12-trixie@sha256:dbb9623d5121b5d2c2c9e2fba56e40193cbb3510d4af7f
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && python3 -m venv /app/.venv \
- && /app/.venv/bin/pip install --no-cache-dir kubernetes==37.0.2 boto3==1.44.2 PyYAML==6.0.3
+ && /app/.venv/bin/pip install --no-cache-dir kubernetes==37.0.1 boto3==1.44.2 PyYAML==6.0.3
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 COPY --from=multica-backend /usr/local/bin/multica-bootstrap /usr/local/bin/multica-bootstrap
 COPY services/tools/platform_recovery/ /app/platform_recovery/
