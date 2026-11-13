@@ -170,7 +170,8 @@
   {{- end -}}
   {{- $hermes := .workloads.hermes -}}
   {{- $env = default list $hermes.env -}}
-  {{- range $name, $value := dict "HINDSIGHT_MODE" "local_external" "HINDSIGHT_BANK_ID" "default" "HINDSIGHT_API_URL" "http://hindsight:8888" -}}
+  {{- /* No HINDSIGHT_BANK_ID: since Hindsight 1.x it overrides every home's own bank. */ -}}
+  {{- range $name, $value := dict "HINDSIGHT_MODE" "local_external" "HINDSIGHT_API_URL" "http://hindsight:8888" -}}
     {{- $env = append $env (dict "name" $name "value" $value) -}}
   {{- end -}}
   {{- $_ := set $hermes "env" $env -}}

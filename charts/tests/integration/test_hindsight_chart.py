@@ -414,11 +414,11 @@ def test_h11_retired_login_claim_is_not_rendered_or_deleted(tmp_path, hindsight_
 def test_h13_hermes_gets_internal_endpoint_fail_safe(tmp_path, hindsight_values):
     env = environment(render(tmp_path, hindsight_values), "hermes")
     assert {
-        name: env[name]["value"]
-        for name in ("HINDSIGHT_MODE", "HINDSIGHT_BANK_ID", "HINDSIGHT_API_URL")
+        name: env[name]["value"] for name in ("HINDSIGHT_MODE", "HINDSIGHT_API_URL")
     } == {
         "HINDSIGHT_MODE": "local_external",
-        "HINDSIGHT_BANK_ID": "default",
         "HINDSIGHT_API_URL": "http://hindsight:8888",
     }
+    # Hindsight 1.x lets this variable override every home's and profile's bank.
+    assert "HINDSIGHT_BANK_ID" not in env
     assert "HINDSIGHT_API_KEY" not in env

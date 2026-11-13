@@ -492,8 +492,11 @@ admit Pods labelled `app.kubernetes.io/name: hindsight` from the application nam
 
 A **fresh root home** automatically selects Hindsight in Local External mode with
 bank `default`. An explicit `hermes.config.memory.provider` (including `""`)
-preserves that choice and suppresses connection seeding. Named profiles never
-inherit the root provider automatically. Existing homes and every named profile
+preserves that choice and suppresses connection seeding. The chart gives Hermes
+`HINDSIGHT_MODE` and `HINDSIGHT_API_URL` as internal fallbacks but never
+`HINDSIGHT_BANK_ID`, which would override every home's own bank; workload `env`
+cannot set any of the three. Named profiles never inherit the root provider
+automatically. Existing homes and every named profile
 are configured in Hermes; Helm upgrades preserve their files and credentials.
 
 **Dashboard activation:** select the intended profile and choose Hindsight as the
