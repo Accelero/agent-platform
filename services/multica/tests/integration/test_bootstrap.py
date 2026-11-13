@@ -20,8 +20,8 @@ from tests.support.images import require_docker
 
 pytestmark = [pytest.mark.image, pytest.mark.artifact]
 POSTGRES = (
-    "postgres:17.9-bookworm@sha256:"
-    "47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641"
+    "postgres:17.12-trixie@sha256:"
+    "dbb9623d5121b5d2c2c9e2fba56e40193cbb3510d4af7f035b1ab1823aff3205"
 )
 BINARY = "/usr/local/bin/multica-bootstrap"
 INSTALLATION = "bootstrap-fixture"

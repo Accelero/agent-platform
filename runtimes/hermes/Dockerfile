@@ -38,4 +38,4 @@ COPY runtimes/hermes/assistant-init /etc/cont-init.d/019-hermes-runtime
 RUN chmod 755 /etc/cont-init.d/019-hermes-runtime \
  && chmod -R a+rX /opt/hermes-stack
 
-RUN uv --no-config pip install --python /opt/hermes/.venv/bin/python ddgs==9.16.0
+RUN uv --no-config pip install --python /opt/hermes/.venv/bin/python ddgs==9.16.1

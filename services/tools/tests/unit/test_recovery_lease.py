@@ -49,11 +49,16 @@ def test_waiting_bootstrap_retries_a_held_lease_or_create_race(race):
     held.spec.renew_time = datetime.now(UTC)
     held.spec.lease_duration_seconds = 1500
     missing = kube.ApiException(status=404)
+    # The API returns string identities; current clients validate them.
+    created = MagicMock()
+    created.metadata.uid = "lease-uid"
+    created.metadata.resource_version = "7"
+    coordination.create_namespaced_lease.return_value = created
     if race:
         coordination.read_namespaced_lease.side_effect = [missing, missing]
         coordination.create_namespaced_lease.side_effect = [
             kube.ApiException(status=409),
-            MagicMock(),
+            created,
         ]
     else:
         coordination.read_namespaced_lease.side_effect = [held, missing]
@@ -65,4 +70,5 @@ def test_waiting_bootstrap_retries_a_held_lease_or_create_race(race):
         pass
     sleep.assert_called_once()
     options = coordination.delete_namespaced_lease.call_args.kwargs["body"]
-    assert options.preconditions.resource_version is not None
+    assert options.preconditions.uid == "lease-uid"
+    assert options.preconditions.resource_version == "7"

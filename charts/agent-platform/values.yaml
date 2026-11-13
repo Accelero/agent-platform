@@ -773,7 +773,7 @@ workloads:
     imageKey: runtime-manager
   multica-gateway:
     enabled: false
-    image: nginxinc/nginx-unprivileged@sha256:906927b10cea77d8cd01cad4dc0bf8f872874ca9ff5ddbf49a0b0b0f3fc436f7
+    image: nginxinc/nginx-unprivileged@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
     podSecurityContext:
       runAsNonRoot: true
       runAsUser: 101
@@ -820,7 +820,7 @@ workloads:
           sizeLimit: 64Mi
   hermes-gateway:
     enabled: false
-    image: nginxinc/nginx-unprivileged@sha256:906927b10cea77d8cd01cad4dc0bf8f872874ca9ff5ddbf49a0b0b0f3fc436f7
+    image: nginxinc/nginx-unprivileged@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
     podSecurityContext:
       runAsNonRoot: true
       runAsUser: 101

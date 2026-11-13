@@ -1,9 +1,9 @@
 FROM restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510 AS restic
-FROM postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641 AS tools
+FROM postgres:17.12-trixie@sha256:dbb9623d5121b5d2c2c9e2fba56e40193cbb3510d4af7f035b1ab1823aff3205 AS tools
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && python3 -m venv /app/.venv \
- && /app/.venv/bin/pip install --no-cache-dir kubernetes==31.0.0 boto3==1.40.12 PyYAML==6.0.2
+ && /app/.venv/bin/pip install --no-cache-dir kubernetes==37.0.2 boto3==1.44.2 PyYAML==6.0.3
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 COPY --from=multica-backend /usr/local/bin/multica-bootstrap /usr/local/bin/multica-bootstrap
 COPY services/tools/platform_recovery/ /app/platform_recovery/

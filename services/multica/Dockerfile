@@ -1,7 +1,7 @@
 # Compile a surgical native auth fix against the exact public source revision
 # used by MULTICA_BACKEND_IMAGE. The vendor checkout is never modified.
 ARG MULTICA_BACKEND_IMAGE=ghcr.io/multica-ai/multica-backend@sha256:60dc856bc44c01a3c73e8153e211be6c22cc6cbb66dde8b20e01de5b6e75e41f
-FROM golang:1.26-alpine AS source
+FROM golang:1.27-alpine AS source
 RUN apk add --no-cache patch
 WORKDIR /src
 COPY --from=multica-source /server/go.mod /server/go.sum ./server/

@@ -75,7 +75,7 @@ when it runs the `artifact` tests.
 
 ## Running locally
 
-Use Python 3.14 and `uv sync --locked`. Helm 3 and Docker with Buildx are needed
+Use Python 3.14 and `uv sync --locked`. Helm 4 and Docker with Buildx are needed
 for integration and image tests, plus OpenSSL and the OpenSSH client.
 
 ```bash

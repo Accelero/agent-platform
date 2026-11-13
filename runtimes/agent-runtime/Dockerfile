@@ -1,6 +1,6 @@
 ARG MULTICA_BACKEND_IMAGE=ghcr.io/multica-ai/multica-backend@sha256:60dc856bc44c01a3c73e8153e211be6c22cc6cbb66dde8b20e01de5b6e75e41f
 FROM ${MULTICA_BACKEND_IMAGE} AS multica
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 ARG HOST_UID=1000
 ARG HOST_GID=1000
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server libnss-wrapper python3 python3-yaml git curl jq ca-certificates ripgrep \

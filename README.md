@@ -130,7 +130,7 @@ release 0.8.0 does not implement the manager, router or their proposed APIs.
 
 ## Development
 
-Use Python 3.14, uv, Docker Buildx and Helm 3:
+Use Python 3.14, uv, Docker Buildx and Helm 4:
 
 ```bash
 uv sync --locked

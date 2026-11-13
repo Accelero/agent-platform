@@ -2,13 +2,13 @@
 name = "agent-platform"
 version = "0.8.0"
 requires-python = ">=3.14"
-dependencies = ["PyYAML==6.0.2"]
+dependencies = ["PyYAML==6.0.3"]
 
 [dependency-groups]
 dev = [
-    "kubernetes==31.0.0",
-    "pytest>=9,<10",
-    "ruff>=0.9",
+    "kubernetes==37.0.2",
+    "pytest>=9.2,<10",
+    "ruff>=0.17.5",
 ]
 
 [tool.pytest.ini_options]
