@@ -510,8 +510,8 @@ gateway restart. Save these fields in this order:
    uses `default`. Banks are created on first retain.
 4. Leave API key empty.
 
-Saving submits the panel's full field set, including defaults, to
-`hindsight/config.json` (31 stored keys with the qualified version's defaults).
+Saving submits the panel's full field set for the selected mode, including
+defaults, to `hindsight/config.json`; the empty API key is not stored.
 Only the selected memory provider changes in `config.yaml`.
 
 **Saving the dashboard's default Cloud mode and public URL sends conversations to

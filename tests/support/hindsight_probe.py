@@ -313,8 +313,14 @@ def dashboard(data):
         expected.setdefault("memory", {})["provider"] = "hindsight"
         assert load_config() == expected
         saved = json.loads((HOME / "hindsight/config.json").read_text())
-        assert len(saved) == 31
-        assert set(saved) <= fields.keys()
+        # The full field set the panel shows for local_external, without secrets.
+        shown = {
+            key
+            for key, field in fields.items()
+            if field.get("kind") != "secret"
+            and all(values.get(k) == v for k, v in (field.get("when") or {}).items())
+        }
+        assert set(saved) == shown
         assert saved["recall_types"] == "observation"
         p = provider("new-session-after-dashboard-save")
         assert connection(p) == {
