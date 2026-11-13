@@ -496,8 +496,13 @@ preserves that choice and suppresses connection seeding. Named profiles never
 inherit the root provider automatically. Existing homes and every named profile
 are configured in Hermes; Helm upgrades preserve their files and credentials.
 
-**Dashboard activation:** select the intended profile, choose Hindsight as the
-memory provider, and save these fields in this order:
+**Dashboard activation:** select the intended profile and choose Hindsight as the
+memory provider. On first activation in a home, Hermes installs the plugin's
+Python dependencies (`hindsight-client`, `hindsight-embed`) into that home's own
+environment under `installs/`, downloading them from PyPI. This needs HTTPS
+egress from the Hermes Pod to `pypi.org` and `files.pythonhosted.org`, takes
+about a minute and adds roughly 800 MB to the volume. Hermes then asks for a
+gateway restart. Save these fields in this order:
 
 1. Set Mode to **Local External**. The panel initially offers Cloud.
 2. Set API URL to `http://hindsight:8888`. The panel initially offers a public URL.

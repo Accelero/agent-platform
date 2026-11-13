@@ -1,4 +1,5 @@
-# Hindsight's local_external provider; installed at image build, never at boot.
+# Hindsight's local_external provider for seeded homes, installed at image build.
+# Dashboard activation installs the plugin's own copy into the home (Hermes 0.22+).
 hindsight-client==1.2.1
 # Declared by the Hermes Hindsight plugin; Hermes reports the provider unavailable
 # without it. It starts a local daemon only in local_embedded mode, which the

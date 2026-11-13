@@ -221,17 +221,26 @@ class Stack:
         finally:
             run("docker", "rm", "-fv", name, check=False)
 
-    def probe(self, action, **data):
+    def probe(self, action, *, egress=False, **data):
+        """Run one probe action in the Hermes image on the stack's network.
+
+        Only `egress=True` reaches the internet: dashboard activation installs
+        the plugin's Python dependencies from PyPI, as Hermes does in a Pod.
+        Every other action runs with lazy installs disabled.
+        """
         env = {
             **self.chart_env("hermes", prefix="HINDSIGHT_"),
             "HERMES_HOME": "/opt/data",
             "HOME": "/opt/data",
-            "HERMES_DISABLE_LAZY_INSTALL": "1",
         }
+        if not egress:
+            env["HERMES_DISABLE_LAZY_INSTALLS"] = "1"
+        name = "hindsight-probe-" + uuid4().hex[:12]
         args = [
             "docker",
-            "run",
-            "--rm",
+            "create",
+            "--name",
+            name,
             "--network",
             self.network,
             "--user",
@@ -252,12 +261,21 @@ class Stack:
         for key in env:
             args += ["--env", key]
         args += [self.image, "/tmp/probe.py", action]
-        result = run(
-            *args,
-            input=json.dumps({"defaults": self.defaults, **data}),
-            env={**os.environ, **env},
-            timeout=160,
-        )
+        run(*args, env={**os.environ, **env})
+        try:
+            if egress:
+                run("docker", "network", "connect", "bridge", name)
+            result = run(
+                "docker",
+                "start",
+                "--attach",
+                "--interactive",
+                name,
+                input=json.dumps({"defaults": self.defaults, **data}),
+                timeout=900 if egress else 160,
+            )
+        finally:
+            run("docker", "rm", "-fv", name, check=False)
         line = next(
             line
             for line in result.stdout.splitlines()
@@ -571,6 +589,7 @@ def test_h14_dashboard_settings_reach_the_real_provider(stack):
     assert (
         stack.probe(
             "dashboard",
+            egress=True,
             bank="dashboard-" + uuid4().hex[:12],
             content="Synthetic dashboard fixture uses a violet telescope.",
         )["disabled"]

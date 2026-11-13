@@ -287,6 +287,11 @@ def dashboard(data):
     client = TestClient(app)
     before = copy.deepcopy(load_config())
     with client:
+        # Hermes 0.22+ installs a memory plugin's Python dependencies into this
+        # home on first activation; the dashboard's setup step does it.
+        r = client.post("/api/memory/providers/hindsight/setup", json={"values": {}})
+        assert r.status_code == 200 and r.json()["ok"], r.text
+        assert r.json()["status"]["setup"]["dependencies_installed"], r.text
         r = client.get("/api/memory/providers/hindsight/config")
         assert r.status_code == 200, r.text
         fields = {item["key"]: item for item in r.json()["fields"]}
