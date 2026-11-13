@@ -1,4 +1,4 @@
-# Hindsight dependencies, constrained to the pinned Hermes image.
+# Hindsight and runtime adapter dependencies, constrained to the pinned Hermes image.
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.5
 aiohttp-retry==2.9.1
@@ -13,6 +13,7 @@ propcache==0.5.4
 pydantic==2.14.1
 pydantic-core==2.50.1
 python-dateutil==2.9.0.post0
+pyyaml==6.0.3
 six==1.17.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
