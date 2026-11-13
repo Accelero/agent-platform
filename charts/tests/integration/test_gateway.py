@@ -75,6 +75,7 @@ def request(port: int, method: str, path: str, body: bytes = b"", **headers):
         return response.status, response.read()
 
 
+@pytest.mark.image
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker is required")
 def test_gateway_forwards_authenticated_dashboard_and_websocket_traffic(
     tmp_path: Path,

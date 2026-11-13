@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from platform_recovery import runtime as state
 
+pytestmark = pytest.mark.image
+
 
 def run(args, *, data=None, timeout=60, **kwargs):
     try:
