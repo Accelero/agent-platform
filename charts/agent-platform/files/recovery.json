@@ -6,9 +6,9 @@
     3
   ],
   "writeSchema": 3,
-  "databaseMajor": 17,
+  "databaseMajor": 18,
   "compatibleReleases": [
-    "0.8.0"
+    "0.9.0"
   ],
   "datasets": [
     "hermes-home",
@@ -84,5 +84,5 @@
   "unsupportedServices": [
     "hindsight"
   ],
-  "platformVersion": "0.8.0"
+  "platformVersion": "0.9.0"
 }

@@ -5,7 +5,7 @@ HTTPS runtime manager and isolated agent runtimes. One versioned Helm chart owns
 service wiring, gateway configuration and runtime isolation. Images and charts
 are built on GitHub-hosted runners independently of deployment tooling.
 
-The application chart is the deployment artifact. **0.8.0** is the current
+The application chart is the deployment artifact. **0.9.0** is the current
 published release. GHCR deployment packages support anonymous public pulls once
 their package visibility is public. Source and package visibility are managed separately.
 
@@ -13,12 +13,12 @@ their package visibility is public. Source and package visibility are managed se
 
 | Artifact | Versioned reference |
 | --- | --- |
-| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.8.0` |
-| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.8.0` |
-| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.8.0` |
-| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.8.0` |
-| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/tools:0.8.0` |
-| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.8.0` |
+| Hermes assistant/controller | `ghcr.io/accelero/agent-platform/hermes:0.9.0` |
+| Runtime manager | `ghcr.io/accelero/agent-platform/runtime-manager:0.9.0` |
+| Agent command runtime | `ghcr.io/accelero/agent-platform/agent-runtime:0.9.0` |
+| Patched Multica backend | `ghcr.io/accelero/agent-platform/multica-backend:0.9.0` |
+| PostgreSQL/restic administrator tools | `ghcr.io/accelero/agent-platform/tools:0.9.0` |
+| Application chart | `oci://ghcr.io/accelero/agent-platform/charts/agent-platform`, version `0.9.0` |
 
 The packaged chart pins all five images by manifest digest in `values.yaml`.
 The upstream Multica frontend also uses its reviewed digest. Containers remain
@@ -26,7 +26,7 @@ registry downloads; their filesystem layers are not embedded in the chart.
 Image `latest` tags are convenient for inspection. Deployments select one chart
 version or digest and use that chart's image defaults for a coherent application.
 
-The GitHub Release attaches the same `agent-platform-0.8.0.tgz` that is published
+The GitHub Release attaches the same `agent-platform-0.9.0.tgz` that is published
 to GHCR, plus an optional informational `artifacts.json`. Consumers need only the
 chart. There is no configuration ZIP or custom release container package in this
 release architecture. Obsolete `execution-manager`, `worker` and `release`
@@ -34,6 +34,11 @@ packages are retired.
 Earlier releases that reference those package names are no longer deployable.
 Superseded agent-runtime 0.2.0 through 0.4.0 and tools 0.4.0 images were also
 retired with the corrections described in the [0.4.1 release notes](docs/releases/0.4.1.md).
+Release 0.9.0 updates Multica to v0.8.2, Hermes to v0.23.1, Hindsight to 1.2.1,
+the tools to PostgreSQL 18 and every base image and build tool. Its first start runs
+71 new Multica migrations, recovery points of earlier releases are refused, and
+dashboard activation of Hindsight downloads its packages at runtime. Read the
+[0.9.0 release notes](docs/releases/0.9.0.md) before upgrading.
 Release 0.8.0 adds versioned application recovery API 1 in the tools image and
 chart, with schema 3 source inventories, bounded failure cleanup and verified
 final-proof withdrawal. See [recovery](docs/recovery.md) and
@@ -70,7 +75,7 @@ creates short-lived agent-runtime Pods when an agent needs command execution.
 
 ```bash
 helm install agents oci://ghcr.io/accelero/agent-platform/charts/agent-platform \
-  --version 0.8.0 --namespace agents --values values.yaml
+  --version 0.9.0 --namespace agents --values values.yaml
 ```
 
 See the [chart interface and configuration example](charts/agent-platform/README.md).
@@ -126,7 +131,7 @@ The manager resumes interrupted lifecycle operations from durable PostgreSQL
 step records and verified Kubernetes state after a crash.
 Read the [specification](docs/personal-hermes/specification.md) and
 [architecture](docs/personal-hermes/architecture.md). These describe future work;
-release 0.8.0 does not implement the manager, router or their proposed APIs.
+release 0.9.0 does not implement the manager, router or their proposed APIs.
 
 ## Development
 

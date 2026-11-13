@@ -1,6 +1,6 @@
 # Personal Hermes architecture
 
-Status: proposed implementation architecture, separate from the singleton 0.8.0
+Status: proposed implementation architecture, separate from the singleton 0.9.0
 source. None of the new manager/router services or chart settings below exist
 in that source.
 See the [specification](specification.md) for required behavior and acceptance.

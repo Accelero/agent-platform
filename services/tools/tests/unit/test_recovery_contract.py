@@ -27,7 +27,7 @@ def test_shared_inventory_golden_digest():
     config = {
         **golden["config"],
         "recovery": descriptor(),
-        "database_major": 17,
+        "database_major": 18,
         "inventory_sha256": expected,
     }
     assert golden["inventory_sha256"] == expected
@@ -45,7 +45,7 @@ def config() -> dict:
     value = {
         "recovery": recovery,
         "datasets": dict.fromkeys(recovery["datasets"], "1Gi"),
-        "database_major": 17,
+        "database_major": 18,
         "installation": "fixture",
         "namespace": "agents",
         "execution_namespace": "agent-execution",
@@ -70,7 +70,7 @@ def make_payload(config, tmp_path, schema):
         "schema": schema,
         "selection": 1,
         "installation": "fixture",
-        "database_major": 17,
+        "database_major": 18,
         "namespace_uid": "source-ns",
         "database_uid": "source-db",
         "configuration_sha256": "source-config",
@@ -78,7 +78,7 @@ def make_payload(config, tmp_path, schema):
         "recovery_api": 1,
         "inventory_sha256": config["inventory_sha256"],
         "inventory": logical_inventory(config),
-        "platform_version": "0.8.0",
+        "platform_version": "0.9.0",
         "datasets": {},
     }
     for name in names:

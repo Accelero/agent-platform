@@ -32,7 +32,7 @@ def config():
         "execution_namespace": "agent-execution",
         "execution_namespace_uid": "exec-uid",
         "database_uid": "db-uid",
-        "database_major": 17,
+        "database_major": 18,
         "configuration_sha256": "config-hash",
         "seed_sha256": "seed-hash",
         "datasets": dict.fromkeys(recovery["datasets"], "1Gi"),

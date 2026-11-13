@@ -118,12 +118,14 @@ teardown still requires a fresh final checkpoint from the late deletion guard.
 
 | Payload | Reader behavior |
 | --- | --- |
-| Legacy schema 1, PostgreSQL 17 dump | Accept the full declared dataset set; cold restore excludes manager bookkeeping |
-| Legacy schema 2, known selection 1, PostgreSQL 17 dump | Accept the immutable selected dataset set and validate all hashes and source identity evidence |
+| Legacy schema 1 | Accept the full declared dataset set; cold restore excludes manager bookkeeping |
+| Legacy schema 2, known selection 1 | Accept the immutable selected dataset set and validate all hashes and source identity evidence |
 | Schema 3, API 1, supported platform release | Additionally validate the recorded source inventory digest, required bindings and recovery API |
 | Unknown schema, selection, required Secret or platform release | Refuse; never infer a fresh installation |
 
-Legacy formats lack a source application version gate. Their support preserves
+Every payload must record the descriptor's `databaseMajor` (18 since 0.9.0), so
+recovery points taken with the PostgreSQL 17 tools of 0.8.0 and earlier are
+refused. Legacy formats lack a source application version gate. Their support preserves
 the existing contract for the pinned singleton payload and is covered by
 synthetic fixtures; it is not a promise to import arbitrary upstream databases.
 Schema 3 includes `platform_version`, `recovery_api` and `inventory_sha256`.
