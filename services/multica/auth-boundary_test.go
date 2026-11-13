@@ -92,7 +92,8 @@ func (d *credentialDB) QueryRow(_ context.Context, sql string, args ...any) pgx.
 		user:=db.User{ID:uuidValue(ownerID),Name:"Fixture",Email:"fixture@example.invalid"}
 		return row{values:[]any{user.ID,user.Name,user.Email,user.AvatarUrl,user.CreatedAt,user.UpdatedAt,
 			user.OnboardedAt,user.OnboardingQuestionnaire,user.CloudWaitlistEmail,user.CloudWaitlistReason,
-			user.StarterContentState,user.Language,user.ProfileDescription,user.Timezone}}
+			user.StarterContentState,user.Language,user.ProfileDescription,user.Timezone,
+			user.WhatsNewSeenVersion,user.StarPromptShownCount,user.StarPromptLastShownAt,user.StarPromptStarredAt}}
 	default:
 		return row{err:fmt.Errorf("unexpected fixture QueryRow")}
 	}

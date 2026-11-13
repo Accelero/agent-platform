@@ -31,18 +31,22 @@ non-owned environment fields remain overridable.
 
 ## Qualified upstream
 
-Qualified locally on 2026-11-01 with disposable Docker containers and synthetic
-credentials. These are compatibility and failure-behaviour checks; the mock LLM
+The pinned upstream is Hindsight API 1.2.1 with `hindsight-client` 1.2.1 and the
+Hermes catalog plugin 1.2.4. The `e2e` suite reruns the real-image H-requirement
+cases against these pins on every release. The table below is the full local
+qualification of 2026-11-01 against 0.10.3 with disposable Docker containers and
+synthetic credentials; its timings and resource figures have not been re-measured
+for 1.2.1. These are compatibility and failure-behaviour checks; the mock LLM
 is not evidence of memory quality. Local k3s policy checks also passed; production
 CNI enforcement remains untested.
 
 | Check | Result |
 | --- | --- |
-| API image | `ghcr.io/vectorize-io/hindsight-api:0.10.3@sha256:f80f304db313cbc8775acd601fda7d094f5854ebf9bc252d8134eb9276d56b40`; amd64 manifest `sha256:9174480a41edae0ad27d22346e12bb20bb7af2aba2edace95f2182d6143df29b`. Package and `/version` report `0.10.3`. MIT license at upstream tag `v0.10.3` (commit `eb6df499d35300e5b2f3f029b2e6adda04ed90f8`). |
+| API image | Pinned: `ghcr.io/vectorize-io/hindsight-api:1.2.1@sha256:662109ece429871a81e036427fb93fbb09ba9dc4b01d320d356f114c0e1aedd8`; amd64 manifest `sha256:d6e0dbc805de89fda8554b3995354f75eb27cadf3e16aa35bae1380495c9c8ae`; MIT license at upstream tag `v1.2.1`. Qualified on 2026-11-01: `0.10.3@sha256:f80f304db313cbc8775acd601fda7d094f5854ebf9bc252d8134eb9276d56b40`. |
 | Identity | `uid=1000(hindsight) gid=1000(hindsight) groups=1000(hindsight)` with all capabilities dropped and no new privileges. |
-| PostgreSQL | `pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8`; `vector` 0.8.7, `pg_trgm` 1.6 and `btree_gin` 1.3 in `public` (plus PostgreSQL's built-in `plpgsql`). A non-superuser database owner migrated a fresh database with all three extensions created first by the administrator; all 25 application tables belong to that owner. |
+| PostgreSQL | Test fixture `pgvector/pgvector:0.8.7-pg17-trixie@sha256:89947206f52eac3a9df9b663df7e76987cbdc623be6576b3a524953d568700d7` (qualified with `pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8`); `vector` 0.8.7, `pg_trgm` 1.6 and `btree_gin` 1.3 in `public` (plus PostgreSQL's built-in `plpgsql`). A non-superuser database owner migrated a fresh database with all three extensions created first by the administrator; all 25 application tables belong to that owner. |
 | Health and authentication | `/health`, `/health/live`, `/version` and bank routes respond without an API key. First retain created bank `default`. |
-| Hermes probes | Repository Dockerfile built from `privacy.stage_contexts` inputs; plugin revision `176f8c2de1369f569c489b831d143b78128b5535`, client 0.10.1. Missing or empty JSON uses environment, mode-less JSON selects cloud mode but uses the internal environment URL, configured routed profiles work without a key, unconfigured routed profiles are unavailable, saved public JSON overrides the environment. A private web URL is refused by `tools.url_safety.is_safe_url`; daemon environment inheritance is present in pinned Multica source. |
+| Hermes probes | Repository Dockerfile built from `privacy.stage_contexts` inputs; catalog plugin 1.2.4 at `f14cc1eb5624b0374cb4d82768eb2e0b9c21ae24` and client 1.2.1 (qualified with `176f8c2de1369f569c489b831d143b78128b5535` and 0.10.1). Missing or empty JSON uses environment, mode-less JSON selects cloud mode but uses the internal environment URL, configured routed profiles work without a key, unconfigured routed profiles are unavailable, saved public JSON overrides the environment. A private web URL is refused by `tools.url_safety.is_safe_url`; daemon environment inheritance is present in pinned Multica source. |
 | Retain and recall | Real plugin `sync_turn`, retain drain and recall succeeded against the server using `mock/mock-model` and `recall_types: observation,world,experience`. The retained synthetic telescope fact survived API restart. The image contains the models; the chart now supplies `HF_HUB_OFFLINE=1` without a cache claim to suppress model metadata checks against Hugging Face. |
 | LLM outage | With `openai` pointing at an unreachable local endpoint, verification warned after three attempts and the API became healthy in 24.77 s. No `HINDSIGHT_API_SKIP_LLM_VERIFICATION` is needed. |
 | Queued restart | An accepted asynchronous batch of 24 documents completed in 19.79 s after SIGKILL/start with worker ID `hindsight`, with only one API worker using that database. |
@@ -53,7 +57,7 @@ CNI enforcement remains untested.
 | Black-holed API | Real provider and memory manager: default turn prefetch 3.00 s; synchronous override capped by Hermes at 8.00 s despite plugin timeout 120 s. No seed timeout addition is needed. |
 
 The vendored `TestHermesDisablesExternalMemoryProvider` passed in
-`golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308`.
+`golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308` against Multica 0.6.0.
 Only the derived-home boundary is covered; no full Multica task or real model-backed
 conversation was run. NetworkPolicy is the only API access control; enforcement
 on the production cluster's CNI remains to be checked.

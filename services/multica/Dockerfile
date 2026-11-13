@@ -1,6 +1,6 @@
 # Compile a surgical native auth fix against the exact public source revision
 # used by MULTICA_BACKEND_IMAGE. The vendor checkout is never modified.
-ARG MULTICA_BACKEND_IMAGE=ghcr.io/multica-ai/multica-backend@sha256:60dc856bc44c01a3c73e8153e211be6c22cc6cbb66dde8b20e01de5b6e75e41f
+ARG MULTICA_BACKEND_IMAGE=ghcr.io/multica-ai/multica-backend@sha256:74e7bdddef780b925652f4518f18f54ab790bdfe1ec7803b4dac2019ee2525be
 FROM golang:1.27-alpine AS source
 RUN apk add --no-cache patch
 WORKDIR /src
@@ -26,8 +26,8 @@ FROM scratch AS test
 COPY --from=go-test /results/ /
 
 FROM source AS builder
-ARG VERSION=v0.6.0
-ARG COMMIT=ea94c7cd5bbce9c8e1f28c5fa049c47ee7651d02
+ARG VERSION=v0.8.2
+ARG COMMIT=b7f8efcaae6c5f3273c0038252b5d10c81b41068
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     cd server && CGO_ENABLED=0 go build -o /out/multica-bootstrap ./cmd/platform-bootstrap \
  && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \

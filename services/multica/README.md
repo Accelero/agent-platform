@@ -2,15 +2,20 @@
 
 `auth-boundary.patch` applies at build time to the pinned public
 `vendor/multica` source; the checkout remains unchanged. The pin and upstream
-runtime image both use revision `ea94c7cd5bbce9c8e1f28c5fa049c47ee7651d02`
-(`v0.6.0`). Update source/image pins together and review the patch on an upgrade.
+runtime image both use revision `b7f8efcaae6c5f3273c0038252b5d10c81b41068`
+(`v0.8.2`). Update source/image pins together and review the patch on an upgrade.
+`vendor/multica` also carries the maintenance fence: `AgentClaimFence` in
+`server/internal/service/altiera_maintenance_linux.go` guards the public
+`ClaimTask`, `ClaimTaskForRuntime` and `ClaimTasksForRuntimes` entry points,
+through which every task claim passes. Reapply both after re-vendoring.
 
 The upstream task-token middleware stamps the owning user ID so agents can act
-within their task/workspace. The personal token routes and CLI JWT issuance
-previously treated that user ID as sufficient authority. The patch applies the
-existing native `RequireHumanActor` guard to `/api/tokens` and
-`POST /api/cli-token`, and adds direct-handler checks for list/create/revoke/renew
-and JWT issuance. Task and cloud-machine credentials receive 403; normal human
+within their task/workspace. Since v0.8.2 upstream applies the native
+`RequireHumanActor` guard to `/api/tokens` and `POST /api/cli-token`, and
+`CreatePersonalAccessToken` and `IssueCliToken` refuse machine credentials
+themselves. The patch adds the same direct-handler backstop to listing,
+renewing and revoking tokens, so a route refactor cannot expose them to a task
+or cloud-machine credential. Those credentials receive 403; normal human
 PAT/JWT behavior remains available. The auth middleware's server-set actor
 classification also defeats client-supplied actor headers.
 

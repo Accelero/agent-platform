@@ -93,8 +93,8 @@ def test_release_workflow_uses_the_shared_cache_configuration():
     ("pattern", "version"),
     [
         ("services/tools/platform_bootstrap/*.py", (3, 13)),
-        ("runtimes/hermes/*.py", (3, 13)),
-        ("runtimes/hermes/plugins/managed_execution/*.py", (3, 13)),
+        ("runtimes/hermes/*.py", (3, 14)),
+        ("runtimes/hermes/plugins/managed_execution/*.py", (3, 14)),
         ("services/runtime-manager/**/*.py", (3, 14)),
     ],
 )

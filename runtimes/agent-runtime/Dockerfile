@@ -1,4 +1,4 @@
-ARG MULTICA_BACKEND_IMAGE=ghcr.io/multica-ai/multica-backend@sha256:60dc856bc44c01a3c73e8153e211be6c22cc6cbb66dde8b20e01de5b6e75e41f
+ARG MULTICA_BACKEND_IMAGE=ghcr.io/multica-ai/multica-backend@sha256:74e7bdddef780b925652f4518f18f54ab790bdfe1ec7803b4dac2019ee2525be
 FROM ${MULTICA_BACKEND_IMAGE} AS multica
 FROM ubuntu:26.04
 ARG HOST_UID=1000

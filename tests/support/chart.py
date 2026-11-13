@@ -9,8 +9,8 @@ from agent_platform.build import ROOT
 
 CHART = ROOT / "charts/agent-platform"
 HINDSIGHT_IMAGE = (
-    "ghcr.io/vectorize-io/hindsight-api:0.10.3@sha256:"
-    "f80f304db313cbc8775acd601fda7d094f5854ebf9bc252d8134eb9276d56b40"
+    "ghcr.io/vectorize-io/hindsight-api:1.2.1@sha256:"
+    "662109ece429871a81e036427fb93fbb09ba9dc4b01d320d356f114c0e1aedd8"
 )
 
 

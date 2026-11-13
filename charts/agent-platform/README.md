@@ -9,6 +9,10 @@ The chart packages Multica backend/frontend, Hermes, two same-origin HTTP
 gateways and a runtime manager, together with configuration and isolation rules.
 Agent-runtime Pods are created on demand by the manager rather than pre-created
 by Helm. Browser/search/memory and further agents remain optional and disabled.
+Their default images are RabbitMQ 4.4, Redis 8.8 (Redis Ltd.'s RSALv2/SSPLv1/AGPLv3
+licensing) and a current SearXNG build. RabbitMQ 4.4 cannot open a 3.13 data
+directory directly: upgrade through 4.0 with all stable feature flags enabled,
+or start from an empty queue volume.
 
 ## Native configuration generation
 

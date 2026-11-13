@@ -1,6 +1,8 @@
-ARG MULTICA_BACKEND_IMAGE=ghcr.io/multica-ai/multica-backend@sha256:60dc856bc44c01a3c73e8153e211be6c22cc6cbb66dde8b20e01de5b6e75e41f
-ARG HERMES_IMAGE=nousresearch/hermes-agent@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db
+ARG MULTICA_BACKEND_IMAGE=ghcr.io/multica-ai/multica-backend@sha256:74e7bdddef780b925652f4518f18f54ab790bdfe1ec7803b4dac2019ee2525be
+ARG HERMES_IMAGE=nousresearch/hermes-agent@sha256:276d44685c65c0cb2a25f190b63c65c8906f9dc76486fb1c05ae71b5826bda08
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85
 FROM ${MULTICA_BACKEND_IMAGE} AS multica
+FROM ${UV_IMAGE} AS uv
 FROM ${HERMES_IMAGE}
 USER root
 COPY --from=multica /app/multica /usr/local/bin/multica
@@ -22,20 +24,20 @@ RUN mkdir -p /workspace \
  && touch /etc/s6-overlay/s6-rc.d/multica-checkout/dependencies.d/base \
           /etc/s6-overlay/s6-rc.d/user/contents.d/multica-checkout
 
-# Generic runtime adapters and optional dependencies travel with the image.
+# Generic runtime adapters and optional dependencies travel with the image. The
+# pinned uv is mounted for installation only; Hermes keeps its own tool copy.
 COPY runtimes/hermes/requirements.lock /tmp/assistant-requirements.lock
-RUN uv --no-config pip install --python /opt/hermes/.venv/bin/python --no-deps -r /tmp/assistant-requirements.lock \
- && HERMES_HOME=/opt/hermes-stack/plugin-home /opt/hermes/.venv/bin/hermes plugins install hindsight --ref 176f8c2de1369f569c489b831d143b78128b5535 --no-deps --no-enable
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    uv --no-config pip install --python /opt/hermes/.venv/bin/python --no-deps -r /tmp/assistant-requirements.lock \
+ && HERMES_HOME=/opt/hermes-stack/plugin-home /opt/hermes/.venv/bin/hermes plugins install hindsight --ref f14cc1eb5624b0374cb4d82768eb2e0b9c21ae24 --no-deps --no-enable
 # Bundled backend plugins load for every profile, including ones created later.
 COPY runtimes/hermes/plugins/managed_execution /opt/hermes/plugins/managed_execution
 COPY config/managed-execution /etc/hermes
-COPY runtimes/hermes/patch-terminal-scope.py /tmp/patch-terminal-scope.py
-RUN /opt/hermes/.venv/bin/python /tmp/patch-terminal-scope.py /opt/hermes/tools/terminal_scope.py \
- && rm /tmp/patch-terminal-scope.py \
- && chmod -R a+rX /opt/hermes/plugins/managed_execution
+RUN chmod -R a+rX /opt/hermes/plugins/managed_execution
 COPY runtimes/hermes/native_files.py runtimes/hermes/runtime-init.py /usr/local/lib/
 COPY runtimes/hermes/assistant-init /etc/cont-init.d/019-hermes-runtime
 RUN chmod 755 /etc/cont-init.d/019-hermes-runtime \
  && chmod -R a+rX /opt/hermes-stack
 
-RUN uv --no-config pip install --python /opt/hermes/.venv/bin/python ddgs==9.16.1
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    uv --no-config pip install --python /opt/hermes/.venv/bin/python ddgs==9.16.1

@@ -146,7 +146,7 @@ workloads:
   redis:
     enabled: false
     kind: StatefulSet
-    image: redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    image: redis@sha256:6e61ab45b3e867bacbef2fdd969ec74f4e0f8aaca8cc946cb8ac0c494035e7e7
     env: []
     secretEnv: []
     ports:
@@ -184,7 +184,7 @@ workloads:
   rabbitmq:
     enabled: false
     kind: StatefulSet
-    image: rabbitmq@sha256:e582c0bc7766f3342496d8485efb5a1df782b5ce3886ad017e2eaae442311f69
+    image: rabbitmq@sha256:753099a19b577c322117f793f864b3129cbba96d40317221a69d73976e3c843c
     env:
     - name: RABBITMQ_DEFAULT_USER
       value: firecrawl
@@ -275,7 +275,7 @@ workloads:
     imageKey: multica-backend
   multica-web:
     enabled: false
-    image: ghcr.io/multica-ai/multica-web@sha256:b88402be269b6d4ea20bb22404b7532e4d7663f45c1c4952cf040f598398a03e
+    image: ghcr.io/multica-ai/multica-web@sha256:03c888c2870c246bbaa73a8811c0e4403c36a10ceb9c58fb5b9b5acc7c0e6c52
     env:
     - name: HOSTNAME
       value: 0.0.0.0
@@ -332,7 +332,7 @@ workloads:
       failureThreshold: 60
   searxng:
     enabled: false
-    image: searxng/searxng@sha256:a07a5cd2da2c63d66e559f9e4d3a3db106cfc6c32fb0ac70abe91cc28bcd7350
+    image: searxng/searxng@sha256:0b104e2e1117b0ca83a36f3ac6ecda7d9ee948ccea6ead74750a03e1b856229a
     env:
     - name: FORCE_OWNERSHIP
       value: 'false'
@@ -474,7 +474,7 @@ workloads:
       failureThreshold: 60
   hindsight:
     enabled: false
-    image: ghcr.io/vectorize-io/hindsight-api:0.10.3@sha256:f80f304db313cbc8775acd601fda7d094f5854ebf9bc252d8134eb9276d56b40
+    image: ghcr.io/vectorize-io/hindsight-api:1.2.1@sha256:662109ece429871a81e036427fb93fbb09ba9dc4b01d320d356f114c0e1aedd8
     env:
     - name: HINDSIGHT_API_LOG_LEVEL
       value: info
