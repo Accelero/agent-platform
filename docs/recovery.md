@@ -118,8 +118,8 @@ teardown still requires a fresh final checkpoint from the late deletion guard.
 
 | Payload | Reader behavior |
 | --- | --- |
-| Legacy schema 1, PostgreSQL 17 | Accept the full declared dataset set; cold restore excludes manager bookkeeping |
-| Legacy schema 2, known selection 1, PostgreSQL 17 | Accept the immutable selected dataset set and validate all hashes and source identity evidence |
+| Legacy schema 1, PostgreSQL 17 dump | Accept the full declared dataset set; cold restore excludes manager bookkeeping |
+| Legacy schema 2, known selection 1, PostgreSQL 17 dump | Accept the immutable selected dataset set and validate all hashes and source identity evidence |
 | Schema 3, API 1, supported platform release | Additionally validate the recorded source inventory digest, required bindings and recovery API |
 | Unknown schema, selection, required Secret or platform release | Refuse; never infer a fresh installation |
 

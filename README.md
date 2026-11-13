@@ -89,7 +89,7 @@ An infrastructure tool such as Pulumi provisions that environment, supplies
 values and deploys the chart. It does not generate the manager's native policy,
 import Python from an artifact, or build/push images. Provider logins, SMTP keys,
 personal seed files, backup transport/policy and live state stay outside this repo.
-The `tools` image supplies Restic, PostgreSQL 17 command-line tools, Python and
+The `tools` image supplies Restic, PostgreSQL 18 command-line tools, Python and
 Kubernetes/S3/YAML libraries and `platform_recovery` for administrator Jobs.
 Deployments project their reviewed transport/seed scripts and mount persistent
 data. Compatible alternatives must include the versioned recovery package.

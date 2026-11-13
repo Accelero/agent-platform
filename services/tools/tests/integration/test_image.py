@@ -17,7 +17,7 @@ def test_the_tools_image_runs_its_python_libraries_and_clients(platform_image):
         'subprocess.run(["pg_dump", "--version"], check=True); '
         'subprocess.run(["restic", "version"], check=True)',
     )
-    assert "pg_dump (PostgreSQL) 17" in output
+    assert "pg_dump (PostgreSQL) 18" in output
     assert "restic" in output
 
 

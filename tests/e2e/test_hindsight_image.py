@@ -24,8 +24,8 @@ from tests.support.images import require_docker
 
 pytestmark = pytest.mark.image
 POSTGRES_IMAGE = (
-    "pgvector/pgvector:0.8.7-pg17-trixie@sha256:"
-    "89947206f52eac3a9df9b663df7e76987cbdc623be6576b3a524953d568700d7"
+    "pgvector/pgvector:0.8.7-pg18-trixie@sha256:"
+    "ab49524d18df7200b74ac9a475e1db6297fc1eb57da4c214c63d10ecc4b754fa"
 )
 SYNTHETIC_PASSWORD = "hindsight-image-owner-fixture"
 SYNTHETIC_LLM_KEY = "hindsight-image-llm-fixture"

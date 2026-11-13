@@ -44,7 +44,7 @@ CNI enforcement remains untested.
 | --- | --- |
 | API image | Pinned: `ghcr.io/vectorize-io/hindsight-api:1.2.1@sha256:662109ece429871a81e036427fb93fbb09ba9dc4b01d320d356f114c0e1aedd8`; amd64 manifest `sha256:d6e0dbc805de89fda8554b3995354f75eb27cadf3e16aa35bae1380495c9c8ae`; MIT license at upstream tag `v1.2.1`. Qualified on 2026-11-01: `0.10.3@sha256:f80f304db313cbc8775acd601fda7d094f5854ebf9bc252d8134eb9276d56b40`. |
 | Identity | `uid=1000(hindsight) gid=1000(hindsight) groups=1000(hindsight)` with all capabilities dropped and no new privileges. |
-| PostgreSQL | Test fixture `pgvector/pgvector:0.8.7-pg17-trixie@sha256:89947206f52eac3a9df9b663df7e76987cbdc623be6576b3a524953d568700d7` (qualified with `pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8`); `vector` 0.8.7, `pg_trgm` 1.6 and `btree_gin` 1.3 in `public` (plus PostgreSQL's built-in `plpgsql`). A non-superuser database owner migrated a fresh database with all three extensions created first by the administrator; all 25 application tables belong to that owner. |
+| PostgreSQL | Test fixture `pgvector/pgvector:0.8.7-pg18-trixie@sha256:ab49524d18df7200b74ac9a475e1db6297fc1eb57da4c214c63d10ecc4b754fa` (qualified with `pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8`); `vector` 0.8.7, `pg_trgm` 1.6 and `btree_gin` 1.3 in `public` (plus PostgreSQL's built-in `plpgsql`). A non-superuser database owner migrated a fresh database with all three extensions created first by the administrator; all 25 application tables belong to that owner. |
 | Health and authentication | `/health`, `/health/live`, `/version` and bank routes respond without an API key. First retain created bank `default`. |
 | Hermes probes | Repository Dockerfile built from `privacy.stage_contexts` inputs; catalog plugin 1.2.4 at `f14cc1eb5624b0374cb4d82768eb2e0b9c21ae24` and client 1.2.1 (qualified with `176f8c2de1369f569c489b831d143b78128b5535` and 0.10.1). Missing or empty JSON uses environment, mode-less JSON selects cloud mode but uses the internal environment URL, configured routed profiles work without a key, unconfigured routed profiles are unavailable, saved public JSON overrides the environment. A private web URL is refused by `tools.url_safety.is_safe_url`; daemon environment inheritance is present in pinned Multica source. |
 | Retain and recall | Real plugin `sync_turn`, retain drain and recall succeeded against the server using `mock/mock-model` and `recall_types: observation,world,experience`. The retained synthetic telescope fact survived API restart. The image contains the models; the chart now supplies `HF_HUB_OFFLINE=1` without a cache claim to suppress model metadata checks against Hugging Face. |
@@ -72,9 +72,10 @@ Recheck enforcement on the production CNI before enabling Hindsight.
 
 Since Hermes 0.22 a memory plugin's Python dependencies belong to the home that
 activates it. Seeded homes use the client baked into the image and need no
-download. Dashboard activation instead builds an environment of about 800 MB in
-the home's volume from PyPI, so the Hermes Pod needs egress to `pypi.org` and
-`files.pythonhosted.org` at that moment. The chart's application policies
+download. Dashboard activation instead builds an environment in the root home's
+shared store: about 770 MB and an 80 MB download for the first activation on a
+volume, then about 200 MB and little or no download per further profile. The
+Hermes Pod needs egress to `pypi.org` and `files.pythonhosted.org` at that moment. The chart's application policies
 restrict ingress only; a deployment that adds egress rules must allow these
 hosts or activate homes with the documented commands.
 

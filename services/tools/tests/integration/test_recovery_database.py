@@ -1,4 +1,4 @@
-"""Prove transactional application restore using real PostgreSQL 17 clients."""
+"""Prove transactional application restore using real PostgreSQL 18 clients."""
 
 import subprocess
 import time
@@ -69,7 +69,7 @@ def postgres_sql():
             name,
             "-e",
             "POSTGRES_HOST_AUTH_METHOD=trust",
-            "postgres:17.12-trixie@sha256:dbb9623d5121b5d2c2c9e2fba56e40193cbb3510d4af7f035b1ab1823aff3205",
+            "postgres:18.7-trixie@sha256:9f4fd4aa918f52ae3d6f3b687f1de90d8f867cd4d520021545a9a50c120eae3b",
         ],
         timeout=120,
     )

@@ -32,7 +32,7 @@ tests at a level has no suite there.
 | `manager-unit` | `services/runtime-manager/tests/unit/` | Planner, admission, lifecycle, scopes and Pods against a fake clock and namespace |
 | `manager-integration` | `services/runtime-manager/tests/integration/` | TLS API, SQLite upgrade, the `kubectl` adapter, chart-rendered configuration and the manager image |
 | `tools-unit` | `services/tools/tests/unit/` | Recovery and bootstrap decisions |
-| `tools-integration` | `services/tools/tests/integration/` | Restore into PostgreSQL 17, chart-rendered bootstrap RBAC and the tools image |
+| `tools-integration` | `services/tools/tests/integration/` | Restore into PostgreSQL 18, chart-rendered bootstrap RBAC and the tools image |
 | `multica-unit` | `services/multica/tests/unit/` | The patched Multica Go tests, run by `go test` in the backend's Docker test stage |
 | `multica-integration` | `services/multica/tests/integration/` | Native bootstrap against the built backend image and a disposable PostgreSQL |
 | `hermes-unit` | `runtimes/hermes/tests/unit/` | The managed execution plugin and native configuration initialization |

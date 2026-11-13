@@ -502,10 +502,13 @@ are configured in Hermes; Helm upgrades preserve their files and credentials.
 **Dashboard activation:** select the intended profile and choose Hindsight as the
 memory provider. On first activation in a home, Hermes installs the plugin's
 Python dependencies (`hindsight-client`, `hindsight-embed`) into that home's own
-environment under `installs/`, downloading them from PyPI. This needs HTTPS
-egress from the Hermes Pod to `pypi.org` and `files.pythonhosted.org`, takes
-about a minute and adds roughly 800 MB to the volume. Hermes then asks for a
-gateway restart. Save these fields in this order:
+environment, downloading what the image's package cache lacks from PyPI. This
+needs HTTPS egress from the Hermes Pod to `pypi.org` and `files.pythonhosted.org`.
+The first activation on a volume downloads about 80 MB, takes about 30 seconds and
+adds about 770 MB under the root home's `installs/` and `cache/`. Named profiles
+reuse that store and cache: each further profile builds its own environment there
+in about 10 seconds, downloads little or nothing and adds about 200 MB. Hermes
+then asks for a gateway restart. Save these fields in this order:
 
 1. Set Mode to **Local External**. The panel initially offers Cloud.
 2. Set API URL to `http://hindsight:8888`. The panel initially offers a public URL.
