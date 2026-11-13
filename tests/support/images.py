@@ -52,6 +52,11 @@ def build(target: str, stage: Path) -> str:
         contexts=contexts,
         targets=(target,),
     )
+    # A loaded test image is never published, so it carries no attestation; the
+    # docker exporter cannot load the manifest list an attestation creates.
+    args = [
+        "--provenance=false" if arg.startswith("--provenance") else arg for arg in args
+    ]
     # The staged contexts live outside the checkout; grant bake only that read.
     args += ["--allow", f"fs.read={stage}", "--load", "--set", f"{target}.tags={tag}"]
     log = stage / "build.log"
