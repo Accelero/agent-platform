@@ -1,5 +1,9 @@
 # Hindsight's local_external provider; installed at image build, never at boot.
 hindsight-client==1.2.1
+# Declared by the Hermes Hindsight plugin; Hermes reports the provider unavailable
+# without it. It starts a local daemon only in local_embedded mode, which the
+# chart never seeds.
+hindsight-embed==1.2.1
 # The runtime adapters (runtime-init.py, native_files.py) read and write YAML;
 # Hermes itself moved to ruamel.yaml and no longer ships PyYAML.
 PyYAML==6.0.3

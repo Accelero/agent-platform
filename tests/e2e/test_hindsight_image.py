@@ -441,7 +441,8 @@ def test_h3_seeded_home_initializes_the_real_provider(stack):
         stack.sql("SELECT rolsuper FROM pg_roles WHERE rolname='hindsight';").strip()
         == "f"
     )
-    assert request(endpoint(stack.api), "/version")["api_version"] == "0.10.3"
+    pinned = HINDSIGHT_IMAGE.split(":", 2)[1].split("@")[0]
+    assert request(endpoint(stack.api), "/version")["api_version"] == pinned
     assert request(endpoint(stack.api), "/health/live")["status"] == "alive"
     assert (
         stack.sql(
